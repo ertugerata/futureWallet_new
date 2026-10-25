@@ -1,0 +1,40 @@
+# Python sanal ortamı
+.venv/
+venv/
+__pycache__/
+*.pyc
+
+# IDE dosyaları
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Git
+.git/
+.gitignore
+
+# Yerel yapılandırma (kendi .env dosyanızla geçirin)
+.env
+.env.local
+.env.production
+
+# Veritabanı dosyaları (oluşan DB'ler Docker build'a girmemeli)
+*.db
+*.sqlite
+*.sqlite3
+
+# Python wheel cache
+pip-cache/
+~/.cache/pip/
+
+# Loglar ve geçici dosyalar
+*.log
+tmp/
+temp/
+
+# Test ve dokümantasyon artefacts
+.coverage
+htmlcov/
+dist/
+build/
