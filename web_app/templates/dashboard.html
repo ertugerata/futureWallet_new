@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FutureWallet – Karar Destek Paneli</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+  <!-- ── Header ─────────────────────────────────────────────────────── -->
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo">📊</span>
+      <div>
+        <h1>FutureWallet</h1>
+        <p>Yatırım Karar Destek Paneli</p>
+      </div>
+    </div>
+    <nav class="topnav">
+      <a href="#snapshot"      >Portföy</a>
+      <a href="#decisions"     >Kararlar</a>
+      <a href="#counterfactual">Ne Olurdu?</a>
+      <a href="#simulation"     >Stres Test</a>
+    </nav>
+    <div class="header-status" id="apiStatus">
+      <span class="pulse" id="healthPulse"></span>
+      <span id="healthLabel">API kontrol ediliyor…</span>
+    </div>
+  </header>
+
+  <main class="layout">
+
+    <!-- ── Panel 1: Portfolio Snapshot & Time-Travel ────────────────── -->
+    <section id="snapshot" class="panel card">
+      <div class="panel-head">
+        <h2>📈 Portföy Snapshot & Time-Travel</h2>
+        <div class="panel-controls">
+          <label class="date-picker">
+            <span>Tarih:</span>
+            <input type="date" id="snapshotDate">
+          </label>
+          <button class="btn btn-primary" id="btnSnapshot">Güncelle</button>
+        </div>
+      </div>
+      <div class="panel-body">
+        <div class="kv-grid" id="snapshotKV">
+          <div class="kv-empty">Veri yükleniyor…</div>
+        </div>
+        <div class="chart-wrap chart-sm">
+          <canvas id="snapshotChart"></canvas>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── Panel 2: Karar Günlüğü ────────────────────────────────────── -->
+    <section id="decisions" class="panel card">
+      <div class="panel-head">
+        <h2>📝 Karar Günlüğü & Duygu Analizi</h2>
+      </div>
+      <div class="panel-body">
+        <div class="decisions-toolbar">
+          <button class="btn btn-secondary" id="btnShowDecisionForm">+ Yeni Karar</button>
+        </div>
+        <div class="table-responsive">
+          <table class="data-table" id="decisionsTable">
+            <thead>
+              <tr>
+                <th>Tarih</th>
+                <th>Varlık</th>
+                <th>Eylem</th>
+                <th>Duygu</th>
+                <th>Hedef Fiyat</th>
+                <th>Vade</th>
+                <th>Durum</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="decisionsBody">
+              <tr><td colspan="8" class="empty-row">Veri yükleniyor…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── Panel 3: Ne Olurdu? (Counterfactual) ─────────────────────── -->
+    <section id="counterfactual" class="panel card">
+      <div class="panel-head">
+        <h2>🔄 "Satmasaydım Ne Olurdu?" — Gölge Portföy Kıyaslaması</h2>
+      </div>
+      <div class="panel-body">
+        <div class="cf-controls">
+          <label class="cf-input">
+            <span>Karar ID:</span>
+            <input type="text" id="cfDecisionId" placeholder="uuid girin">
+          </label>
+          <button class="btn btn-primary" id="btnCfCompare">Kıyasla</button>
+        </div>
+        <div id="cfResult" class="cf-result">
+          <div class="cf-empty">Karar ID girin ve Kıyasla'ya tıklayın.</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── Panel 4: Stres Test & Monte Carlo ────────────────────────── -->
+    <section id="simulation" class="panel card">
+      <div class="panel-head">
+        <h2>🌊 Monte Carlo & Makro Stres Testi</h2>
+      </div>
+      <div class="panel-body">
+        <div class="sim-controls">
+          <div class="sim-input-row">
+            <label class="sim-input">
+              <span>Varlıklar (virgül):</span>
+              <input type="text" id="simAssets" value="BTC,ETH,GC=F">
+            </label>
+            <label class="sim-input">
+              <span>Gün:</span>
+              <input type="number" id="simDays" value="126" min="1">
+            </label>
+            <label class="sim-input">
+              <span>Patika:</span>
+              <input type="number" id="simSims" value="10000" min="100" step="100">
+            </label>
+            <button class="btn btn-primary" id="btnSimRun">Çalıştır</button>
+          </div>
+        </div>
+        <div class="chart-wrap chart-lg">
+          <canvas id="mcChart"></canvas>
+        </div>
+        <div class="mc-summary" id="mcSummary">
+          <div class="mc-empty">Simülasyon sonuçları buraya gelecek.</div>
+        </div>
+        <div class="ai-narrative card-inside" id="aiNarrative">
+          <div class="ai-empty">AI risk anlatısı buraya gelecek.</div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ── Karar Form Modal ────────────────────────────────────────────── -->
+  <div class="modal-overlay" id="decisionModal" hidden>
+    <div class="modal card">
+      <div class="modal-head">
+        <h2>Yeni Karar Ekle</h2>
+        <button class="btn-close" id="btnCloseModal">&times;</button>
+      </div>
+      <form id="decisionForm" class="modal-body">
+        <div class="form-row">
+          <label>Varlık Sembolü</label>
+          <input type="text" name="asset_symbol" required placeholder="BTC, ETH, TRY/USD, GC=F…">
+        </div>
+        <div class="form-row">
+          <label>Eylem</label>
+          <select name="action" required>
+            <option value="BUY">Alış (BUY)</option>
+            <option value="SELL">Satış (SELL)</option>
+            <option value="HOLD">Tut (HOLD)</option>
+          </select>
+        </div>
+        <div class="form-row">
+          <label>Duygu / Neden (Sentiment)</label>
+          <select name="sentiment" required>
+            <option value="FOMO">FOMO – korku/kaçırma</option>
+            <option value="STRATEGIC">Stratejik Analiz</option>
+            <option value="PANIC">Panik Satışı</option>
+            <option value="DIVIDEND">Temettü / Gelir</option>
+            <option value="RISK_REDUCTION">Risk Azaltma</option>
+          </select>
+        </div>
+        <div class="form-row form-row-wide">
+          <label>Gerekçesi (Rationale)</label>
+          <textarea name="rationale" rows="3" required placeholder="Neden bu kararı aldın?"></textarea>
+        </div>
+        <div class="form-row form-row-wide">
+          <label>Hedef Fiyat (opsiyonel)</label>
+          <input type="number" name="target_price" step="0.01" placeholder="örn: 50000">
+        </div>
+        <div class="form-row">
+          <label>Hedef Tarih (opsiyonel)</label>
+          <input type="date" name="target_date">
+        </div>
+        <div class="modal-actions">
+          <button type="submit" class="btn btn-primary">Kaydet</button>
+          <button type="button" class="btn btn-ghost" id="btnCancelModal">İptal</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ── toast container ─────────────────────────────────────────────── -->
+  <div id="toastContainer" class="toast-container"></div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

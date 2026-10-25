@@ -170,6 +170,8 @@ async def root():
         "docs": "/docs",
     }
 
+from web_app import mount_web
+mount_web(app)
 
 # ---------------------------------------------------------------------------
 # Helper: session lifecycle (try/commit/except/rollback/finally/close)
