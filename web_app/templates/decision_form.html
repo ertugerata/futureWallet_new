@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Yeni Karar – FutureWallet</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo">📊</span>
+      <div>
+        <h1>FutureWallet</h1>
+        <p>Yeni Karar Ekle</p>
+      </div>
+    </div>
+    <a href="/web/" class="btn btn-ghost">← Geri</a>
+  </header>
+
+  <main class="layout" style="max-width: 600px; margin: 2rem auto; padding: 0 .5rem;">
+    <section class="panel card">
+      <div class="panel-head">
+        <h2>Yeni Yatırım Kararı</h2>
+      </div>
+      <div class="panel-body">
+        <form id="decisionForm" action="/api/decisions" method="POST">
+
+          <div class="form-row">
+            <label>Varlık Sembolü *</label>
+            <input type="text" name="asset_symbol" required placeholder="BTC, ETH, TRY/USD, GC=F…">
+          </div>
+
+          <div class="form-row">
+            <label>Eylem *</label>
+            <select name="action" required>
+              <option value="BUY">Alış (BUY)</option>
+              <option value="SELL">Satış (SELL)</option>
+              <option value="HOLD">Tut (HOLD)</option>
+            </select>
+          </div>
+
+          <div class="form-row">
+            <label>Duygu / Neden *</label>
+            <select name="sentiment" required>
+              <option value="FOMO">FOMO – korku/kaçırma</option>
+              <option value="STRATEGIC">Stratejik Analiz</option>
+              <option value="PANIC">Panik Satışı</option>
+              <option value="DIVIDEND">Temettü / Gelir</option>
+              <option value="RISK_REDUCTION">Risk Azaltma</option>
+            </select>
+          </div>
+
+          <div class="form-row form-row-wide">
+            <label>Gerekçesi *</label>
+            <textarea name="rationale" rows="4" required placeholder="Neden bu kararı aldın? Teknik kırılım, temel beklenti, duygu durumu…"></textarea>
+          </div>
+
+          <div class="form-row">
+            <label>Hedef Fiyat (opsiyonel)</label>
+            <input type="number" name="target_price" step="0.01" placeholder="örn: 50000">
+          </div>
+
+          <div class="form-row">
+            <label>Hedef Tarih (opsiyonel)</label>
+            <input type="date" name="target_date">
+          </div>
+
+          <div class="modal-actions">
+            <button type="submit" class="btn btn-primary">Kaydet</button>
+            <a href="/web/" class="btn btn-ghost">İptal</a>
+          </div>
+        </form>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const form = document.getElementById('decisionForm');
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const data = Object.fromEntries(new FormData(form));
+      try {
+        const res = await fetch('/api/decisions', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify(data),
+        });
+        if (res.ok) {
+          window.location.href = '/web/';
+        } else {
+          const err = await res.json();
+          alert('Hata: ' + (err.detail || res.statusText));
+        }
+      } catch (err) {
+        alert('Bağlantı hatası: ' + err.message);
+      }
+    });
+  </script>
+</body>
+</html>

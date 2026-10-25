@@ -44,6 +44,7 @@ from services.decision_service import (
     update_decision as svc_update_decision,
     close_decision as svc_close_decision,
     check_decision_target as svc_check_decision_target,
+    generate_ai_retrospective as svc_generate_ai_retrospective,
 )
 
 
@@ -502,6 +503,34 @@ async def decision_target_check_endpoint(decision_id: str):
     session = get_session()
     try:
         result = svc_check_decision_target(session, decision_id)
+        session.commit()
+        if "error" in result:
+            return JSONResponse(status_code=404, content=result)
+        return result
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
+
+
+@app.post("/api/decisions/{decision_id}/retrospective")
+async def generate_retrospective_endpoint(decision_id: str):
+    """
+    Bir karar için AI post-mortem (retrospektif) oluşturur.
+
+    GOOGLE_API_KEY tanımlıysa AI değerlendirme üretir ve
+    kararın ai_retrospective alanına kaydeder. Status REVIEWED yapılır.
+
+    Response:
+        {
+            "decision_id": ..., "retrospective": ...,
+            "status": ..., "api_available": ...
+        }
+    """
+    session = get_session()
+    try:
+        result = svc_generate_ai_retrospective(session, decision_id)
         session.commit()
         if "error" in result:
             return JSONResponse(status_code=404, content=result)

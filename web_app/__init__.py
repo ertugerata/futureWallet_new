@@ -32,6 +32,7 @@ def mount_web(app):
     async def web_dashboard(request: Request):
         """Ana dashboard sayfası: 4 panel + Chart.js ile API entegrasyonu."""
         return templates.TemplateResponse(
+            request,
             "dashboard.html",
             {"request": request},
         )
@@ -40,6 +41,7 @@ def mount_web(app):
     async def web_decision_new(request: Request):
         """Karar giriş sayfası (modal alternatifi)."""
         return templates.TemplateResponse(
+            request,
             "decision_form.html",
             {"request": request},
         )
