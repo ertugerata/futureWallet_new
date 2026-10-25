@@ -29,7 +29,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 
-from typing import Optional
+from typing import Dict, List, Optional
 
 from pydantic import BaseModel, Field
 from datetime import date as _date
