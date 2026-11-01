@@ -1,9 +1,22 @@
-# FutureWallet - MVP (Minimum Viable Product) Ürün Dokümanı
+# 🚀 FutureWallet – MVP Dokümanı (PocketBase + FastAPI + OpenRouter)
+> **Sürüm:** 2.0  
+> **Mimari:** PocketBase (DB/Auth) + FastAPI (Hesaplama) + OpenRouter (LLM)  
+> **Tarih:** Kasım 2026
+
+---
 
 ## 1. Ürün Özeti & Vizyon
+
 **FutureWallet**, yatırımcıların portföylerini sadece anlık fiyatlarla değil; **tarihsel zaman yolculuğu (Time-Travel)**, **enflasyondan arındırılmış satın alma gücü**, **karar psiko-analizi (Decision Journaling)** ve **AI/Monte Carlo stres testleri** ile yönetmelerini sağlayan yeni nesil bir **Finansal Karar Destek ve Öğrenme Platformudur**.
 
 Piyasadaki geleneksel varlık takip uygulamalarından farklı olarak FutureWallet; *"Şu an ne kadarım var?"* sorusunun ötesine geçerek *"Bu kararı neden aldım?", "Satmasaydım ne olurdu?", "Enflasyona karşı gerçek satın alma gücüm ne durumda?"* ve *"Makro şoklarda portföyüm nasıl tepki verir?"* sorularına yanıt verir.
+
+### Piyasadaki Uygulamalardan Farkı
+
+1. **Reel Büyüme (Inflation-Adjusted Worth):** Portföyü nominal değerinin yanı sıra TÜİK/ENAG TÜFE, US CPI, Gram Altın ve S&P 500 bazında reel satın alma gücüyle ölçer.
+2. **Karar Günlüğü (Decision Journaling & Sentiment):** Alım/satım kararlarındaki psikolojiyi (FOMO, Panik, Stratejik vb.) kaydeder ve 3/6 ay sonra AI destekli kararlılık retrospektifi sunar.
+3. **Gölge Portföy (Counterfactual Engine):** "O hisseyi satmayıp tutsaydım ne olurdu?" sorusunu paralel bir gölge portföy ile yanıtlar.
+4. **Makro Simülasyon (Stress Testing & Monte Carlo):** Faiz artışı, kur şoku veya küresel durgunluk gibi makro senaryolar altında portföy risk haritasını çıkarır.
 
 ---
 
@@ -20,27 +33,33 @@ Piyasadaki geleneksel varlık takip uygulamalarından farklı olarak FutureWalle
 ## 3. MVP Özellik Kapsamı & Modül Detayları
 
 ### 3.1. Modül 1: Tarihsel Portföy Değerleme & İşlem Defteri (Ledger Engine)
-* **Event-Sourcing Muhasebe Yapısı:** Tüm işlemler (Alım, Satım, Temettü, Nakit Akışı) zaman damgalı `Event` olarak tutulur.
+
+* **Event-Sourcing Muhasebe Yapısı:** Tüm işlemler (Alım, Satım, Temettü, Nakit Akışı) zaman damgalı `Event` olarak PocketBase `transactions` koleksiyonunda tutulur.
 * **Time-Travel Motoru:** Seçilen $T_{başlangıç}$ tarihindeki portföy snapshot'ı otomatik hesaplanır ve $T_{hedef}$ tarihindeki fiyatlarla değerlenir.
+* **Fiyat Servisi:** `price_service.py` — yfinance, ccxt ve PocketBase `price_history` cache'ini birleştirir.
 
 ### 3.2. Modül 2: Karar Günlüğü & AI Retrospektifi (Decision Journaling)
+
 * **Karar Kaydı:**
   * Karar Tarihi & Varlık / İşlem Tipi.
-  * **Karar Gerekçesi** (Metin alanı: bilanço beklentisi, teknik kırılım vb.).
-  * **Duygu Durumu Tag'leri:** `FOMO`, `Stratejik Analiz`, `Panik Satışı`, `Temettü/Gelir`, `Risk Azaltma`.
+  * **Karar Gerekçesi** (Metin alanı, max 5000 karakter).
+  * **Duygu Durumu Tag'leri:** `FOMO`, `STRATEGIC`, `PANIC`, `DIVIDEND`, `OPPORTUNITY`.
   * Hedef Fiyat & Beklenen Vade.
-* **AI Post-Mortem (Karar Değerlendirme):** Vade sonunda AI, kararın arkasındaki gerekçe ile piyasa gerçekleşmesini karşılaştırıp kullanıcıya öğrenme notu sunar (*"FOMO kaynaklı alımlarınız ortalama %-12 kaybettirdi"*).
+* **AI Post-Mortem (Karar Değerlendirme):** Vade sonunda OpenRouter LLM, kararın arkasındaki gerekçe ile piyasa gerçekleşmesini karşılaştırıp kullanıcıya Türkçe öğrenme notu sunar (*"FOMO kaynaklı alımlarınız ortalama %-12 kaybettirdi"*).
 
 ### 3.3. Modül 3: Gölge Portföy Motoru (Counterfactual / What-If Engine)
+
 * **Karşılaştırmalı Takip:** Kullanıcının sattığı veya almayı düşünüp vazgeçtiği pozisyonlar "Gölge Portföy" olarak kaydedilir.
 * **Fırsat Maliyeti Hesabı:** Gerçek Portföy Getirisi vs. Gölge Portföy Getirisi kıyası ile karar doğruluğu test edilir.
 
 ### 3.4. Modül 4: Reel Satın Alma Gücü & Multi-Benchmark
+
 * **Nominal vs. Reel Getiri:** TÜİK TÜFE ve US CPI verileriyle enflasyondan arındırılmış net getiri (Real Return).
-* **Varlık Sepet Katsayısı:** Portföyün Gram Altın, S&P 500 ve Ortalama Ev/Kira katsayısı cinsinden değişimi.
+* **Varış Sepet Katsayısı:** Portföyün Gram Altın, S&P 500 ve Ortalama Ev/Kira katsayısı cinsinden değişimi.
 
 ### 3.5. Modül 5: Monte Carlo & AI Senaryo Motoru
-* **Monte Carlo Simülasyonu:** Geçmiş volatilite ve korelasyon verilerine dayanarak 10.000 olasılıklı 3, 6 ve 12 aylık portföy değerleme dağılımları.
+
+* **Monte Carlo Simülasyonu:** Geçmiş volatilite ve korelasyon verilerine dayanarak 10.000 olasılıksal 3, 6 ve 12 aylık portföy değerleme dağılımları (GBM temsili ile drift çift-varyans düzeltmesi).
 * **Makro Stres Testleri:** Faiz artışı, faiz indirimi, döviz şoku ve küresel durgunluk senaryoları.
 * **AI Risk Anlatısı:** Karmaşık sayısal simülasyon çıktılarını sade Türkçe metin ve risk tavsiyelerine dönüştüren LLM entegrasyonu.
 
@@ -58,62 +77,103 @@ FutureWallet/
 │   ├── decision_service.py     # Karar Günlüğü & Post-Mortem Analizörü
 │   ├── counterfactual_service.py # Gölge Portföy / What-If Motoru
 │   ├── simulation_service.py   # Monte Carlo & Stres Testi Engine
-│   └── ai_service.py           # Gemini LLM Karar Yorumlama & Senaryo Anlatısı
-├── db.py                       # SQLAlchemy Veritabanı Modelleri
-└── web_app/                    # Web Arayüzü & Dashboard Components
+│   ├── ai_service.py           # OpenRouter LLM Karar Yorumlama & Senaryo Anlatısı
+│   └── price_service.py        # yfinance, ccxt, PB price_history cache birleştirici
+├── web_app/                    # Web Arayüzü & Dashboard Components (HTML5 + TailwindCSS + Chart.js)
+└── docker-compose.yml          # PocketBase + FastAPI container tanımları
+```
+
+### Sistem Mimarisi
+
+```
++--------------------------------------------------------+
+|                     Frontend (Web UI)                  |
+|          HTML5 + TailwindCSS + Chart.js + JS            |
++---------------------------+----------------------------+
+|                                        |
+v                                        v
++-----------------------+        +-----------------------+
+|  PocketBase Server    |        |  FastAPI Backend      |
+|  - REST API & WebSockets|       |  - Ledger & Snapshot  |
+|  - Auth & RLS         |        |  - Real Valuation     |
+|  - SQLite Storage     |        |  - Monte Carlo & VaR  |
++-----------------------+        |  - OpenRouter AI      |
++-----------------------+--------+
+|
+v
++-----------------------+
+|  OpenRouter Provider  |
+|  (Claude/Gemini/DS)   |
++-----------------------+
 ```
 
 ---
 
-## 5. Veritabanı Şeması (MVP)
+## 5. PocketBase Veri Modeli (Collections)
 
 ### 5.1. `transactions` (İşlem Defteri)
-* `id`: UUID PRIMARY KEY
-* `timestamp`: DATETIME
-* `asset_symbol`: VARCHAR(20)
-* `type`: VARCHAR(10) (BUY, SELL, DIVIDEND, CASH_IN, CASH_OUT)
-* `quantity`: FLOAT
-* `price`: FLOAT
-* `fee`: FLOAT
+
+| Alan | Tip | Açıklama |
+|------|-----|----------|
+| `id` | Text (PB default) | PK |
+| `user` | Relation (users) | Sahip kullanıcı |
+| `asset_symbol` | Text | Örn: `THYAO.IS`, `BTC/USDT`, `GC=F` |
+| `type` | Select | `BUY`, `SELL`, `DIVIDEND`, `CASH_IN`, `CASH_OUT` |
+| `quantity` | Number | İşlem miktarı |
+| `price` | Number | Birim fiyat |
+| `fee` | Number | İşlem ücreti |
+| `timestamp` | DateTime | İşlem zaman damgası |
+| `voided` | Bool | İptal/soft-delete kaydı |
 
 ### 5.2. `decisions` (Karar Günlüğü)
-* `id`: UUID PRIMARY KEY
-* `transaction_id`: UUID (FK, opsiyonel)
-* `date`: DATETIME
-* `asset_symbol`: VARCHAR(20)
-* `action`: VARCHAR(10)
-* `rationale`: TEXT
-* `sentiment`: VARCHAR(30) (FOMO, STRATEGIC, PANIC, DIVIDEND)
-* `target_price`: FLOAT
-* `target_date`: DATE
-* `status`: VARCHAR(20) (OPEN, REVIEWED, EXPIRED)
-* `ai_retrospective`: TEXT
 
-### 5.3. `shadow_portfolios` (Gölge Portföy / What-If)
-* `id`: UUID PRIMARY KEY
-* `decision_id`: UUID (FK)
-* `asset_symbol`: VARCHAR(20)
-* `simulated_action`: VARCHAR(10) (HELD_INSTEAD, BOUGHT_INSTEAD)
-* `entry_date`: DATETIME
-* `entry_price`: FLOAT
-* `quantity`: FLOAT
+| Alan | Tip | Açıklama |
+|------|-----|----------|
+| `id` | Text | PK |
+| `user` | Relation (users) | Sahip kullanıcı |
+| `asset_symbol` | Text | Kararlı olduğu varlık |
+| `action` | Select | `BUY`, `SELL`, `HOLD` |
+| `sentiment` | Select | `FOMO`, `PANIC`, `STRATEGIC`, `DIVIDEND`, `OPPORTUNITY` |
+| `rationale` | Text | Karar gerekçesi (max 5000 karakter) |
+| `target_price` | Number | Hedef fiyat (opsiyonel) |
+| `target_date` | DateTime | Hedef vade (opsiyonel) |
+| `status` | Select | `OPEN`, `EXPIRED`, `REVIEWED`, `CLOSED` |
+| `ai_retrospective` | Text | AI Post-Mortem notu |
+| `outcome_return_pct` | Number | Gerçekleşen getiri % |
 
-### 5.4. `macro_data` (Benchmark & Enflasyon Önbelleği)
-* `date`: DATE PRIMARY KEY
-* `gold_try`: FLOAT
-* `gold_usd`: FLOAT
-* `sp500`: FLOAT
-* `tr_cpi`: FLOAT (TÜİK TÜFE Endeksi)
-* `us_cpi`: FLOAT (US CPI Endeksi)
+### 5.3. `shadow_portfolios` (Gölge Portföy)
+
+| Alan | Tip | Açıklama |
+|------|-----|----------|
+| `id` | Text | PK |
+| `decision` | Relation (decisions) | Kaynağını çektığı karar |
+| `asset_symbol` | Text | Gölge pozisyon varlığı |
+| `shadow_type` | Select | `HELD_INSTEAD`, `BOUGHT_INSTEAD` |
+| `entry_price` | Number | Giriş fiyatı |
+| `quantity` | Number | Miktar |
+| `entry_date` | DateTime | Başlangıç tarihi |
+
+### 5.4. `macro_data` & `price_history`
+
+* **macro_data:** Tarihsel TÜFE/CPI serileri (`date`, `gold_try`, `gold_usd`, `sp500`, `tr_cpi`, `us_cpi`).
+* **price_history:** Varış sembollerinin günlük/historical fiyat cache'leri.
 
 ---
 
-## 6. MVP Geliştirme Yol Haritası (Roadmap)
+## 6. AI Servis Entegrasyonu (OpenRouter)
 
-| Aşama | Görev Tanımı | Tahmini Süre |
+* **Provider:** OpenRouter (`https://openrouter.ai/api/v1`)
+* **Modeller:** `anthropic/claude-3.5-sonnet`, `google/gemini-2.0-flash-001`, `deepseek/deepseek-r1`
+* **Fallback Zinciri:** Birincil model yanıt vermediğinde otomatik ikincil modele geçiş.
+* **Güvenlik Güvencesi:** Kullanıcı notları `<user_input>` etiketleri içinde verilerek prompt injection engellenir.
+
+---
+
+## 7. MVP Geliştirme Yol Haritası
+
+| Aşama / Sprint | Görev Tanımı | Tahmini Süre |
 | :--- | :--- | :--- |
-| **Aşama 1** | **Veritabanı & Ledger Yapısı:** Multi-asset transaction ledger ve makro veri caching mimarisinin kurulması. | 1 Hafta |
-| **Aşama 2** | **Reel Değerleme & Time-Travel:** Tarihsel snapshot motoru ve Enflasyon/Gold/SP500 arındırılmış getiri hesaplamaları. | 1 Hafta |
-| **Aşama 3** | **Karar Günlüğü & Gölge Portföy:** Karar kayıt arayüzü, duygu tag'leri ve "Satmasaydım Ne Olurdu?" simülasyonu. | 1 Hafta |
-| **Aşama 4** | **Monte Carlo & AI Senaryo Motoru:** Monte Carlo algoritması, makro stres testleri ve AI Post-Mortem/Risk anlatısı. | 1 Hafta |
-| **Aşama 5** | **UI Entegrasyonu & MVP Lansmanı:** Responsive web panellerinin (Dashboard, Journal, Simulator) yayınlanması. | 1 Hafta |
+| **Sprint 1** | **Güvenlik, Altyapı & PocketBase Geçişi:** Auth/JWT katmanı, CSP/ALLOWED_ORIGINS, PB koleksiyon şemaları, SQLAlchemy → PB Async Client migrasyonu, docker-compose tanımları. | 1 Hafta |
+| **Sprint 2** | **Reel Değerleme, Benchmark & Gölge Portföy:** Fiyat servisi (yfinance + ccxt + PB cache), time-travel endpoint, EVDS/TÜFE entegrasyonu, Gram Altın formülü, benchmark endpoint, gölge portföy otomatik oluşturma. | 1 Hafta |
+| **Sprint 3** | **OpenRouter AI & Makro Simülasyon:** OpenRouter client, model fallback zinciri, karar retrospektifi endpoint, Monte Carlo (drift düzeltmeli GBM), stres test endpoint, AI risk anlatısı endpoint. | 1 Hafta |
+| **Sprint 4** | **Web Arayüzü & Yayına Hazırlık:** Karar formu doğrulamaları, USD/TRY seçici entegrasyonu, stres test histogram/p5/p50/p95 çizgileri, Docker USER app, requirements.txt sürüm kilitleme, pip-audit. | 1 Hafta |
