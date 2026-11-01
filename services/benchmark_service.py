@@ -1,50 +1,51 @@
 """
-FutureWallet - Benchmark & Enflasyon Servisi
+FutureWallet – Benchmark & Enflasyon Servisi (PocketBase)
+============================================================
+Piyasa verileri (Altın, S&P 500, Gram Altın TL, TÜFE, US CPI) çeker,
+PB `macro_data` koleksiyonuna önbelleğe alır ve reel (enflasyondan
+arındırılmış) değerleme yapar.
 
-Piyasa verileri (Altın, S&P 500, TÜFE, US CPI) çeker, macro_data tablosuna
-önbelleğe alır ve reel (enflasyondan arındırılmış) değerleme yapar.
+Veri çekme fonksiyonları (yfinance, EVDS, FRED) PB'den bağımsız kalır;
+sadece `macro_data` upsert ve CPI okuma PB client üzerinden yapılır.
 
-MVP §3.4, TODO 1.2, 2.1.
+db.py (SQLAlchemy) → pocketbase.py geçişi ile senkronize.
+
+MVP §3.4, TODO 2.2, Prompt 11 (Benchmark / enflasyon verisi).
 """
 
-from datetime import date, datetime
-from typing import Callable, Dict, List, Optional, Sequence
+from __future__ import annotations
+
+from datetime import date, datetime, timedelta
+from typing import Dict, Optional
 
 import pandas as pd
 import yfinance as yf
 import requests
 
-from sqlalchemy import select
-from sqlalchemy.orm import Session
-
-from db import MacroData
 from config import FRED_API_KEY, TCMB_API_KEY
+from services.pocketbase import get_client
 
 
 # ---------------------------------------------------------------------------
 # Sabitler / konfigürasyon
 # ---------------------------------------------------------------------------
 
-GC_F_TICKER   = "GC=F"     # Ons Altın (USD)
-XAUUSD_TICKER = "XAUUSD"   # Gram Altın (USD) — yfinance'de bazen GC=F kullanılır
-SP500_TICKER  = "^GSPC"    # S&P 500
+GC_F_TICKER = "GC=F"        # Ons Altın (USD) – COMEX
+XAUUSD_TICKER = "XAUUSD"    # Gram Altın (USD) – şişe
+SP500_TICKER = "^GSPC"      # S&P 500
+USDTRY_TICKER = "USDTRY=X"  # USD/TRY kur
 
-FRED_CPI_SERIES    = "CPIAUCSL"   # US CPI (All Urban Consumers)
-TCMB_TUFE_SERIES  = "TUFE_G_0000000001"   # TÜİK TÜFE (2023=100)
+FRED_CPI_SERIES = "CPIAUCSL"         # US CPI (All Urban Consumers)
+TCMB_TUFE_SERIES = "TUFE_G_0000000001"  # TÜİK TÜFE (2023=100)
 
-# EVDS API endpoint'leri
 EVDS_JSON_URL = "https://evds.tcmb.gov.tr/evds_services/api/values"
-
-# FRED API endpoint'i
 FRED_BASE_URL = "https://api.stlouisfed.org/fred/series/observations"
 
-# Fallback annual inflation rates (API erişilemezse kullanılan tahminler)
-FALLBACK_TR_CPI_ANNUAL  = 0.487   # 2024 TÜİK TÜFE: ~48.7% (resmi)
-FALLBACK_US_CPI_ANNUAL  = 0.035   # 2024 US CPI: ~3.5% (resmi)
+GRAMS_PER_OUNCE = 31.1035  # ons → gram
 
 
 # ---------------------------------------------------------------------------
-# 1. Piyasa fiyatları (yfinance)
+# 1. Piyasa fiyatları (yfinance) – PB'den bağımsız
 # ---------------------------------------------------------------------------
 
 def fetch_gold_prices(
@@ -52,22 +53,11 @@ def fetch_gold_prices(
     end: date,
     granularity: str = "1mo",
 ) -> pd.DataFrame:
-    """
-    Ons Altın (GC=F) tarihsel kapanış fiyatlarını çeker.
-
-    Args:
-        start: Başlangıç tarihi
-        end: Bitiş tarihi (dahil)
-        granularity: yfinance timeframe: "1d" | "1wk" | "1mo"
-
-    Returns:
-        İndeksi date, columns: Close (float). Boş DataFrame olabilir.
-    """
+    """Ons Altın (GC=F) tarihsel kapanış fiyatlarını çeker."""
     df = yf.download(GC_F_TICKER, start=start, end=end, progress=False)
     if df.empty:
         return pd.DataFrame()
 
-    # yfinance multi-index columns: (metric, ticker)
     if isinstance(df.columns, pd.MultiIndex):
         close_series = df[("Close", GC_F_TICKER)]
     else:
@@ -84,9 +74,7 @@ def fetch_sp500_prices(
     end: date,
     granularity: str = "1mo",
 ) -> pd.DataFrame:
-    """
-    S&P 500 (^GSPC) tarihsel kapanış fiyatlarını çeker.
-    """
+    """S&P 500 (^GSPC) tarihsel kapanış fiyatlarını çeker."""
     df = yf.download(SP500_TICKER, start=start, end=end, progress=False)
     if df.empty:
         return pd.DataFrame()
@@ -102,19 +90,41 @@ def fetch_sp500_prices(
     return result
 
 
-def get_current_market_prices() -> Dict[str, Optional[float]]:
-    """
-    Güncel (bugün) Altın ve S&P 500 fiyatlarını döndürür.
-    benchmark_service inertial price fn'lerinde kullanılır.
+def fetch_usd_try_rate(
+    start: date,
+    end: date,
+) -> Optional[pd.Series]:
+    """USD/TRY kuru serisi (yfinance USDTRY=X).
 
     Returns:
-        {"gold_usd": 2650.0, "sp500": 5800.0}
+        İndeksi date, değerler USDTRY kuru (float). Yoksa None.
     """
-    out: Dict[str, Optional[float]] = {"gold_usd": None, "sp500": None}
+    df = yf.download(USDTRY_TICKER, start=start, end=end, progress=False)
+    if df.empty:
+        return None
+
+    if isinstance(df.columns, pd.MultiIndex):
+        close_series = df[("Close", USDTRY_TICKER)]
+    else:
+        close_series = df["Close"]
+
+    if close_series is None or close_series.empty:
+        return None
+
+    series = close_series.astype(float)
+    series.index = pd.to_datetime(series.index).date
+    return series
+
+
+def get_current_market_prices() -> Dict[str, Optional[float]]:
+    """Güncel (bugün) Altın ve S&P 500 ve USD/TRY fiyatlarını döndürür."""
+    out: Dict[str, Optional[float]] = {
+        "gold_usd": None,
+        "sp500": None,
+        "usd_try": None,
+    }
 
     try:
-        # period="1d" yfinance'de GC=F için "delisted" veriyor;
-        # 5 günlik pencere kullanıp son available değeri al.
         g = yf.download(GC_F_TICKER, period="5d", progress=False)
         if not g.empty and isinstance(g.columns, pd.MultiIndex):
             out["gold_usd"] = float(g[("Close", GC_F_TICKER)].iloc[-1])
@@ -132,56 +142,57 @@ def get_current_market_prices() -> Dict[str, Optional[float]]:
     except Exception:
         pass
 
+    try:
+        u = yf.download(USDTRY_TICKER, period="5d", progress=False)
+        if not u.empty and isinstance(u.columns, pd.MultiIndex):
+            out["usd_try"] = float(u[("Close", USDTRY_TICKER)].iloc[-1])
+        elif not u.empty:
+            out["usd_try"] = float(u["Close"].iloc[-1])
+    except Exception:
+        pass
+
     return out
 
 
 # ---------------------------------------------------------------------------
-# 2. TÜİK TÜFE (TR enflasyon) — EVDS API + fallback
+# 2. TÜİK TÜFE (TR enflasyon) – EVDS API (Prompt 11)
 # ---------------------------------------------------------------------------
 
 def _evds_fetch_turkey_cpi(
     start: date,
     end: date,
 ) -> Optional[pd.DataFrame]:
+    """TCMB EVDS API'sinden TÜFE (TUFE_G_0000000001) serisini çeker.
+
+    GET {EVDS_JSON_URL}?series=...&startDate=...&endDate=...&key={TCMB_API_KEY}
     """
-    TCMB EVDS API'sinden TÜFE (TUFE_G_0000000001) serisini çeker.
+    if not TCMB_API_KEY:
+        return None
 
-    API formatı (JSON):
-      POST {EVDS_JSON_URL}
-      body: {"series": [{"item": "TUFE_G_0000000005"}],
-             "startDate": "2024-01-01", "endDate": "2024-12-31"}
-
-    Dönen JSON'da her bir seri için "data" listesi vardır;
-    her bir data item'ı: {"date": "2024-01-01", "value": "100.5"}
-
-    Returns:
-        İndeksi date (datetime.date), columns: tr_cpi.
-        None: API erişilemez hoặc veri yok.
-    """
-    body = {
-        "series": [{"item": TCMB_TUFE_SERIES}],
+    params = {
+        "series": TCMB_TUFE_SERIES,
         "startDate": start.isoformat(),
         "endDate": end.isoformat(),
+        "key": TCMB_API_KEY,
     }
 
     try:
-        resp = requests.post(EVDS_JSON_URL, json=body, timeout=20)
+        resp = requests.get(EVDS_JSON_URL, params=params, timeout=20)
         resp.raise_for_status()
         data = resp.json()
     except Exception:
         return None
 
-    # EVDS JSON formatı: {"records": {"TUFE_G_...": {"data": [{"date":..., "value":...}]}}}
-    # Formatı kontrol edip parse et
     records = data.get("records", {})
     series_data = records.get(TCMB_TUFE_SERIES, {})
     items = series_data.get("data", [])
-
     if not items:
-        return None
+        items = data.get("data", [])
+        if not items:
+            return None
 
-    dates = []
-    values = []
+    dates: list = []
+    values: list = []
     for item in items:
         d = item.get("date")
         v = item.get("value")
@@ -201,76 +212,47 @@ def _evds_fetch_turkey_cpi(
 def fetch_turkey_cpi(
     start: date,
     end: date,
-) -> pd.DataFrame:
-    """
-    Türkiye TÜFE endeksi serisi (aylık).
+    allow_estimate: bool = False,
+) -> "pd.DataFrame":
+    """Türkiye TÜFE endeksi serisi (aylık).
 
-    Önce EVDS'den çeker. Başarısız olursa fallback: 
-    её annually podstawı ile aylık seri üretir.
-
-    Args:
-        start: Başlangıç
-        end: Bitiş
-
-    Returns:
-        İndeksi date, columns: tr_cpi (float).
+    allow_estimate=False ve veri yoksa ValueError (Prompt 11).
     """
     evds = _evds_fetch_turkey_cpi(start, end)
     if evds is not None and not evds.empty:
         return evds
 
-    # Fallback: annual rate ile aylık seri üret
-    return _build_fallback_tr_cpi(start, end, FALLBACK_TR_CPI_ANNUAL)
+    if not allow_estimate:
+        raise ValueError(
+            "TÜFE verisi alınamadı: TCMB_API_KEY yapılandırılmamış "
+            "veya EVDS API erişilemez. ?allow_estimate=true ile izleyici seri istenebilir."
+        )
 
-
-def _build_fallback_tr_cpi(
-    start: date,
-    end: date,
-    annual_rate: float,
-) -> pd.DataFrame:
-    """
-    Belirtilen annual inflation rate ile aylık CPI seri üretir.
-    Başlangıç tarihindeki CPI = 100 (veya normalize edilmiş bir referans).
-
-    Formula: CPI(ay) = CPI(ay-1) * (1 + annual_rate)^(1/12)
-    """
     months = []
     current = start.replace(day=1)
     end_moment = end.replace(day=1)
-
-    # Başlangıç değerini 100 olarak varsay (normalize edilmiş)
-    cpi_val = 100.0
-    monthly_factor = (1 + annual_rate) ** (1 / 12)
-
     while current <= end_moment:
         months.append(current)
-        current = (current.replace(year=current.year + (current.month // 12),
-                                   month=(current.month % 12) + 1)
-                   if current.month == 12
-                   else current.replace(month=current.month + 1))
-        cpi_val *= monthly_factor
+        if current.month == 12:
+            current = current.replace(year=current.year + 1, month=1)
+        else:
+            current = current.replace(month=current.month + 1)
 
-    return pd.DataFrame({"tr_cpi": [100.0] + [100.0 * (monthly_factor ** i) for i in range(1, len(months))]},
-                        index=months)
+    return pd.DataFrame(
+        {"tr_cpi": [100.0] * len(months), "data_quality": "estimated"},
+        index=months,
+    )
 
 
 # ---------------------------------------------------------------------------
-# 3. US CPI (ABD enflasyon) — FRED API + fallback
+# 3. US CPI (ABD enflasyon) – FRED API (Prompt 11)
 # ---------------------------------------------------------------------------
 
 def _fred_fetch_us_cpi(
     start: date,
     end: date,
 ) -> Optional[pd.DataFrame]:
-    """
-    FRED API'sinden US CPI (CPIAUCSL) serisini çeker.
-
-    GET {FRED_BASE_URL}?series_id={FRED_CPI_SERIES}&api_key={key}
-        &observation_start={start}&observation_end={end}&file_type=json
-
-    Returns:
-        İndeksi date, columns: us_cpi. None: API erişilemez.
-    """
+    """FRED API'sinden US CPI (CPIAUCSL) serisini çeker."""
     if not FRED_API_KEY:
         return None
 
@@ -293,8 +275,8 @@ def _fred_fetch_us_cpi(
     if not obs:
         return None
 
-    dates = []
-    values = []
+    dates: list = []
+    values: list = []
     for item in obs:
         d = item.get("date")
         v = item.get("value")
@@ -314,30 +296,25 @@ def _fred_fetch_us_cpi(
 def fetch_us_cpi(
     start: date,
     end: date,
-) -> pd.DataFrame:
-    """
-    US CPI (CPIAUCSL) serisi.
-    FRED API key yoksa fallback: annual rate ile aylık seri.
+    allow_estimate: bool = False,
+) -> "pd.DataFrame":
+    """US CPI (CPIAUCSL) serisi.
+
+    allow_estimate=False ve veri yoksa ValueError (Prompt 11).
     """
     fred = _fred_fetch_us_cpi(start, end)
     if fred is not None and not fred.empty:
         return fred
 
-    return _build_fallback_us_cpi(start, end, FALLBACK_US_CPI_ANNUAL)
+    if not allow_estimate:
+        raise ValueError(
+            "US CPI verisi alınamadı: FRED_API_KEY yapılandırılmamış "
+            "veya FRED API erişilemez. ?allow_estimate=true ile izleyici seri istenebilir."
+        )
 
-
-def _build_fallback_us_cpi(
-    start: date,
-    end: date,
-    annual_rate: float,
-) -> pd.DataFrame:
-    """Fallback US CPI: annual rate ile aylık seri üretir (CPI=100 başlangıç)."""
     months = []
     current = start.replace(day=1)
     end_moment = end.replace(day=1)
-
-    monthly_factor = (1 + annual_rate) ** (1 / 12)
-
     while current <= end_moment:
         months.append(current)
         if current.month == 12:
@@ -346,85 +323,136 @@ def _build_fallback_us_cpi(
             current = current.replace(month=current.month + 1)
 
     return pd.DataFrame(
-        {"us_cpi": [100.0] + [100.0 * (monthly_factor ** i) for i in range(1, len(months))]},
+        {"us_cpi": [100.0] * len(months), "data_quality": "estimated"},
         index=months,
     )
 
 
 # ---------------------------------------------------------------------------
-# 4. Tüm makro verileri çekip DB'ye kaydet
+# 4. Gram Altın TL (Prompt 11)
+# ---------------------------------------------------------------------------
+
+def compute_gold_try_gram(
+    gold_usd_ons: Optional[float],
+    usd_try: Optional[float],
+) -> Optional[float]:
+    """Gram altın TL fiyatı = (ons altın USD / 31.1035) * USDTRY."""
+    if gold_usd_ons is None or usd_try is None:
+        return None
+    return (gold_usd_ons / GRAMS_PER_OUNCE) * usd_try
+
+
+# ---------------------------------------------------------------------------
+# 5. Tüm makro verilerini çekip PB'ye kaydet  (Prompt 11 – source/is_estimate)
 # ---------------------------------------------------------------------------
 
 def fetch_and_save_macro_data(
-    session: Session,
+    user_id: str,
     start: Optional[date] = None,
     end: Optional[date] = None,
     save_sp500: bool = True,
-    save_gold: bool = True,
+    save_gold_usd: bool = True,
+    save_gold_try_gram: bool = True,
     save_tr_cpi: bool = True,
     save_us_cpi: bool = True,
 ) -> Dict[str, int]:
-    """
-    Belirtilen tarih aralığında tüm makro verilerini çeker ve macro_data
-    tablosuna kaydeder.
+    """Tüm makro verilerini çeker ve PB `macro_data` koleksiyonuna kaydeder.
 
-    Args:
-        session: SQLAlchemy Session
-        start: Başlangıç. None → 1 yıl önce
-        end: Bitiş. None → bugün
-        save_*: Hangi veriyi çeker/kaydeder
-
-    Returns:
-        {"gold": N, "sp500": N, "tr_cpi": N, "us_cpi": N} — kaça row eklendi/update
+    PB macro_data alanları:
+      date, gold_usd, gold_try_gram, sp500, tr_cpi, us_cpi,
+      source, is_estimate
     """
     if start is None:
         start = date.today().replace(year=date.today().year - 1)
     if end is None:
         end = date.today()
 
-    # haftalık aralık kullan (SP500/gold için daily fazla olabilir)
-    # Bu fonksiyon ayık seviye data çeker; daily detay sitenize göre ayarlanır
-    stats: Dict[str, int] = {"gold": 0, "sp500": 0, "tr_cpi": 0, "us_cpi": 0}
+    stats: Dict[str, int] = {
+        "gold_usd": 0,
+        "sp500": 0,
+        "gold_try_gram": 0,
+        "tr_cpi": 0,
+        "us_cpi": 0,
+    }
 
-    # Altın
-    if save_gold:
+    client = get_client()
+    macro = client.collection("macro_data")
+
+    # Altın (ons USD)
+    if save_gold_usd:
         gold_df = fetch_gold_prices(start, end, granularity="1mo")
-        stats["gold"] = _upsert_macro_df(session, gold_df, "gold_usd")
+        stats["gold_usd"] = _upsert_to_pb(
+            macro, gold_df, "gold_usd", user_id,
+            source="yfinance", is_estimate=False,
+        )
 
     # S&P 500
     if save_sp500:
         sp_df = fetch_sp500_prices(start, end, granularity="1mo")
-        stats["sp500"] = _upsert_macro_df(session, sp_df, "sp500")
+        stats["sp500"] = _upsert_to_pb(
+            macro, sp_df, "sp500", user_id,
+            source="yfinance", is_estimate=False,
+        )
+
+    # Gram altın TL
+    if save_gold_try_gram:
+        gold_usd_series = fetch_gold_prices(start, end, granularity="1mo")["gold_usd"]
+        usd_try_series = fetch_usd_try_rate(start, end)
+        if gold_usd_series is not None and usd_try_series is not None:
+            gold_try_df = pd.DataFrame(
+                {"gold_try_gram": (gold_usd_series / GRAMS_PER_OUNCE) * usd_try_series}
+            )
+            gold_try_df = gold_try_df.dropna()
+            if not gold_try_df.empty:
+                stats["gold_try_gram"] = _upsert_to_pb(
+                    macro, gold_try_df, "gold_try_gram", user_id,
+                    source="derived", is_estimate=False,
+                )
 
     # TÜFE
     if save_tr_cpi:
-        tr_df = fetch_turkey_cpi(start, end)
-        stats["tr_cpi"] = _upsert_macro_df(session, tr_df, "tr_cpi")
+        try:
+            tr_df = fetch_turkey_cpi(start, end, allow_estimate=False)
+            stats["tr_cpi"] = _upsert_to_pb(
+                macro, tr_df, "tr_cpi", user_id,
+                source="EVDS/TÜİK", is_estimate=False,
+            )
+        except ValueError:
+            pass
 
     # US CPI
     if save_us_cpi:
-        us_df = fetch_us_cpi(start, end)
-        stats["us_cpi"] = _upsert_macro_df(session, us_df, "us_cpi")
+        try:
+            us_df = fetch_us_cpi(start, end, allow_estimate=False)
+            stats["us_cpi"] = _upsert_to_pb(
+                macro, us_df, "us_cpi", user_id,
+                source="FRED", is_estimate=False,
+            )
+        except ValueError:
+            pass
 
-    session.commit()
     return stats
 
 
-def _upsert_macro_df(
-    session: Session,
+def _upsert_to_pb(
+    collection,
     df: pd.DataFrame,
     value_col: str,
+    user_id: str,
+    source: str = "",
+    is_estimate: bool = False,
 ) -> int:
-    """
-    Bir DataFrame'i macro_data tablosuna upsert eder.
-    value_col: 'gold_usd' | 'sp500' | 'tr_cpi' | 'us_cpi'
+    """Bir DataFrame'i PB macro_data koleksiyonuna upsert eder.
 
-    DataFrame şu formatta olmalı:
-      index = date (datetime.date veya datetime)
+    DataFrame:
+      index = date (datetime.date)
       columns = [value_col]
 
-    Returns:
-        Kaç row eklendi/updated.
+    PB macro_data fields (PB DateTime string ile kaydedilir):
+      date (DateTime), gold_usd, gold_try_gram, sp500, tr_cpi, us_cpi,
+      source (text), is_estimate (bool), user (Relation - users)
+
+    datetime.date → PB DateTime: ISO "YYYY-MM-DD" veya "YYYY-MM-DDTHH:MM:SSZ"
     """
     if df.empty:
         return 0
@@ -433,18 +461,31 @@ def _upsert_macro_df(
     for dt, row in df.iterrows():
         d = dt.date() if hasattr(dt, "date") else dt
         val = row[value_col]
-
         if val is None or (isinstance(val, float) and pd.isna(val)):
             continue
 
-        existing = session.execute(
-            select(MacroData).where(MacroData.date == d)
-        ).scalars().first()
+        pb_date_str = d.isoformat()  # "YYYY-MM-DD" — PB DateTime olarak kabul eder
+
+        try:
+            existing = collection.get_list(
+                params=f"filter=date='{pb_date_str}'&per_page=1"
+            )
+        except Exception:
+            existing = []
+
+        record_data: Dict = {
+            "date": pb_date_str,
+            value_col: float(val),
+            "source": source,
+            "is_estimate": is_estimate,
+            "user": user_id,
+        }
 
         if existing:
-            setattr(existing, value_col, float(val))
+            existing[0].update(record_data)
+            collection.update(existing[0])
         else:
-            session.add(MacroData(date=d, **{value_col: float(val)}))
+            collection.create(record_data)
 
         count += 1
 
@@ -452,72 +493,55 @@ def _upsert_macro_df(
 
 
 # ---------------------------------------------------------------------------
-# 5. Reel değerleme: enflasyondan arındırılmış getiri
+# 6. Reel değerleme: enflasyondan arındırılmış getiri  (Prompt 11)
 # ---------------------------------------------------------------------------
 
 def get_cpi_for_date(
-    session: Session,
     dt: date,
     cpi_type: str = "us",   # "us" | "tr"
 ) -> Optional[float]:
-    """
-    Belirtilen tarihteki veya en yakın geçmiş (ve CPI değeri olan) CPI
-    değerini DB'den döndürür.
+    """Belirtilen tarihteki veya en yakın geçmiş CPI değerini PB macro_data'den döndürür.
 
-    CPI verisi aylık olduğundan, tarih tam eşleşmeyebilir.
-    dt'ye eşit veya önceki, tr_cpi/us_cpi değeri dolu olan en son satırı
-    döndürür.
-
-    Args:
-        session: SQLAlchemy Session
-        dt: Tarih
-        cpi_type: "us" → us_cpi, "tr" → tr_cpi
+    PB macro_data: date (DateTime), tr_cpi / us_cpi (float).
     """
+    client = get_client()
+    macro = client.collection("macro_data")
+
     col = "us_cpi" if cpi_type == "us" else "tr_cpi"
-    row = session.execute(
-        select(getattr(MacroData, col))
-        .where(MacroData.date <= dt)
-        .where(getattr(MacroData, col).isnot(None))
-        .order_by(MacroData.date.desc())
-        .limit(1)
-    ).scalars().first()
-    return row
+    try:
+        records = macro.get_list(
+            params=(
+                f"filter=date<='{dt.isoformat()}'"
+                f" AND {col}!=''"
+                f"&sort=date DESC"
+                f"&per_page=1"
+            )
+        )
+    except Exception:
+        return None
+
+    if records:
+        val = getattr(records[0], col, None)
+        if val is not None and not (isinstance(val, float) and pd.isna(val)):
+            return float(val)
+    return None
 
 
 def adjust_for_inflation(
-    session: Session,
     nominal_value: float,
     date_from: date,
     date_to: date,
     cpi_type: str = "tr",
 ) -> Optional[float]:
+    """Nominal bir değeri, date_from'tan date_toye kadar olan enflasyona göre ayarlar.
+
+    reel_değer = nominal × CPI(başlangıç) / CPI(bitiş)
     """
-    Nominal bir değeri, date_from'tan date_toye kadar olan enflasyona
-    göre ayarlar (reel değer =nominal × CPI(date_from) / CPI(date_to)).
-
-    Enflasyondan arındırılmış getiri hesabı için:
-      reel_değer = nominal × CPI(başlangıç) / CPI(bitiş)
-
-    Eğer date_to > date_from ise:
-      - CPI(bitiş) > CPI(başlangıç) → reel değer nominalden KüÇÜK
-        (para değerini kaybetmiş demektir)
-
-    Args:
-        session: SQLAlchemy Session
-        nominal_value: Anlagın nominal değeri
-        date_from: Başlangıç tarihi ( CPI buradan )
-        date_to: Bitiş tarihi ( CPI buradan )
-        cpi_type: "tr" → TÜFE, "us" → US CPI
-
-    Returns:
-        Reel değer. None: CPI verisi bulunamadı.
-    """
-    cpi_from = get_cpi_for_date(session, date_from, cpi_type)
-    cpi_to   = get_cpi_for_date(session, date_to,   cpi_type)
+    cpi_from = get_cpi_for_date(date_from, cpi_type)
+    cpi_to = get_cpi_for_date(date_to, cpi_type)
 
     if cpi_from is None or cpi_to is None:
         return None
-
     if cpi_to == 0:
         return None
 
@@ -525,45 +549,27 @@ def adjust_for_inflation(
 
 
 def compute_real_return(
-    session: Session,
     portfolio_value_start: float,
     portfolio_value_end: float,
     date_start: date,
     date_end: date,
     cpi_type: str = "tr",
-) -> Dict[str, Optional[float]]:
-    """
-    Portföyün reel (enflasyondan arındırılmış) getirisini hesaplar.
+) -> Dict:
+    """Portföyün reel (enflasyondan arındırılmış) getirisini hesaplar."""
+    cpi_from = get_cpi_for_date(date_start, cpi_type)
+    cpi_to = get_cpi_for_date(date_end, cpi_type)
 
-    Args:
-        session: SQLAlchemy Session
-        portfolio_value_start: T_start'deki portföy değeri (nominal)
-        portfolio_value_end:   T_end'teki portföy değeri (nominal)
-        date_start: Başlangıç
-        date_end: Bitiş
-        cpi_type: "tr" → TÜFE, "us" → US CPI
-
-    Returns:
-        {
-            "nominal_return_pct": float,   # (end-start)/start
-            "real_return_pct": float | None, # enflasyondan arındırılmış
-            "cpi_type": str,
-            "cpi_from": float | None,
-            "cpi_to": float | None,
-        }
-    """
-    cpi_from = get_cpi_for_date(session, date_start, cpi_type)
-    cpi_to   = get_cpi_for_date(session, date_end,   cpi_type)
-
-    nominal_return = ((portfolio_value_end - portfolio_value_start)
-                      / portfolio_value_start) if portfolio_value_start else 0.0
+    nominal_return = (
+        (portfolio_value_end - portfolio_value_start) / portfolio_value_start
+        if portfolio_value_start
+        else 0.0
+    )
 
     real_return: Optional[float] = None
     if cpi_from and cpi_to and cpi_to > 0:
-        # Reel getiri = (nominal getiri - enflasyon)
-        # = (nominal_end / nominal_start) × (CPI_from / CPI_to) - 1
-        real_return = ((portfolio_value_end / portfolio_value_start)
-                       * (cpi_from / cpi_to)) - 1.0
+        real_return = (
+            (portfolio_value_end / portfolio_value_start) * (cpi_from / cpi_to) - 1.0
+        )
 
     return {
         "nominal_return_pct": round(nominal_return, 6),
@@ -575,135 +581,112 @@ def compute_real_return(
 
 
 # ---------------------------------------------------------------------------
-# 6. Benchmark kıyas
+# 7. Benchmark kıyas  (Prompt 11)
 # ---------------------------------------------------------------------------
 
 def compare_to_benchmark(
-    session: Session,
     portfolio_value_start: float,
     portfolio_value_end: float,
     date_start: date,
     date_end: date,
     benchmark_gold: bool = True,
     benchmark_sp500: bool = True,
+    benchmark_gold_try_gram: bool = True,
 ) -> Dict:
-    """
-    Portföy performansını Altın ve S&P 500 ile kıyaslar.
+    """Portföy performansını Altın, Gram Altın TL ve S&P 500 ile kıyaslar.
 
-    DB'macro_data'den fiyatları çeker; yoksa yfinance'den çeker.
-
-    Args:
-        session: SQLAlchemy Session
-        portfolio_value_start: T_start portföy değeri
-        portfolio_value_end:   T_end portföy değeri
-        date_start: Başlangıç
-        date_end: Bitiş
-        benchmark_gold: Altın kıyasını dahil et
-        benchmark_sp500: SP500 kıyasını dahil et
-
-    Returns:
-        {
-            "portfolio_return_pct": float,
-            "gold": {"price_start": float|None, "price_end": float|None,
-                     "return_pct": float|None},
-            "sp500": {"price_start": float|None, "price_end": float|None,
-                      "return_pct": float|None},
-        }
+    PB macro_data'den fiyatları çeker; yoksa yfinance'den çeker.
     """
     out: Dict = {
         "portfolio_return_pct": round(
             (portfolio_value_end - portfolio_value_start) / portfolio_value_start
-            if portfolio_value_start else 0.0, 6
+            if portfolio_value_start
+            else 0.0, 6
         ),
-        "gold": {"price_start": None, "price_end": None, "return_pct": None},
+        "gold_usd": {"price_start": None, "price_end": None, "return_pct": None},
+        "gold_try_gram": {"price_start": None, "price_end": None, "return_pct": None},
         "sp500": {"price_start": None, "price_end": None, "return_pct": None},
     }
 
-    def _get_benchmark_price(benchmark_col: str, dt: date) -> Optional[float]:
-        """DB'den dt'ye eşit veya önceki en son benchmark fiyatını çeker;
-        yoksa yfinance'den range ile en yakın değer alınır."""
-        # 1) DB'de nearest-on-or-before
-        row = session.execute(
-            select(getattr(MacroData, benchmark_col))
-            .where(MacroData.date <= dt)
-            .order_by(MacroData.date.desc())
-            .limit(1)
-        ).scalars().first()
-        if row is not None:
-            return float(row)
-        # 2) DB boş → yfinance range ile en yakın değer
-        if benchmark_col == "gold_usd":
-            df = fetch_gold_prices(dt, dt)
-        else:
-            df = fetch_sp500_prices(dt, dt)
-        if not df.empty:
-            return float(df.iloc[0][benchmark_col])
+    def _get_pb_price(col: str, dt: date) -> Optional[float]:
+        client = get_client()
+        macro = client.collection("macro_data")
+        try:
+            records = macro.get_list(
+                params=(
+                    f"filter=date<='{dt.isoformat()}'"
+                    f" AND {col}!=''"
+                    f"&sort=date DESC"
+                    f"&per_page=1"
+                )
+            )
+        except Exception:
+            records = []
+        if records:
+            val = getattr(records[0], col, None)
+            if val is not None and not (isinstance(val, float) and pd.isna(val)):
+                return float(val)
         return None
 
-    # Altın
     if benchmark_gold:
-        gold_start = _get_benchmark_price("gold_usd", date_start)
-        gold_end   = _get_benchmark_price("gold_usd", date_end)
-        if gold_start and gold_end and gold_start > 0:
-            out["gold"] = {
-                "price_start": gold_start,
-                "price_end": gold_end,
-                "return_pct": round((gold_end - gold_start) / gold_start, 6),
+        g_start = _get_pb_price("gold_usd", date_start)
+        g_end = _get_pb_price("gold_usd", date_end)
+        if g_start and g_end and g_start > 0:
+            out["gold_usd"] = {
+                "price_start": g_start,
+                "price_end": g_end,
+                "return_pct": round((g_end - g_start) / g_start, 6),
             }
 
-    # S&P 500
+    if benchmark_gold_try_gram:
+        gt_start = _get_pb_price("gold_try_gram", date_start)
+        gt_end = _get_pb_price("gold_try_gram", date_end)
+        if gt_start and gt_end and gt_start > 0:
+            out["gold_try_gram"] = {
+                "price_start": gt_start,
+                "price_end": gt_end,
+                "return_pct": round((gt_end - gt_start) / gt_start, 6),
+            }
+
     if benchmark_sp500:
-        sp_start = _get_benchmark_price("sp500", date_start)
-        sp_end   = _get_benchmark_price("sp500", date_end)
-        if sp_start and sp_end and sp_start > 0:
+        s_start = _get_pb_price("sp500", date_start)
+        s_end = _get_pb_price("sp500", date_end)
+        if s_start and s_end and s_start > 0:
             out["sp500"] = {
-                "price_start": sp_start,
-                "price_end": sp_end,
-                "return_pct": round((sp_end - sp_start) / sp_start, 6),
+                "price_start": s_start,
+                "price_end": s_end,
+                "return_pct": round((s_end - s_start) / s_start, 6),
             }
 
     return out
 
 
 # ---------------------------------------------------------------------------
-# 7. Sağlık kontrolü (API erişilebilir mi?)
+# 8. Sağlık kontrolü
 # ---------------------------------------------------------------------------
 
 def check_data_sources() -> Dict[str, bool]:
-    """
-    Veri kaynaklarının erişilebilirliğini test eder.
-
-    Returns:
-        {"yfinance": bool, "evds": bool, "fred": bool}
-    """
+    """Veri kaynaklarının erişilebilirliğini test eder."""
     out: Dict[str, bool] = {"yfinance": False, "evds": False, "fred": False}
 
-    # yfinance test
     try:
         g = yf.download(GC_F_TICKER, period="5d", progress=False)
         out["yfinance"] = not g.empty
     except Exception:
         pass
 
-    # EVDS test (son 30 gün)
     today = date.today()
-    from datetime import timedelta
     try:
-        evds = _evds_fetch_turkey_cpi(
-            today - timedelta(days=30), today
-        )
+        evds = _evds_fetch_turkey_cpi(today - timedelta(days=30), today)
         out["evds"] = evds is not None and not evds.empty
     except Exception:
         pass
 
-    # FRED test (API key varsa)
     if FRED_API_KEY:
         try:
             us = _fred_fetch_us_cpi(today - timedelta(days=30), today)
             out["fred"] = us is not None and not us.empty
         except Exception:
             pass
-    else:
-        out["fred"] = False  # key yok, test edilemez
 
     return out

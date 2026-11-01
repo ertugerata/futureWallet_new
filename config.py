@@ -1,11 +1,11 @@
 """
-FutureWallet - Uygulama Yapılandırması
+FutureWallet – Uygulama Yapılandırması
 
-Tüm hassas değerler (API key'ler, DB URL'si) `.env` dosyasından okunur.
-.env.example dosyası for documented varsayılanlar ve açıklamalar.
+Tüm hassas değerler (API key'ler, PB URL'si, DB URL'si) `.env` dosyasından okunur.
+.env.example dosyası: dokumente varsayılanlar ve açıklamalar.
 
-Prompt 1 (Auth), Prompt 7 (AI), Prompt 6 (DB) düzeltmeleri ile
-senkronize edilmiştir.
+Prompt 1 (Auth/CORS/Host), Prompt 2 (XSS/CSP), Prompt 6 (DB/PocketBase),
+Prompt 7 (AI/SDK geçiş) düzeltmeleri ile senkronize edilmiştir.
 """
 
 from os import environ
@@ -33,17 +33,30 @@ ALLOWED_HOSTS: str = environ.get("ALLOWED_HOSTS", "localhost,127.0.0.1")
 
 
 # ---------------------------------------------------------------------------
-# Veritabanı (Prompt 6)
+# PocketBase (Sprint 1.2 – PB geçişi)
 # ---------------------------------------------------------------------------
 
-# DATABASE_URL: SQLAlchemy/DB URL'si.
-#   - Varsayılan: ./data/futurewallet.db (SQLite; Docker kalıcılıkla).
-#   - config.py'deki DB_URL → db.py tarafından kullanılır.
+# POCKETBASE_URL: PocketBase instance URL'si.
+#   - Varsayılan: localhost:8080 (local); Docker içinde http://pocketbase:8090.
+POCKETBASE_URL: str = environ.get("POCKETBASE_URL", "http://localhost:8080")
+
+# POCKETBASE_EMAIL / POCKETBASE_PASSWORD: PB admin credential'ı (kollek. yönetim).
+POCKETBASE_EMAIL: str = environ.get("POCKETBASE_EMAIL", "admin@example.com")
+POCKETBASE_PASSWORD: str = environ.get("POCKETBASE_PASSWORD", "changeme")
+
+
+# ---------------------------------------------------------------------------
+# Veritabanı (Prompt 6 – geçiş NOT*) =======================================================================
+# ---------------------------------------------------------------------------
+#(*) SQLAlchemy/SQLite → PocketBase geçişi: bu dosya artık POCKETBASE_URL üzerinden
+#    PocketBase Async Python SDK kullanır (services/pocketbase.py).
+#    DATABASE_URL sıfırlandıktan sonra artık kullanılmaz; gelecekte tamamen kaldırılacak.
+#    Testlerde PB instance'a bağlı kalınabilir (memory SQLite yerine PB embedded).
 DATABASE_URL: str = environ.get("DATABASE_URL", "sqlite:///./data/futurewallet.db")
 
 
 # ---------------------------------------------------------------------------
-# Google Gemini / OpenRouter AI (Prompt 7)
+# Google Gemini / OpenRouter AI (Prompt 7 – SDK geçiş + config model)
 # ---------------------------------------------------------------------------
 
 # GOOGLE_API_KEY: Gemini/OpenRouter API anahtarı.
@@ -61,12 +74,12 @@ GEMINI_MODEL: str = environ.get("GEMINI_MODEL", "google/gemini-2.0-flash")
 # Piyasa Veri API'leri (benchmark_service için)
 # ---------------------------------------------------------------------------
 
-# TCMB_API_KEY: TCMB EVDS API anahtarı (TÜFE verisi).
-#   - Yoksa TÜFE için "veri yok" döner; uydurma veri üretilmez (Prompt 11).
+# TCMB_API_KEY: TCMB EVDS API anahtarı (TÜFE verisi, Prompt 11).
+#   - Yoksa TÜFE için açıkça "veri yok" döner; uydurma veri üretilmez.
 TCMB_API_KEY: str = environ.get("TCMB_API_KEY", "")
 
-# FRED_API_KEY: US CPI verisi için FRED API anahtarı.
-#   - Yoksa US CPI için fallback yok (Prompt 11: sentetik fallback kaldırıldı).
+# FRED_API_KEY: US CPI verisi için FRED API anahtarı (Prompt 11).
+#   - Yoksa US CPI için fallback yok.
 FRED_API_KEY: str = environ.get("FRED_API_KEY", "")
 
 
@@ -79,7 +92,6 @@ DEBUG: bool = environ.get("DEBUG", "false").lower() == "true"
 
 # APP_HOST: FastAPI bind adresi.
 #   - Varsayılan 127.0.0.1 (Prompt 1: 0.0.0.0 kaldırıldı — bind'a dikkat).
-#   - Docker'da reverse proxy ile exposure yapılmalı.
 APP_HOST: str = environ.get("APP_HOST", "127.0.0.1")
 
 # APP_PORT: FastAPI portu. Varsayılan 8000.

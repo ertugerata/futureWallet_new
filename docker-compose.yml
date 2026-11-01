@@ -1,20 +1,48 @@
 services:
+  pocketbase:
+    image: pocketbase/pocketbase:latest
+    container_name: futurewallet-pb
+    ports:
+      - "127.0.0.1:8080:8090"
+    volumes:
+      - ./pb_data:/pb_data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8090/api/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    environment:
+      - PB_REMOTE_ADDR=0.0.0.0:8090
+
   futurewallet:
     build: .
     container_name: futurewallet
     ports:
       - "127.0.0.1:8000:8000"
-      - DATABASE_URL=${DATABASE_URL:-sqlite:///./data/futurewallet.db}
-      - DEBUG=${DEBUG:-false}
+    environment:
+      - POCKETBASE_URL=http://pocketbase:8090
+      - POCKETBASE_EMAIL=admin@example.com
+      - POCKETBASE_PASSWORD=changeme
+      - API_TOKEN=${API_TOKEN:-}
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-}
+      - ALLOWED_HOSTS=${ALLOWED_HOSTS:-localhost,127.0.0.1}
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY:-}
+      - GEMINI_MODEL=${GEMINI_MODEL:-google/gemini-2.0-flash}
       - TCMB_API_KEY=${TCMB_API_KEY:-}
       - FRED_API_KEY=${FRED_API_KEY:-}
+      - DEBUG=${DEBUG:-false}
       - APP_HOST=127.0.0.1
       - APP_PORT=8000
     volumes:
-      - ./data:/app/data  # SQLite veritabanını kalıcı olarak saklamak için
+      - ./pb_data:/app/data
     restart: unless-stopped
+    depends_on:
+      pocketbase:
+        condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\" || exit 1"]
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.checkmodule('http://localhost:8000/health')\" || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
