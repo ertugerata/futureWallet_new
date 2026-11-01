@@ -1,9 +1,10 @@
 # FutureWallet – TODO & Sprint Takip Listesi
 
+> ⚠️ **Not:** Faz 1-4'teki `[x]` işaretleri **hızlı prototip / scaffolding aşamasını** ifade eder — kod çalışır ama güvenlik, doğrulama, test ve prod hazırlığı henüz yapılmamıştır. Gerçek düzeltmeler (Prompt 1 → 15) henüz **tamamlanmamıştır**. Prod'a çıkışı için tüm "kritik" ve "yüksek" düzeltmeleri uygulanıp testleri geçirilmelidir. **Sprint 1-4'teki `[ ]` item'ları en Güncel yapılacaklar listesidir.**
+
 Güncellenmiş **FutureWallet MVP Dokümanı (v2.0)** doğrultusunda projenin güvenlik, PocketBase entegrasyonu, backend servisleri, veri modelleri, AI entegrasyonları, web arayüz bileşenleri ve dağıtım adımlarını kapsayan sprint bazlı yapılacaklar listesi.
 
 ---
-
 ## 🏃 Sprint 1: Güvenlik, Altyapı ve PocketBase Entegrasyonu
 
 ### 1.1 Güvenlik Sertleştirmesi
@@ -26,7 +27,6 @@ Güncellenmiş **FutureWallet MVP Dokümanı (v2.0)** doğrultusunda projenin g�
 - [ ] Event Sourcing snapshot mantığını `timestamp < as_of + 1 gün` şeklinde güncelle.
 
 ---
-
 ## 🏃 Sprint 2: Reel Değerleme, Benchmark ve Gölge Portföy
 
 ### 2.1 Zaman Yolculuğu ve Fiyat Servisi
@@ -46,7 +46,6 @@ Güncellenmiş **FutureWallet MVP Dokümanı (v2.0)** doğrultusunda projenin g�
 - [ ] Fırsat maliyetini `gölge_değer - gerçek_değer` olarak hesapla.
 
 ---
-
 ## 🏃 Sprint 3: OpenRouter AI ve Makro Simülasyon
 
 ### 3.1 OpenRouter Entegrasyonu
@@ -63,7 +62,6 @@ Güncellenmiş **FutureWallet MVP Dokümanı (v2.0)** doğrultusunda projenin g�
 - [ ] POST `/api/simulation/narrative` ile OpenRouter üzerinden risk anlatısı üret.
 
 ---
-
 ## 🏃 Sprint 4: Web Arayüzü ve Yayına Hazırlık
 
 ### 4.1 Web Arayüzü İyileştirmeleri
@@ -78,7 +76,6 @@ Güncellenmiş **FutureWallet MVP Dokümanı (v2.0)** doğrultusunda projenin g�
 - [ ] `requirements.txt` içindeki bağımlılık sürümlerini sabitle ve `pip-audit` testini geç.
 
 ---
-
 ## 📌 Not: Faz 1-4 (Geçiş Öncesi Arka Plan Çalışmaları)
 
 > Aşağıdaki görevler, PocketBase + OpenRouter mimarisine geçiş öncesi yürütülen temel servis geliştirme aşamalarını belgelemektedir. Sprint 1-4 ile çakışan alanlar yeni sprint yapısına uygun şekilde yeniden yazılmıştır. Eski réalisasyon kayıtları münhasıran tinyint/ boolean işaretleriyle taşınmıştır.

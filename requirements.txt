@@ -1,16 +1,57 @@
-# Carry-over from old repo
+# FutureWallet — Python dependencies
+#
+# Kurulsal bağımlılıklar (production):
+#   yfinance     : borsa/kripto/altın fiyat çekimi
+#   ccxt         : kripto exchange API (Binance vb.)
+#   pandas       : veri manipulating, seriler
+#   numpy        : Monte Carlo (vektörize GBM)
+#   fastapi      : REST API framework
+#   uvicorn      : ASGI server (production: gunicorn/uvicorn workers)
+#   sqlalchemy   : DB ORM (SQLite/PostgreSQL)
+#   pydantic     : request/response validation
+#   schedule    : arka plan job zamanlaması (EVDS/FRED polling)
+#   jinja2       : HTML template motoru
+#
+# AI (Prompt 7 — OpenRouter/google-genai, google-generativeai DEPRECATED):
+#   google-genai : Google Gemini API (OpenRouter üzerinden de kullanılabilir)
+#
+# Env loading (config.py uses python-dotenv):
+#   python-dotenv
+#
+# HTTP client (benchmark_service uses requests for EVDS/FRED):
+#   requests
+#
+# Development / test (Prompt 0, 15):
+#   pytest       : test framework
+#   pytest-mock  : pytest fixture for unittest.mock
+#   httpx        : async HTTP client (TestClient için)
+#
+# KALDIRILDI / KALDIRILMACAK:
+#   google-generativeai : DEPRECATED — had anne periodogram SDK'sı
+#   xgboost              : kullanılmıyor (sistemde import edilmiyor)
+#   scikit-learn         : kullanılmıyor (sistemde import edilmiyor)
+#
+# NOT: pip install -r requirements.txt ederken development bağımlılıkları
+#      da yüklenecek. Ayrılan develop/ test bağımlılıkları için pst/requirements
+#      kullanılabilir (varsa).
 yfinance>=0.2.31
 ccxt>=4.2.0
 pandas>=2.0
 numpy>=1.24
-google-generativeai>=0.3.0
-xgboost>=1.7
-scikit-learn>=1.3
 
-# FastAPI & DB (new)
 fastapi>=0.100
 uvicorn[standard]>=0.23
 sqlalchemy>=2.0
 pydantic>=2.0
 schedule>=1.2.0
 jinja2>=3.1
+
+google-genai>=1.0.0
+
+python-dotenv>=1.0.0
+requests>=2.31.0
+
+# Test / development (Prompt 0, 15)
+pytest>=8.0.0
+pytest-mock>=3.10.0
+httpx>=0.28.0

@@ -3,13 +3,12 @@ services:
     build: .
     container_name: futurewallet
     ports:
-      - "8000:8000"
-    environment:
-      - GOOGLE_API_KEY=${GOOGLE_API_KEY:-}
+      - "127.0.0.1:8000:8000"
+      - DATABASE_URL=${DATABASE_URL:-sqlite:///./data/futurewallet.db}
       - DEBUG=${DEBUG:-false}
       - TCMB_API_KEY=${TCMB_API_KEY:-}
       - FRED_API_KEY=${FRED_API_KEY:-}
-      - APP_HOST=0.0.0.0
+      - APP_HOST=127.0.0.1
       - APP_PORT=8000
     volumes:
       - ./data:/app/data  # SQLite veritabanını kalıcı olarak saklamak için

@@ -20,115 +20,169 @@ import sys
 
 from contextlib import asynccontextmanager
 
-PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-sys.path.insert(0, PROJECT_ROOT)
 
-
-from fastapi import FastAPI, Query, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field, field_validator
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.middleware.trustedhost import TrustedHostMiddleware
+from typing import Dict, List, Literal, Optional
+from datetime import date
 
-
-from typing import Dict, List, Optional
-
-from pydantic import BaseModel, Field
-from datetime import date as _date
-
-from db import init_db, get_session, Decision, Transaction
-from services.ledger_service import get_portfolio_snapshot, time_travel_portfolio
+from config import API_TOKEN, ALLOWED_HOSTS, ALLOWED_ORIGINS
+from db import get_session, init_db
 from services.benchmark_service import compute_real_return, get_current_market_prices
+from services.counterfactual_service import (
+    compare_real_vs_shadow,
+    create_shadow_position,
+    get_shadow_positions,
+    what_if_scenario,
+)
 from services.decision_service import (
+    check_decision_target as svc_check_decision_target,
+    close_decision as svc_close_decision,
     create_decision as svc_create_decision,
+    decision_to_dict,
+    generate_ai_retrospective as svc_generate_ai_retrospective,
     get_decision as svc_get_decision,
     list_decisions as svc_list_decisions,
     update_decision as svc_update_decision,
-    close_decision as svc_close_decision,
-    check_decision_target as svc_check_decision_target,
-    generate_ai_retrospective as svc_generate_ai_retrospective,
 )
-
-
-from services.counterfactual_service import (
-    what_if_scenario,
-    create_shadow_position,
-    get_shadow_positions,
-    compare_real_vs_shadow,
+from services.ledger_service import (
+    get_portfolio_snapshot,
+    time_travel_portfolio,
 )
 from services.simulation_service import (
+    generate_risk_narrative,
     monte_carlo_simulation,
     stress_test,
-    generate_risk_narrative,
 )
+from services.decision_service import _guess_asset_type
+
+
+# ---------------------------------------------------------------------------
+# Auth bağımlılığı (Prompt 1)
+# ---------------------------------------------------------------------------
+
+def verify_api_token(request: Request) -> None:
+    if not API_TOKEN:
+        raise HTTPException(
+            status_code=500, detail="API_TOKEN ayarlanmamış. Yapılandırmayı kontrol edin."
+        )
+    auth_header = request.headers.get("Authorization", "")
+    if not auth_header.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Yetkisiz: token yok")
+    token = auth_header[len("Bearer "):]
+    if not token or token != API_TOKEN:
+        raise HTTPException(status_code=401, detail="Yetkisiz: geçersiz token")
+
+
+def check_retrospective_rate_limit(request: Request) -> None:
+    token = request.headers.get("Authorization", "").replace("Bearer ", "")
+    remote_ip = request.client.host if request.client else "unknown"
+    key = (remote_ip, token)
+    import time as _time
+    now = int(_time.time())
+    entry = _RETRO_RATE_LIMITS.get(key)
+    if entry is None:
+        _RETRO_RATE_LIMITS[key] = {"count": 1, "reset_at": now + 60, "last": now}
+        return
+    if now - entry["last"] < 60:
+        raise HTTPException(status_code=429, detail="Çok fazla istek. Lütfen bekleyin.")
+    if now >= entry["reset_at"]:
+        entry["count"] = 0
+        entry["reset_at"] = now + 60
+    entry["count"] += 1
+    entry["last"] = now
+    if entry["count"] > 5:
+        raise HTTPException(status_code=429, detail="Hız sınırı aşıldı. Lütfen bekleyin.")
+
+
+_RETRO_RATE_LIMITS: Dict = {}
+
+
+# ---------------------------------------------------------------------------
+# App
+# ---------------------------------------------------------------------------
 
 # ---------------------------------------------------------------------------
 # Pydantic request / response model'leri
 # ---------------------------------------------------------------------------
 
 class DecisionCreateRequest(BaseModel):
-    asset_symbol: str
-    action: str                     # BUY | SELL | HOLD
-    rationale: Optional[str] = None
-    sentiment: Optional[str] = None  # FOMO | STRATEGIC | PANIC | DIVIDEND | RISK_REDUCTION
-    target_price: Optional[float] = None
-    target_date: Optional[str] = None  # ISO YYYY-MM-DD
-    transaction_id: Optional[str] = None
+    asset_symbol: str = Field(
+        pattern=r"^[A-Z0-9.=^\-/]{1,20}$",
+        max_length=20,
+        description="Varlık sembolü (örn: BTC, GC=F, THYAO.IS)",
+    )
+    action: Literal["BUY", "SELL", "HOLD"]
+    rationale: Optional[str] = Field(
+        None, max_length=5000, description="Karar gerekçesi (max 5000 karakter)"
+    )
+    sentiment: Optional[str] = Field(
+        None,
+        description="FOMO | STRATEGIC | PANIC | DIVIDEND | RISK_REDUCTION",
+    )
+    target_price: Optional[float] = Field(
+        None, gt=0, description="Hedef fiyat (pozitif)"
+    )
+    target_date: Optional[date] = Field(
+        None, description="Hedef tarih (ISO YYYY-MM-DD)"
+    )
+    transaction_id: Optional[str] = Field(
+        None, max_length=36, description="İşlem ID (opsiyonel)"
+    )
 
+    @field_validator("sentiment", mode="before")
+    @classmethod
+    def normalize_sentiment(cls, v: Optional[str]) -> Optional[str]:
+        if v is None or v == "":
+            return None
+        return v.upper()
 
+    @field_validator("target_date", mode="before")
+    @classmethod
+    def empty_date_to_none(cls, v: Any) -> Optional[date]:
+        if v is None or v == "":
+            return None
+        return v
+
+DecisionCreateRequest.model_rebuild()
 class DecisionUpdateRequest(BaseModel):
-    rationale: Optional[str] = None
-    sentiment: Optional[str] = None
-    target_price: Optional[float] = None
-    target_date: Optional[str] = None
-    status: Optional[str] = None
+    rationale: Optional[str] = Field(
+        None, max_length=5000, description="Yeni gerekçе (max 5000 karakter)"
+    )
+    sentiment: Optional[str] = Field(
+        None, description="FOMO | STRATEGIC | PANIC | DIVIDEND | RISK_REDUCTION"
+    )
+    target_price: Optional[float] = Field(None, gt=0)
+    target_date: Optional[date] = Field(None, description="Yeni hedef tarih")
+    status: Optional[Literal["OPEN", "REVIEWED", "EXPIRED", "CLOSED"]] = Field(
+        None, description="OPEN | REVIEWED | EXPIRED | CLOSED"
+    )
+
+    @field_validator("sentiment", mode="before")
+    @classmethod
+    def normalize_sentiment(cls, v: Optional[str]) -> Optional[str]:
+        if v is None or v == "":
+            return None
+        return v.upper()
+
+    @field_validator("target_date", mode="before")
+    @classmethod
+    def empty_date_to_none(cls, v: Any) -> Optional[date]:
+        if v is None or v == "":
+            return None
+DecisionUpdateRequest.model_rebuild()
 
 
 class DecisionsListRequest(BaseModel):
-    status: Optional[str] = None
+    status: Optional[Literal["OPEN", "REVIEWED", "EXPIRED", "CLOSED"]] = None
     sentiment: Optional[str] = None
     asset_symbol: Optional[str] = None
-    action: Optional[str] = None
-
-
-DecisionCreateRequest.model_rebuild()
-DecisionUpdateRequest.model_rebuild()
+    action: Optional[Literal["BUY", "SELL", "HOLD"]] = None
 DecisionsListRequest.model_rebuild()
-
-
-def _guess_asset_type(symbol: str) -> str:
-    """Sembol'dan varlık türünü tahmin et."""
-    cash = frozenset({"USDT", "USD", "TRY", "TL", "EUR", "GBP"})
-    gold = frozenset({"GC=F", "XAU", "GOLD"})
-    up = symbol.upper()
-    if up in cash:
-        return "cash"
-    if up in gold or "GOLD" in up or "ALTIN" in up:
-        return "commodity"
-    if ".IS" in up or up in ("THYAO", "GARAN", "ASELS", "TUPRS", "SISE"):
-        return "stock_tr"
-    if "^GSPC" in up:
-        return "stock_us"
-    return "crypto"
-
-
-def _parse_assets_param(assets_str: str) -> List[Dict]:
-    """
-    'BTC,ETH,GC=F' → [
-        {'symbol': 'BTC', 'type': 'crypto', 'amount': 1.0},
-        {'symbol': 'ETH', 'type': 'crypto', 'amount': 1.0},
-        {'symbol': 'GC=F', 'type': 'commodity', 'amount': 1.0},
-    ]
-    """
-    assets = []
-    for sym in assets_str.split(","):
-        sym = sym.strip().upper()
-        if not sym:
-            continue
-        atype = _guess_asset_type(sym)
-        assets.append({"symbol": sym, "type": atype, "amount": 1.0})
-    return assets
-
-
-# ---------------------------------------------------------------------------
 # App
 # ---------------------------------------------------------------------------
 
@@ -147,12 +201,29 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=[o.strip() for o in ALLOWED_ORIGINS.split(",") if o.strip()] if ALLOWED_ORIGINS else [],
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "PUT", "DELETE"],
+    allow_headers=["Authorization", "Content-Type"],
 )
+app.add_middleware(TrustedHostMiddleware, allowed_hosts=[h.strip() for h in ALLOWED_HOSTS.split(",") if h.strip()] if ALLOWED_HOSTS else [])
 
+
+async def _add_security_headers(request: Request, call_next):
+    """Tüm yanıtlara güvenlik başlıkları ekle (Prompt 2)."""
+    response = await call_next(request)
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self'; "
+        "script-src 'self' https://cdn.jsdelivr.net; "
+        "style-src 'self'; "
+        "img-src 'self' data:; "
+        "object-src 'none'; "
+        "base-uri 'none'"
+    )
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    return response
+app.add_middleware(BaseHTTPMiddleware, dispatch=_add_security_headers)
 
 # ---------------------------------------------------------------------------
 # Health & root
@@ -202,7 +273,7 @@ def with_session(func):
 
 @app.get("/api/portfolio/snapshot")
 async def portfolio_snapshot(
-    date: Optional[str] = Query(None, description="ISO YYYY-MM-DD. Yoksa bugün."),
+    as_of: Optional[date] = Query(None, alias="date", description="ISO YYYY-MM-DD. Yoksa bugün."),
 ):
     """
     Belirtilen tarihteki portföy snapshot'ı.
@@ -215,14 +286,6 @@ async def portfolio_snapshot(
             "as_of_date": "YYYY-MM-DD"
         }
     """
-    as_of = None
-    if date is not None:
-        try:
-            parts = date.split("-")
-            as_of = date(int(parts[0]), int(parts[1]), int(parts[2]))
-        except (ValueError, IndexError):
-            raise HTTPException(400, f"Geçersiz date formatı: {date}. ISO YYYY-MM-DD kullanın.")
-
     session = get_session()
     try:
         result = get_portfolio_snapshot(session, as_of=as_of)
@@ -237,8 +300,8 @@ async def portfolio_snapshot(
 
 @app.get("/api/portfolio/time-travel")
 async def portfolio_time_travel(
-    t_start: str = Query(..., description="ISO YYYY-MM-DD başlangıç tarihi"),
-    t_target: Optional[str] = Query(None, description="ISO YYYY-MM-DD hedef tarih. Yoksa bugün."),
+    t_start: date = Query(..., description="ISO YYYY-MM-DD başlangıç tarihi"),
+    t_target: Optional[date] = Query(None, description="ISO YYYY-MM-DD hedef tarih. Yoksa bugün."),
 ):
     """
     T_start dagıtımını T_target fiyatlarıyla değerlendirir.
@@ -254,21 +317,11 @@ async def portfolio_time_travel(
             "pnl_pct":          float,
         }
     """
-    def parse_date(s: Optional[str]) -> Optional[_date]:
-        if s is None:
-            return None
-        try:
-            parts = s.split("-")
-            return _date(int(parts[0]), int(parts[1]), int(parts[2]))
-        except (ValueError, IndexError):
-            raise HTTPException(400, f"Geçersiz tarih: {s}")
-
-    start = parse_date(t_start)
-    target = parse_date(t_target) or _date.today()
+    target = t_target or date.today()
 
     session = get_session()
     try:
-        result = time_travel_portfolio(session, start, target)
+        result = time_travel_portfolio(session, t_start, target)
         session.commit()
         return result
     except Exception:
@@ -280,8 +333,8 @@ async def portfolio_time_travel(
 
 @app.get("/api/portfolio/real-valuation")
 async def portfolio_real_valuation(
-    date_from: str = Query(..., description="ISO YYYY-MM-DD başlangıç"),
-    date_to: str = Query(..., description="ISO YYYY-MM-DD bitiş"),
+    date_from: date = Query(..., description="ISO YYYY-MM-DD başlangıç"),
+    date_to: date = Query(..., description="ISO YYYY-MM-DD bitiş"),
     nominal_start: float = Query(..., description="T_start nominal portföy değeri"),
     nominal_end: Optional[float] = Query(None, description="T_end nominal portföy değeri. Yoksa snapshot'dan al."),
     cpi_type: str = Query("tr", description="tr | us"),
@@ -299,35 +352,24 @@ async def portfolio_real_valuation(
             "current_market":     {"gold_usd": ..., "sp500": ...},
         }
     """
-    try:
-        df = date_from.split("-")
-        dt_from = _date(int(df[0]), int(df[1]), int(df[2]))
-        dt = date_to.split("-")
-        dt_to = _date(int(dt[0]), int(dt[1]), int(dt[2]))
-    except (ValueError, IndexError):
-        raise HTTPException(400, "Geçersiz tarih formatı")
+    nominal_end_val: float = nominal_end if nominal_end is not None else nominal_start
 
     if nominal_end is None:
-        # endpoint kullanıcısından nominal_end gelmediyse, start snapshot'ını al
-        # ve start'teki değerle aynı kabul et (yaklaşık)
-        session = get_session()
+        session_tmp = get_session()
         try:
-            snap = get_portfolio_snapshot(session, as_of=dt_from)
+            snap = get_portfolio_snapshot(session_tmp, as_of=date_from)
             nominal_end_val = snap["total_value"]
-            session.close()
         except Exception:
-            session.close()
             nominal_end_val = nominal_start
-    else:
-        nominal_end_val = nominal_end
+        finally:
+            session_tmp.close()
 
     session = get_session()
     try:
         result = compute_real_return(
-            session, nominal_start, nominal_end_val, dt_from, dt_to, cpi_type=cpi_type,
+            session, nominal_start, nominal_end_val, date_from, date_to, cpi_type=cpi_type,
         )
         session.commit()
-        # current market prices ekleyerek response'ü zenginleştir
         result["current_market"] = get_current_market_prices()
         return result
     except Exception:
@@ -341,7 +383,7 @@ async def portfolio_real_valuation(
 # Decisions endpoints
 # ---------------------------------------------------------------------------
 
-@app.get("/api/decisions")
+@app.get("/api/decisions", dependencies=[Depends(verify_api_token)])
 async def list_decisions_endpoint(
     status: Optional[str] = Query(None),
     sentiment: Optional[str] = Query(None),
@@ -373,32 +415,23 @@ async def list_decisions_endpoint(
         session.close()
 
 
-@app.post("/api/decisions", status_code=201)
+@app.post("/api/decisions", status_code=201, dependencies=[Depends(verify_api_token)])
 async def create_decision_endpoint(body: DecisionCreateRequest):
     """
     Yeni karar oluştur.
 
     Response: decision_dict
     """
-    from datetime import date as _date
-    target_date = None
-    if body.target_date is not None:
-        try:
-            parts = body.target_date.split("-")
-            target_date = _date(int(parts[0]), int(parts[1]), int(parts[2]))
-        except (ValueError, IndexError):
-            raise HTTPException(400, f"Geçersiz target_date: {body.target_date}")
-
     session = get_session()
+
     try:
-        dec = svc_create_decision(
-            session,
+        dec = svc_create_decision(session,
             asset_symbol=body.asset_symbol,
             action=body.action,
             rationale=body.rationale,
             sentiment=body.sentiment,
             target_price=body.target_price,
-            target_date=target_date,
+            target_date=body.target_date,
             transaction_id=body.transaction_id,
         )
         session.commit()
@@ -412,8 +445,7 @@ async def create_decision_endpoint(body: DecisionCreateRequest):
     finally:
         session.close()
 
-
-@app.get("/api/decisions/{decision_id}")
+@app.get("/api/decisions/{decision_id}", dependencies=[Depends(verify_api_token)])
 async def get_decision_endpoint(decision_id: str):
     """ID ile tek karar."""
     session = get_session()
@@ -430,7 +462,7 @@ async def get_decision_endpoint(decision_id: str):
         session.close()
 
 
-@app.put("/api/decisions/{decision_id}")
+@app.put("/api/decisions/{decision_id}", dependencies=[Depends(verify_api_token)])
 async def update_decision_endpoint(
     decision_id: str,
     body: DecisionUpdateRequest,
@@ -453,7 +485,7 @@ async def update_decision_endpoint(
             rationale=body.rationale,
             sentiment=body.sentiment,
             target_price=body.target_price,
-            target_date=target_date,
+            target_date=body.target_date,
             status=body.status,
         )
         session.commit()
@@ -470,7 +502,7 @@ async def update_decision_endpoint(
         session.close()
 
 
-@app.post("/api/decisions/{decision_id}/close")
+@app.post("/api/decisions/{decision_id}/close", dependencies=[Depends(verify_api_token)])
 async def close_decision_endpoint(decision_id: str):
     """Kararı REVIEWED yap."""
     session = get_session()
@@ -487,7 +519,7 @@ async def close_decision_endpoint(decision_id: str):
         session.close()
 
 
-@app.get("/api/decisions/{decision_id}/target-check")
+@app.get("/api/decisions/{decision_id}/target-check", dependencies=[Depends(verify_api_token)])
 async def decision_target_check_endpoint(decision_id: str):
     """
     Kararın hedef fiyat/vade gerçekleşme kontrolü.
@@ -549,19 +581,10 @@ async def generate_retrospective_endpoint(decision_id: str):
 @app.get("/api/counterfactual")
 async def counterfactual_endpoint(
     decision_id: str = Query(..., description="Karar ID"),
-    as_of: Optional[str] = Query(None, description="ISO YYYY-MM-DD. Yoksa bugün."),
+    as_of: Optional[date] = Query(None, description="ISO YYYY-MM-DD. Yoksa bugün."),
 ):
     """What-If senaryosu: decision_id ile gölge portföy kıyaslaması."""
-    def _parse_date(s: Optional[str]) -> Optional[_date]:
-        if s is None:
-            return None
-        try:
-            p = s.split("-")
-            return _date(int(p[0]), int(p[1]), int(p[2]))
-        except (ValueError, IndexError):
-            raise HTTPException(400, f"Geçersiz tarih: {s}")
-
-    as_of_date = _parse_date(as_of)
+    as_of_date = as_of or date.today()
 
     session = get_session()
     try:
@@ -582,19 +605,30 @@ async def counterfactual_endpoint(
 
 @app.get("/api/simulation/monte-carlo")
 async def monte_carlo_endpoint(
-    assets: str = Query(..., description="Virgülle ayırılmış semboller (örn: BTC,ETH,GC=F)"),
-    days: int = Query(126, description="Gün sayısı (varsayılan 126 = 6 ay)"),
-    simulations: int = Query(10000, description="Patika sayısı (varsayılan 10,000)"),
+    assets: str = Query(..., description="Virgülle ayrılmış semboller (örn: BTC,ETH,GC=F)"),
+    days: int = Query(126, ge=1, le=756, description="Gün sayısı (varsayılan 126 = 6 ay, max 756 = 3 yıl)"),
+    simulations: int = Query(10000, ge=100, le=20000, description="Patika sayısı (varsayılan 10,000, aralık 100-20000)"),
     percentiles: str = Query("5,50,95", description="Percentiller (örn: 5,50,95)"),
     seed: Optional[int] = Query(None, description="RNG seed (opsiyonel)"),
 ):
     """Monte Carlo simülasyonu: portfolio gelecek değer dağılımları."""
+    asset_list: List[Dict] = []
+    for sym in assets.split(","):
+        sym = sym.strip().upper()
+        if not sym:
+            continue
+        if len(asset_list) >= 15:
+            raise HTTPException(422, "En fazla 15 varlık belirtebilirsiniz.")
+        atype = _guess_asset_type(sym)
+        asset_list.append({"symbol": sym, "type": atype, "amount": 1.0})
     try:
         pct_list = [int(p.strip()) for p in percentiles.split(",") if p.strip()]
     except ValueError:
         raise HTTPException(400, f"Geçersiz percentiles: {percentiles}")
-
-    asset_list = _parse_assets_param(assets)
+    if not all(0 <= p <= 100 for p in pct_list):
+        raise HTTPException(400, "Percentiller 0-100 aralığında olmalıdır.")
+    if len(pct_list) > 7:
+        raise HTTPException(400, "En fazla 7 percentil belirtebilirsiniz.")
 
     session = get_session()
     try:

@@ -2,18 +2,31 @@
 FutureWallet - SQLAlchemy 2.0 Veritabanı Modelleri
 
 Event-Sourcing üzerinden tüm işlemler zaman damgalı olarak saklanır.
+
+Prompt 6 düzeltmeleri ile senkronize:
+  - config.DATABASE_URL kullanımı (DB_NAME kaldırıldı)
+  - PRAGMA foreign_keys=ON, journal_mode=WAL (event listener)
+  - check_same_thread=False (connect_args)
+  - Transaction.decision cascade "delete" → kaldırıldı; ondelete="SET NULL"
+  - logging kullanımı (print kaldırıldı)
 """
 
-from datetime import datetime, date
+from __future__ import annotations
+
+import logging
+from datetime import date, datetime
 from uuid import uuid4
+
 from sqlalchemy import (
     create_engine,
-    String,
-    Float,
-    DateTime,
     Date,
+    DateTime,
+    Float,
     ForeignKey,
+    String,
+    Table,
     text,
+    event,
 )
 from sqlalchemy.orm import (
     DeclarativeBase,
@@ -22,11 +35,16 @@ from sqlalchemy.orm import (
     relationship,
     sessionmaker,
 )
-from sqlalchemy.sql import functions as sql_functions
+
+import config
 
 
-DB_NAME = "futurewallet.db"
+logger = logging.getLogger(__name__)
 
+
+# ---------------------------------------------------------------------------
+# SQLAlchemy taban class
+# ---------------------------------------------------------------------------
 
 class Base(DeclarativeBase):
     pass
@@ -39,16 +57,25 @@ class Base(DeclarativeBase):
 class Transaction(Base):
     __tablename__ = "transactions"
 
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
-    timestamp: Mapped[datetime] = mapped_column(DateTime, server_default=sql_functions.now(), nullable=False)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True,
+                                     default=lambda: str(uuid4()))
+    timestamp: Mapped[datetime] = mapped_column(
+        DateTime, server_default=text("CURRENT_TIMESTAMP"), nullable=False)
     asset_symbol: Mapped[str] = mapped_column(String(20), nullable=False)
-    type: Mapped[str] = mapped_column(String(10), nullable=False)  # BUY, SELL, DIVIDEND, CASH_IN, CASH_OUT
+    type: Mapped[str] = mapped_column(String(10), nullable=False)
     quantity: Mapped[float] = mapped_column(Float, nullable=False)
     price: Mapped[float] = mapped_column(Float, nullable=False)
     fee: Mapped[float] = mapped_column(Float, default=0.0)
 
-    # Navigation
-    decision = relationship("Decision", back_populates="transaction", uselist=False, cascade="delete")
+    # Decision ilişkisi: Transaction silinince Decision SILINMEMSİN
+    # → ondelete="SET NULL" (Decision.transaction_id NULL olur)
+    # → cascade="delete" KALDIRILDI (eski: decision cascade="delete")
+    decision: Mapped["Decision | None"] = relationship(
+        "Decision",
+        back_populates="transaction",
+        uselist=False,
+        cascade="",  # cascade kaldırıldı; ondelete="SET NULL" FK seviyesinde
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -58,21 +85,33 @@ class Transaction(Base):
 class Decision(Base):
     __tablename__ = "decisions"
 
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
-    transaction_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("transactions.id"), nullable=True)
-    date: Mapped[datetime] = mapped_column(DateTime, server_default=sql_functions.now(), nullable=False)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True,
+                                     default=lambda: str(uuid4()))
+    # ondelete="SET NULL" — Transaction silinince NULL olur, Decision kalsın
+    transaction_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("transactions.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    date: Mapped[datetime] = mapped_column(
+        DateTime, server_default=text("CURRENT_TIMESTAMP"), nullable=False)
     asset_symbol: Mapped[str] = mapped_column(String(20), nullable=False)
-    action: Mapped[str] = mapped_column(String(10), nullable=False)        # BUY, SELL, HOLD
-    rationale: Mapped[str] = mapped_column(String(5000), nullable=True)   # Metin alanı
-    sentiment: Mapped[str] = mapped_column(String(30), nullable=True)     # FOMO, STRATEGIC, PANIC, DIVIDEND
+    action: Mapped[str] = mapped_column(String(10), nullable=False)
+    rationale: Mapped[str] = mapped_column(String(5000), nullable=True)
+    sentiment: Mapped[str] = mapped_column(String(30), nullable=True)
     target_price: Mapped[float | None] = mapped_column(Float, nullable=True)
     target_date: Mapped[date | None] = mapped_column(Date, nullable=True)
-    status: Mapped[str] = mapped_column(String(20), default="OPEN")       # OPEN, REVIEWED, EXPIRED
+    status: Mapped[str] = mapped_column(String(20), default="OPEN")
     ai_retrospective: Mapped[str | None] = mapped_column(String(5000), nullable=True)
 
-    transaction: Mapped[Transaction | None] = relationship("Transaction", back_populates="decision")
+    # Navigation
+    transaction: Mapped[Transaction | None] = relationship(
+        "Transaction", back_populates="decision")
+    # Decision silinince ShadowPortfolio'lar da silinir (cascade="delete")
     shadow_portfolios: Mapped[list["ShadowPortfolio"]] = relationship(
-        "ShadowPortfolio", back_populates="decision", cascade="delete"
+        "ShadowPortfolio",
+        back_populates="decision",
+        cascade="delete",
     )
 
 
@@ -83,15 +122,20 @@ class Decision(Base):
 class ShadowPortfolio(Base):
     __tablename__ = "shadow_portfolios"
 
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
-    decision_id: Mapped[str] = mapped_column(String(36), ForeignKey("decisions.id"), nullable=False)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True,
+                                     default=lambda: str(uuid4()))
+    decision_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("decisions.id"), nullable=False)
     asset_symbol: Mapped[str] = mapped_column(String(20), nullable=False)
-    simulated_action: Mapped[str] = mapped_column(String(20), nullable=False)  # HELD_INSTEAD, BOUGHT_INSTEAD
-    entry_date: Mapped[datetime] = mapped_column(DateTime, server_default=sql_functions.now(), nullable=False)
+    simulated_action: Mapped[str] = mapped_column(
+        String(20), nullable=False)  # HELD_INSTEAD, BOUGHT_INSTEAD
+    entry_date: Mapped[datetime] = mapped_column(
+        DateTime, server_default=text("CURRENT_TIMESTAMP"), nullable=False)
     entry_price: Mapped[float] = mapped_column(Float, nullable=False)
     quantity: Mapped[float] = mapped_column(Float, nullable=False)
 
-    decision: Mapped[Decision] = relationship("Decision", back_populates="shadow_portfolios")
+    decision: Mapped["Decision"] = relationship("Decision",
+                                                back_populates="shadow_portfolios")
 
 
 # ---------------------------------------------------------------------------
@@ -105,36 +149,61 @@ class MacroData(Base):
     gold_try: Mapped[float | None] = mapped_column(Float, nullable=True)
     gold_usd: Mapped[float | None] = mapped_column(Float, nullable=True)
     sp500: Mapped[float | None] = mapped_column(Float, nullable=True)
-    tr_cpi: Mapped[float | None] = mapped_column(Float, nullable=True)   # TÜİK TÜFE Endeksi
-    us_cpi: Mapped[float | None] = mapped_column(Float, nullable=True)   # US CPI Endeksi
+    tr_cpi: Mapped[float | None] = mapped_column(Float, nullable=True)
+    us_cpi: Mapped[float | None] = mapped_column(Float, nullable=True)
 
 
 # ---------------------------------------------------------------------------
 # Engine & session
 # ---------------------------------------------------------------------------
 
-_engine = None
-_SessionFactory = None
+_engine: "create_engine | None" = None
+_SessionFactory: "sessionmaker | None" = None
+
+
+def _set_sqlite_pragma(dbapi_connection, connection_record) -> None:
+    """SQLite connection oluşturulduğunda PRAGMA foreign_keys ve WAL uygula."""
+    cursor = dbapi_connection.cursor()
+    try:
+        cursor.execute("PRAGMA foreign_keys = ON")
+        cursor.execute("PRAGMA journal_mode = WAL")
+    finally:
+        cursor.close()
 
 
 def get_engine():
-    """Lazy engine; tek instance boyunca same engine used."""
+    """
+    Lazy engine; tek instance boyunca aynı engine kullanılır.
+    config.DATABASE_URL kullanılır (DB_NAME kaldırıldı — Prompt 6).
+    SQLite için PRAGMA foreign_keys=ON + journal_mode=WAL + check_same_thread=False.
+    """
     global _engine
     if _engine is None:
-        _engine = create_engine(f"sqlite:///{DB_NAME}", echo=False)
+        _engine = create_engine(
+            config.DATABASE_URL,
+            echo=False,
+            connect_args={"check_same_thread": False},
+        )
+        # SQLite PRAGMA'ları — her yeni connection'da otomatik uygulanır
+        event.listen(_engine, "connect", _set_sqlite_pragma)
+        # Tabloları oluştur (development; production'da Alembic yönetir)
         Base.metadata.create_all(_engine)
     return _engine
 
 
 def get_session():
-    """Yeni bir session döndürür."""
+    """Yeni bir session döndürür (her çağrı yeni session)."""
     global _SessionFactory
     if _SessionFactory is None:
         _SessionFactory = sessionmaker(bind=get_engine())
     return _SessionFactory()
 
 
-def init_db():
-    """DB dosyasını oluşturur (zorunlu değil — get_engine() otomatik yapar)."""
+def init_db() -> None:
+    """
+    Uygulama başlangıcında çağrılır (lifespan içinde).
+    Engine ve tabloları ensures'ler; gelişmiş kullanımda Alembic
+    upgrade head ileSubstitute edilebilir.
+    """
     get_engine()
-    print(f"[db] Database ready: {DB_NAME}")
+    logger.info("Database ready (DATABASE_URL: %s)", config.DATABASE_URL)

@@ -5,10 +5,10 @@ const API = window.location.origin;   // FastAPI aynı port'ta çalışır
 
 /* ── Helpers ──────────────────────────────────────────────────────── */
 const $ = (sel, ctx = document) => ctx.querySelector(sel);
-const el = (tag, cls, html) => {
+const el = (tag, cls, text) => {
   const e = document.createElement(tag);
   if (cls) e.className = cls;
-  if (html != null) e.innerHTML = html;
+  if (text != null) e.textContent = text;
   return e;
 };
 function toast(msg, type = 'info', dur = 3500) {
@@ -26,8 +26,8 @@ function req(path, params = {}) {
     return r.json();
   });
 }
-function fmtTL(n) {
-  return new Intl.NumberFormat('tr-TR', { maximumFractionDigits: 0 }).format(n ?? 0) + ' ₺';
+function fmtTL(n, currency = 'TRY') {
+  return new Intl.NumberFormat('tr-TR', { style: 'currency', currency, maximumFractionDigits: 0 }).format(n ?? 0);
 }
 function fmtPct(v) {
   return (v == null ? '—' : (v >= 0 ? '+' : '') + v.toFixed(2) + '%');
@@ -169,12 +169,33 @@ async function loadDecisions() {
   }
 }
 
+async function apiFetch(path, opts = {}) {
+  const u = new URL(API + path);
+  for (const [k, v] of Object.entries(opts.params || {}))
+    if (v !== undefined && v !== null) u.searchParams.set(k, String(v));
+  const res = await fetch(u.toString(), {
+    method: opts.method || 'GET',
+    headers: { 'Content-Type': 'application/json', ...opts.headers },
+    body: opts.body ? JSON.stringify(opts.body) : undefined,
+  });
+  if (!res.ok) {
+    const detail = await res.json().catch(() => ({}));
+    const msg = detail.detail || detail.message || `HTTP ${res.status}`;
+    throw new Error(msg);
+  }
+  return res.json();
+}
+
 async function createDecision(formData) {
+  const body = {};
+  for (const [k, v] of formData.entries()) {
+    if (v === '' || v == null) continue;
+    body[k] = v;
+  }
   try {
-    await fetch(API + '/api/decisions', {
+    await apiFetch('/api/decisions', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(Object.fromEntries(formData)),
+      body,
     });
     toast('Karar kaydedildi', 'success');
     $('#decisionModal').hidden = true;
