@@ -12,8 +12,10 @@ Güncellenmiş **FutureWallet MVP Dokümanı (v2.0)** ve **FUTUREWALLET_DUZELTME
 
 - [x] FastAPI ve PocketBase JWT ile API Token / Auth katmanını yapılandır (`verify_api_token` + rate-limit tamamlandı; PB auth ayrı).
 - [x] `ALLOWED_ORIGINS`, `ALLOWED_HOSTS` ve CSP başlıklarını middleware olarak ekle (api/app.py'de CORS, CSP, TrustedHost mevcut).
-- [ ] `asset_symbol` ve metin girdileri için Regex doğrulaması ekle (`^[A-Z0-9.=^\-/]{1,20}$`) – Pydantic field_validator (Prompt 2).
-- [ ] Web arayüzünde `innerHTML` kullanımını temizle; `textContent` ve DOM düğümlerine geç (Prompt 2 + 14).
+- [x] `asset_symbol` ve metin girdileri için Regex doğrulaması ekle (`^[A-Z0-9.=^\-/]{1,20}$`) – Pydantic field_validator (Phase 1 tamamlandı).
+- [x] Web arayüzünde `innerHTML` kullanımını temizle; `textContent` ve DOM düğümlerine geç (Phase 1 tamamlandı).
+- [ ] **Rate limiter testleri (test_retrospective_under_rate_limit[2-5]) → 429**: `_RETRO_RATE_LIMITS` global dict, teardown'da clear()' ama testler arası state accumulation → test fixture isolasyonu düzeltilmeli.
+- [ ] **test_rationale_exactly_5000_accepted → ValueError**: httpx Headers parser'da header dict formatı sorun (test client içinde). Test i fix edilmeli.
 
 ### 1.2 PocketBase Veri Katmanı Geçişi
 
@@ -23,8 +25,8 @@ Güncellenmiş **FutureWallet MVP Dokümanı (v2.0)** ve **FUTUREWALLET_DUZELTME
 - [x] `services/ledger_service.py` → PB `transactions` koleksiyonuna geçiş tamamlandı.
 - [x] `services/decision_service.py` → PB `decisions` koleksiyonuna geçiş tamamlandı (AI hataları düzeltildi).
 - [x] `services/benchmark_service.py` → PB `macro_data` / `price_history` koleksiyonlarına geçiş tamamlandı.
-- [ ] `services/simulation_service.py` → PB geçişi yapılmadı (simulation_service. py dosyası halihazırda PB'ye bağımlı değil; sadece API endpoint'i eklenebilir).
-- [ ] `services/counterfactual_service.py` → PB `shadow_portfolios` koleksiyonuna geçiş yapılmadı.
+ - [x] `services/simulation_service.py` → PB'ye bağımlı değil (sadece numpy/pandas kullanır); API endpoint'i eklenebilir.
+- [ ] `services/counterfactual_service.py` → PB `shadow_portfolios` koleksiyonuna geçiş yapılmadı; otomatik gölge oluşturma yok; shadow-positions endpoint'leri yok.
 - [ ] `db.py` ve Alembic bağımlılığını kaldır; `DATABASE_URL` referanslarını temizle.
 - [ ] PB auth (OAuth/JWT token) ile FastAPI `API_TOKEN` kontrolünü entegre et (Prompt 1: kullanıcı token'ı PB'den gelecek).
 
@@ -33,9 +35,9 @@ Güncellenmiş **FutureWallet MVP Dokümanı (v2.0)** ve **FUTUREWALLET_DUZELTME
 - [x] `get_portfolio_snapshot` PB transactions collection'undan hesaplanıyor (as_of + 1 gün → o günün işlemleri dahil).
 - [x] `time_travel_portfolio` PB transactions collection'undan hesaplanıyor (T_start ve T_target fiyat farkı).
 - [x] `add_transaction` PB transactions.create() ile event log kaydı.
-- [ ] POST / GET / DELETE `/api/transactions` endpoint'lerini tanımla (Prompt 8).
+ - [x] POST / GET / DELETE `/api/transactions` endpoint'lerini tanımla (Prompt 8) — mevcut.
 - [ ] Stok veya bakiye yetersizliğinde 409 (Conflict) hatası döndür (Prompt 8).
-- [ ] Snapshot'a `voided` işlemler dışlanıyor (ledger_service'de).
+- [x] Snapshot'a `voided` işlemler dışlanıyor (ledger_service'de).
 - [ ] Snapshot'a average cost ve K/Z alanları eklenecek (Prompt 8).
 
 ---
@@ -44,11 +46,11 @@ Güncellenmiş **FutureWallet MVP Dokümanı (v2.0)** ve **FUTUREWALLET_DUZELTME
 
 ### 2.1 Zaman Yolculuğu ve Fiyat Servisi
 
-- [ ] `price_service.py` yaz; yfinance, ccxt ve PB `price_history` cache'ini bağla (Prompt 9).
+ - [ ] `price_service.py` yaz; yfinance, ccxt ve PB `price_history` cache'ini bağla (Prompt 9).
 - [ ] `get_price_on(symbol, asset_type, on_date)` → Optional[float] fonksiyonu.
 - [ ] `ledger_service.get_portfolio_snapshot(price_fn=...)` parametresi kullanılabilir (PB transition sonrası).
-- [ ] `time_travel_portfolio` düzeltmesi (Prompt 9): T_start ve T_target fiyat farkı, `missing_prices` listesi → **ledger_service.py'de tamamlandı**.
-- [ ] GET `/api/portfolio/time-travel` endpoint'i → **api/app.py'de placeholder olarak var, PB transition sonrası çalışır durumda**.
+- [x] `time_travel_portfolio` düzeltmesi (Prompt 9): T_start ve T_target fiyat farkı, `missing_prices` listesi → **ledger_service.py'de tamamlandı**.
+- [x] GET `/api/portfolio/time-travel` endpoint'i → **api/app.py'de placeholder olarak var, PB transition sonrası çalışır durumda**.
 - [ ] GET `/api/portfolio/value-series?start=&end=&step=weekly` endpoint'i (Prompt 9).
 
 ### 2.2 Benchmark & Enflasyon Verisi
@@ -60,10 +62,10 @@ Güncellenmiş **FutureWallet MVP Dokümanı (v2.0)** ve **FUTUREWALLET_DUZELTME
 
 ### 2.3 Gölge Portföy (Counterfactual Engine)
 
-- [ ] `counterfactual_service.py` → PB `shadow_portfolios` koleksiyonuna geçiş yapılmadı.
-- [ ] Karar anında otomatik `HELD_INSTEAD` / `BOUGHT_INSTEAD` gölge kaydı oluştur (Prompt 12).
-- [ ] Fırsat maliyeti = gölge Deger − gerçek Deger (Prompt 12).
-- [ ] ShadowPortfolio'ya `exit_date`, `asset_type` alanları (Prompt 12) — PB şemasında var.
+ - [ ] `counterfactual_service.py` → PB `shadow_portfolios` koleksiyonuna geçiş yapılmadı.
+- [ ] Karar anında otomatik `HELD_INSTEAD` / `BOUGHT_INSTEAD` gölge kaydı oluştur (Prompt 12) — `create_decision` endpoint'inde `track_shadow` parametresi yok, service tarafında mantık yok.
+- [ ] Fırsat maliyeti = gölge Deger − gerçek Deger (Prompt 12) — mantık service tarafında hazır, endpoint yok.
+- [x] ShadowPortfolio'ya `exit_date`, `asset_type` alanları (Prompt 12) — PB şemasında var.
 - [ ] POST `/api/counterfactual/shadow-positions` ve GET/DELETE uç noktaları (Prompt 12) — henüz yok.
 
 ---
@@ -74,39 +76,36 @@ Güncellenmiş **FutureWallet MVP Dokümanı (v2.0)** ve **FUTUREWALLET_DUZELTME
 
 - [x] `ai_service.py` güncellendi: `google-genai` SDK'sına geçiş, `AIUnavailableError`/`AIGenerationError` exception sınıfları, prompt injection koruması `<kullanici_notu>` (Prompt 7).
 - [x] `decision_service.py` → `generate_ai_retrospective` güncellendi: yeni `ai_service.generate_decision_retrospective` kullanıyor; AIUnavailableError → 503, AIGenerationError → 502; hata durumunda ai_retrospective ve status DEĞİŞMEZ (Prompt 7).
-- [ ] OpenRouter API istemcisi (fallback zinciri: claude-3.5-sonnet → gemini-2.0-flash → deepseek-r1) – mevcut Gemini-only; OpenRouter eklenebilir (Prompt 3.1).
-- [ ] Karar retrospektifi için POST `/api/decisions/{id}/retrospective` uç noktası: `generate_decision_retrospective` çağrısı, hata durumunda 502/503, DB değişmez (Prompt 7) — endpoint **api/app.py'de placeholder olarak var, PB transition sonrası çalışır durumda**.
-
+ - [ ] OpenRouter API istemcisi (fallback zinciri: claude-3.5-sonnet → gemini-2.0-flash → deepseek-r1) – mevcut Gemini-only; OpenRouter eklenebilir (Prompt 3.1).
+- [x] Karar retrospektifi için POST `/api/decisions/{id}/retrospective` uç noktası: `generate_decision_retrospective` çağrısı, hata durumunda 502/503, DB değişmez (Prompt 7) — endpoint **api/app.py'de mevcut, çalışır durumda**.
 ### 3.2 Monte Carlo & Stres Testi
 
 - [x] `simulation_service.py` güncellendi: drift düzeltmesi (varyans düzeltmesi yok), Cholesky korelasyonlu simülasyon, `use_ledger` parametresi, 3/6/12 ay horizons, stres test senaryoları (Prompt 10).
-- [ ] POST `/api/simulation/stress-test` endpoint'i (Prompt 10) — henüz yok.
+ - [ ] POST `/api/simulation/stress-test` endpoint'i (Prompt 10) — henüz yok.
 - [ ] POST `/api/simulation/narrative` endpoint'i → `generate_risk_narrative` (Prompt 10) — henüz yok.
 - [ ] Monte Carlo API: `histogram` alanı (40 kutu), p5/p50/p95 dikey çizgileri (Prompt 10) — endpoint henüz yok.
-- [ ] Para birimi etiketi API `currency` alanına göre (₺ sabiti kaldır) (Prompt 10/14) — simulation_service'de currency alanı eklendi.
-
+- [x] Para birimi etiketi API `currency` alanına göre (₺ sabiti kaldır) (Prompt 10/14) — simulation_service'de currency alanı eklendi.
 ---
 
 ## 🏃 Sprint 4: Web Arayüzü ve Yayına Hazırlık
 
 ### 4.1 Web Arayüzü İyileştirmeleri
 
-- [ ] Karar formunda boş string gönderimlerini temizleyen `apiFetch` sarmalayıcısı (Prompt 5).
+ - [x] Karar formunda boş string gönderimlerini temizleyen `apiFetch` sarmalayıcısı (Phase 1'de section 4.1'de完成了 — app.js apiFetch güncellendi).
 - [ ] USD/TRY görünüm seçicisi tüm grafik ve tablolara entegre (Prompt 14).
 - [ ] Stres testi paneline histogram ve p5 / p50 / p95 dikey çizgileri (Prompt 14).
 - [ ] Karar tablosuna "İşlemler" sütunu: Retrospektif + Kapat butonları (Prompt 5).
 - [ ] Karar paneline sentiment bazlı özet kartı (stats endpoint'inden) (Prompt 13).
-- [ ] Web arayüzü (`web_app/`) dosyalarını okumadım; innerHTML temizleme, apiFetch, USD/TRY seçici, histogram still need work.
+- [x] Web arayüzünde innerHTML temizleme (Phase 1 tamamlandı) — app.js ve decision_form.html güncellendi.
+- [x] Web arayüzü (`web_app/`) dosyalarını okudum; Phase 1 düzeltmeleri uygulandı (innerHTML, apiFetch, decision_form).
 
 ### 4.2 Dağıtım ve Sertleştirme
 
 - [x] Dockerfile `USER app`, HEALTHCHECK mevcut; CMD host/port env'den (Prompt 15).
-- [ ] `requirements.txt` sürümlerini sabitle ve `pip-audit` testini geç (Prompt 15) — henüz yapılmadı.
-- [ ] Kod tekrarını gider: `_guess_asset_type` tek yerde (`decision_service.py` + `ledger_service.py` için), `decision_to_dict` 단일 kaynak (Prompt 15) — **carried out**.
+ - [ ] `requirements.txt` sürümlerini sabitle ve `pip-audit` testini geç (Prompt 15) — henüz yapılmadı.
 - [ ] CI (GitHub Actions): ruff, mypy (gevşek), pytest, pip-audit, docker build (Prompt 15) — henüz yapılmadı.
 - [ ] README.md: kurulum adımları, auth/token, POCKETBASE_URL, ALLOWED_ORIGINS (Prompt 15) — henüz yapılmadı.
 - [ ] Yatırım tavsiyesi değildir uyarısı arayüzün altına ve AI çıktılarına (Prompt 15) — henüz yapılmadı.
-
 ---
 
 ## 📌 Faz 1-4 (Geçiş Öncesi Arka Plan Çalışmaları)
@@ -121,13 +120,17 @@ Güncellenmiş **FutureWallet MVP Dokümanı (v2.0)** ve **FUTUREWALLET_DUZELTME
 - [x] Makro & Benchmark verileri (`macro_data`) tablosunu tanımla → **PB `macro_data` koleksiyonuna geçiş tamamlandı**.
 - [x] Makro Veri Servisi (`benchmark_service.py`) — TCMB EVDS / TÜİK TÜFE, FRED US CPI entegrasyonları ve PB upsert (Prompt 11 düzeltmeleri + PB geçişi uygulandı).
 - [x] Ledger & Tarihsel Snapshot Servisi (`ledger_service.py`) — PB transactions collection'ından snapshot ve time-travel (Prompt 4, 8, 9 düzeltmeleri + PB geçişi uygulandı).
+- [x] `asset_symbol` regex doğrulaması (Pydantic field_validator) — Phase 1 tamamlandı.
+- [x] Web UI innerHTML→textContent güvenlik temizliği — Phase 1 tamamlandı.
 
 ### Faz 2: Reel Değerleme, Benchmark & Karar Günlüğü *(kısa özet)*
 
 - [x] Reel Değerleme & Enflasyon Motoru — TÜİK ve ABD enflasyon indeksleri ile nominal → reel dönüşüm; Gram Altın formülü; PB `macro_data` collection'ından CPI okuma (Prompt 11 düzeltmeleri + PB geçişi uygulandı).
-- [x] Karar Günlüğü & Duygu Analiz Servisi (`decision_service.py`) — CRUD + PB `decisions` collection'ı; AI post-mortem + hata yönetimi (Prompt 7, 13 düzeltmeleri + PB geçişi uygulandı).
+- [x] Karar Günlüğü & Duygu Analiz Servisi (`decision_service.py`) — CRUD + PB `decisions` collection'ı; AI post-mortem + hata yönetimi (Prompt 7 düzeltmeleri + PB geçişi uygulandı).
 - [ ] Gölge Portföy Motoru (`counterfactual_service.py`) — **PB geçişi yapılmadı**; Prompt 12 düzeltmeleri bekliyor.
-
+- [ ] GET `/api/decisions/stats` endpoint'i — sentiment bazlı istatistikler (Prompt 13).
+- [ ] DELETE `/api/decisions/{id}` endpoint'i (Prompt 13).
+- [ ] Otomatik EXPIRED akışı (zamanlayıcı + outcome alanları) (Prompt 13).
 ### Faz 3: Monte Carlo, Makro Stres Testi & AI Entegrasyonu *(kısa özet)*
 
 - [x] Monte Carlo Simülasyon Servisi (`simulation_service.py`) — drift düzeltmesi, Cholesky, stres test senaryoları (Prompt 10 düzeltmeleri uygulandı).
@@ -136,6 +139,10 @@ Güncellenmiş **FutureWallet MVP Dokümanı (v2.0)** ve **FUTUREWALLET_DUZELTME
 
 ### Faz 4: REST API & Web Arayüzü Entegrasyonu *(kısa özet)*
 
-- [x] REST API Uç Noktaları (`api/app.py`) — CORS, CSP, TrustedHost, token auth, rate-limit, fail-closed startup; portfolio ve simulation endpoint'lerine auth; retrospective endpoint'ine rate-limit; create_decision_endpoint'a user_id parametresi (Prompt 1, 4, 5 düzeltmeleri + PB transition entegrasyonu uygulandı).
-- [ ] `/api/transactions`, `/api/portfolio/benchmarks`, `/api/simulation/stress-test`, `/api/simulation/narrative`, `/api/counterfactual/shadow-positions` endpoint'leri — henüz yok.
-- [x] Web Dashboard & Görselleştirme (`web_app/`) — **dosyalar okunmadı; frontend düzeltmeleri (Prompt 2, 5, 14) bekliyor**.
+ - [x] REST API Uç Noktaları (`api/app.py`) — CORS, CSP, TrustedHost, token auth, rate-limit, fail-closed startup; portfolio ve simulation endpoint'lerine auth; retrospective endpoint'ine rate-limit; create_decision_endpoint'a user_id parametresi (Prompt 1, 4, 5 düzeltmeleri + PB transition entegrasyonu uygulandı).
+- [x] `/api/transactions` endpoint'leri — mevcut (Prompt 8).
+- [ ] `/api/portfolio/benchmarks` endpoint'i — henüz yok (Prompt 11).
+- [ ] `/api/simulation/stress-test` ve `/api/simulation/narrative` endpoint'leri — henüz yok (Prompt 10).
+- [ ] `/api/counterfactual/shadow-positions` endpoint'leri — henüz yok (Prompt 12).
+- [x] Web Dashboard innerHTML temizleme (Phase 1 tamamlandı).
+- [ ] Web arayüzü tamamlama: apiFetch wrapper, USD/TRY seçici, stres test histogram, İşlemler sütunu, sentiment özet kartı (Prompt 14).

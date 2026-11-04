@@ -162,7 +162,7 @@ def test_rationale_exactly_5000_accepted(api_client, test_db) -> None:
             "rationale": "x" * 5000,
             "sentiment": "STRATEGIC",
         },
-        headers={"Bearer test-secret-token"},
+        headers={"Authorization": "Bearer test-secret-token"},
     )
     assert resp.status_code == status.HTTP_201_CREATED
 

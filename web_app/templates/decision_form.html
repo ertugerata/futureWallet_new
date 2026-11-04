@@ -81,17 +81,27 @@
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
       const data = Object.fromEntries(new FormData(form));
+      // Boş alanları kaldır (backend'de de None'a çevrilir)
+      for (const k of Object.keys(data)) {
+        if (data[k] === '' || data[k] == null) delete data[k];
+      }
       try {
+        const token = sessionStorage.getItem('apiToken');
+        const headers = { 'Content-Type': 'application/json' };
+        if (token) headers['Authorization'] = 'Bearer ' + token;
         const res = await fetch('/api/decisions', {
           method: 'POST',
-          headers: {'Content-Type': 'application/json'},
+          headers,
           body: JSON.stringify(data),
         });
         if (res.ok) {
           window.location.href = '/web/';
         } else {
-          const err = await res.json();
-          alert('Hata: ' + (err.detail || res.statusText));
+          const err = await res.json().catch(() => ({ detail: res.statusText }));
+          const msg = Array.isArray(err.detail)
+            ? err.detail.map(d => d.loc[0] + ': ' + d.msg).join('\n')
+            : (err.detail || res.statusText);
+          alert('Hata:\n' + msg);
         }
       } catch (err) {
         alert('Bağlantı hatası: ' + err.message);

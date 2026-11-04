@@ -139,8 +139,29 @@ def mock_evds_failure() -> Generator[MagicMock, None, None]:
         yield mock
 
 
-# ---------------------------------------------------------------------------
-# API Client fixture'ı
+@pytest.fixture(scope="function")
+def mock_pocketbase() -> Generator[MagicMock, None, None]:
+    """
+    PocketBase client mock — testlerde gerçek PB sunucusuna bağlanmak zorunda kalmaz.
+    get_client() → MagicMock(collection(...).create/get_list/retrieve/update/delete).
+    """
+    mock_client = MagicMock()
+
+    def _make_collection(name: str) -> MagicMock:
+        col = MagicMock()
+        col.create.return_value = {"id": "mock-id", "create_time": "2024-01-01T00:00:00Z"}
+        col.get_list.return_value = []
+        col.retrieve.return_value = None
+        col.update.return_value = {"id": "mock-id"}
+        col.delete.return_value = True
+        return col
+
+    mock_client.collection.side_effect = _make_collection
+    mock_client.collection_exists.return_value = True
+
+    with patch("services.pocketbase.get_client", return_value=mock_client, create=True):
+        with patch("services.pocketbase.PocketBaseClient", return_value=mock_client, create=True):
+            yield mock_client
 # ---------------------------------------------------------------------------
 
 
@@ -150,6 +171,7 @@ def api_client(
     mock_yfinance,
     mock_ccxt,
     mock_gemini,
+    mock_pocketbase,
 ) -> Generator[TestClient, None, None]:
     """
     Tam test istemcisi: in-memory DB + tüm dış servisler mock'lanmış.
@@ -165,12 +187,13 @@ def api_client(
 
     _orig_token = config_mod.API_TOKEN
     _orig_origins = config_mod.ALLOWED_ORIGINS
+    _orig_hosts = config_mod.ALLOWED_HOSTS
     _orig_db_url = config_mod.DATABASE_URL
 
     config_mod.API_TOKEN = "test-secret-token"
     config_mod.ALLOWED_ORIGINS = "http://localhost:8000"
+    config_mod.ALLOWED_HOSTS = "localhost,127.0.0.1,testserver"
     config_mod.DATABASE_URL = "sqlite:///:memory:"
-
     from api.app import app
 
     with TestClient(app) as client:
@@ -179,4 +202,7 @@ def api_client(
     # Config'u geri yükle
     config_mod.API_TOKEN = _orig_token
     config_mod.ALLOWED_ORIGINS = _orig_origins
-    config_mod.DATABASE_URL = _orig_db_url
+    config_mod.ALLOWED_HOSTS = _orig_hosts
+    # Rate limit state'ini temizle (testler arasında kalıcık önle)
+    from api.app import _RETRO_RATE_LIMITS
+    _RETRO_RATE_LIMITS.clear()

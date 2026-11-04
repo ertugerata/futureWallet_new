@@ -21,7 +21,10 @@ function req(path, params = {}) {
   const u = new URL(API + path);
   for (const [k, v] of Object.entries(params))
     if (v !== undefined && v !== null) u.searchParams.set(k, String(v));
-  return fetch(u.toString()).then(r => {
+  const headers = { 'Content-Type': 'application/json' };
+  const token = sessionStorage.getItem('apiToken');
+  if (token) headers['Authorization'] = 'Bearer ' + token;
+  return fetch(u.toString(), { headers }).then(r => {
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     return r.json();
   });
@@ -45,7 +48,7 @@ async function checkHealth() {
   try {
     const r = await fetch(API + '/health');
     if (r.ok) { pulse.className = 'pulse ok';   label.textContent = 'API: online'; }
-    else      { pulse.className = 'pulse fail'; label.textContent = 'API: hatasız'; }
+    else      { pulse.className = 'pulse fail'; label.textContent = 'API: hata'; }
   } catch (e) {
     pulse.className = 'pulse fail'; label.textContent = 'API: erişilemez';
   }
@@ -134,11 +137,21 @@ $('#snapshotDate').addEventListener('change', loadSnapshot);
 /* ── Panel 2: Decisions ───────────────────────────────────────────── */
 async function loadDecisions() {
   const tbody = $('#decisionsBody');
-  tbody.innerHTML = '<tr><td colspan="8" class="empty-row">Yükleniyor…</td></tr>';
+  tbody.innerHTML = '';
+  const loaderRow = el('tr');
+  const loaderTd = el('td', 'empty-row', 'Yükleniyor…');
+  loaderTd.colSpan = 8;
+  loaderRow.appendChild(loaderTd);
+  tbody.appendChild(loaderRow);
   try {
     const list = await req('/api/decisions');
     if (!list || list.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="8" class="empty-row">Karar yok — yukarıdaki + butonuna tıklayın.</td></tr>';
+      tbody.textContent = '';
+      const emptyRow = el('tr');
+      const emptyTd = el('td', 'empty-row', 'Karar yok — yukarıdaki + butonuna tıklayın.');
+      emptyTd.colSpan = 8;
+      emptyRow.appendChild(emptyTd);
+      tbody.appendChild(emptyRow);
       return;
     }
     tbody.innerHTML = '';
@@ -221,12 +234,28 @@ $('#decisionForm').addEventListener('submit', e => {
 async function runCounterfactual() {
   const id = $('#cfDecisionId').value.trim();
   const elWrap = $('#cfResult');
-  if (!id) { elWrap.innerHTML = '<div class="cf-empty">Karar ID girin.</div>'; return; }
-  elWrap.innerHTML = '<div class="cf-empty">Yükleniyor…</div>';
+  elWrap.innerHTML = '';
+  if (!id) {
+    const msg = document.createElement('div');
+    msg.className = 'cf-empty';
+    msg.textContent = 'Karar ID girin.';
+    elWrap.appendChild(msg);
+    return;
+  }
+  const loading = document.createElement('div');
+  loading.className = 'cf-empty';
+  loading.textContent = 'Yükleniyor…';
+  elWrap.appendChild(loading);
   try {
     const result = await req('/api/counterfactual', { decision_id: id });
-    if (result.error) { elWrap.innerHTML = `<div class="cf-empty">${result.error}</div>`; return; }
-    const rp = result.real_portfolio_value ?? 0;
+    if (result.error) {
+      elWrap.innerHTML = '';
+      const err = document.createElement('div');
+      err.className = 'cf-empty';
+      err.textContent = result.error;
+      elWrap.appendChild(err);
+      return;
+    }
     const sp = result.shadow_portfolio_value ?? 0;
     const op = result.opportunity_cost ?? 0;
     const oppct = result.opportunity_cost_pct ?? 0;
@@ -267,8 +296,14 @@ async function runMonteCarlo() {
   const sims   = parseInt($('#simSims').value) || 10000;
   $('#btnSimRun').disabled = true;
   $('#btnSimRun').textContent = 'Çalıştırılıyor…';
-  $('#mcSummary').innerHTML = '<div class="mc-empty">Simülasyon çalıştırılıyor…</div>';
-  $('#aiNarrative').innerHTML = '<div class="ai-empty">AI analiz yükleniyor…</div>';
+  const mcSummary = $('#mcSummary');
+  mcSummary.innerHTML = '';
+  const loadingSum = el('div', 'mc-empty', 'Simülasyon çalıştırılıyor…');
+  mcSummary.appendChild(loadingSum);
+  const aiNarrative = $('#aiNarrative');
+  aiNarrative.innerHTML = '';
+  const loadingAI = el('div', 'ai-empty', 'AI analiz yükleniyor…');
+  aiNarrative.appendChild(loadingAI);
   $('#mcChart').parentElement.style.minHeight = '300px';
 
   try {
@@ -290,8 +325,8 @@ async function runMonteCarlo() {
     sum.appendChild(mkC('%5 Bear (En kötü)',  'p5',  'p5'));
     sum.appendChild(mkC('%50 Medyan (Base)', 'p50', 'p50'));
     sum.appendChild(mkC('%95 Bull (En iyi)', 'p95', 'p95'));
-    $('#mcSummary').innerHTML = '';
-    $('#mcSummary').appendChild(sum);
+    mcSummary.innerHTML = '';
+    mcSummary.appendChild(sum);
 
     // Histogram placeholder (tek No0st buyout dağılımı gösterimi)
     const canvas = $('#mcChart');
@@ -317,16 +352,23 @@ async function runMonteCarlo() {
 
     // AI narrative
     if (result.narrative) {
-      $('#aiNarrative').innerHTML = '<div class="ai-content">' + result.narrative.replace(/</g, '&lt;') + '</div>';
+      const content = document.createElement('div');
+      content.className = 'ai-content';
+      content.textContent = result.narrative;
+      $('#aiNarrative').appendChild(content);
     } else {
-      // narrative yoksa manuel prompt gösterme (endpoint henüz döndürmüyor olabilir)
-      $('#aiNarrative').innerHTML =
-        '<div class="ai-content">📊 Simülasyon Özeti:\n' +
-        `   Başlangıç: ${fmtTL(init)} → Medyan ${fmtTL(pv.p50 ?? 0)} (${fmtPct(gpct)})\n` +
-        `   Bear  %5:  ${fmtTL(pv.p5  ?? 0)}\n` +
-        `   Bull  %95: ${fmtTL(pv.p95 ?? 0)}\n\n` +
-        `   Öneri: AI risk anlatısı için Google API key ekleyin.\n` +
-        `   (config.py → GOOGLE_API_KEY)\n</div>`;
+      const content = document.createElement('div');
+      content.className = 'ai-content';
+      content.textContent = [
+        '📊 Simülasyon Özeti:',
+        '   Başlangıç: ' + fmtTL(init) + ' → Medyan ' + fmtTL(pv.p50 ?? 0) + ' (' + fmtPct(gpct) + ')',
+        '   Bear  %5:  ' + fmtTL(pv.p5  ?? 0),
+        '   Bull  %95: ' + fmtTL(pv.p95 ?? 0),
+        '',
+        '   Öneri: AI risk anlatısı için Google API key ekleyin.',
+        '   (config.py → GOOGLE_API_KEY)',
+      ].join('\n');
+      $('#aiNarrative').appendChild(content);
     }
     toast('Monte Carlo tamamlandı', 'success');
   } catch (e) {

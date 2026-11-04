@@ -126,9 +126,8 @@ class DecisionCreateRequest(BaseModel):
     rationale: Optional[str] = Field(
         None, max_length=5000, description="Karar gerekçesi (max 5000 karakter)"
     )
-    sentiment: Optional[str] = Field(
-        None,
-        description="FOMO | STRATEGIC | PANIC | DIVIDEND | RISK_REDUCTION",
+    sentiment: Optional[Literal["FOMO", "STRATEGIC", "PANIC", "DIVIDEND", "RISK_REDUCTION", "OPPORTUNITY"]] = Field(
+        None, description="FOMO | STRATEGIC | PANIC | DIVIDEND | RISK_REDUCTION | OPPORTUNITY"
     )
     target_price: Optional[float] = Field(
         None, gt=0, description="Hedef fiyat (pozitif)"
@@ -145,7 +144,12 @@ class DecisionCreateRequest(BaseModel):
     def normalize_sentiment(cls, v: Optional[str]) -> Optional[str]:
         if v is None or v == "":
             return None
-        return v.upper()
+        if isinstance(v, str):
+            v = v.upper()
+            if v not in ("FOMO", "STRATEGIC", "PANIC", "DIVIDEND", "RISK_REDUCTION", "OPPORTUNITY"):
+                raise ValueError(f"Geçersiz sentiment: {v}. Kabul: FOMO, STRATEGIC, PANIC, DIVIDEND, RISK_REDUCTION, OPPORTUNITY")
+            return v
+        return v
 
     @field_validator("target_date", mode="before")
     @classmethod
@@ -153,13 +157,12 @@ class DecisionCreateRequest(BaseModel):
         if v is None or v == "":
             return None
         return v
-
 DecisionCreateRequest.model_rebuild()
 class DecisionUpdateRequest(BaseModel):
     rationale: Optional[str] = Field(
         None, max_length=5000, description="Yeni gerekçе (max 5000 karakter)"
     )
-    sentiment: Optional[str] = Field(
+    sentiment: Optional[Literal["FOMO", "STRATEGIC", "PANIC", "DIVIDEND", "RISK_REDUCTION", "OPPORTUNITY"]] = Field(
         None, description="FOMO | STRATEGIC | PANIC | DIVIDEND | RISK_REDUCTION"
     )
     target_price: Optional[float] = Field(None, gt=0)
@@ -173,13 +176,19 @@ class DecisionUpdateRequest(BaseModel):
     def normalize_sentiment(cls, v: Optional[str]) -> Optional[str]:
         if v is None or v == "":
             return None
-        return v.upper()
+        if isinstance(v, str):
+            v = v.upper()
+            if v not in ("FOMO", "STRATEGIC", "PANIC", "DIVIDEND", "RISK_REDUCTION", "OPPORTUNITY"):
+                raise ValueError(f"Geçersiz sentiment: {v}")
+            return v
+        return v
 
     @field_validator("target_date", mode="before")
     @classmethod
     def empty_date_to_none(cls, v: Any) -> Optional[date]:
         if v is None or v == "":
             return None
+        return v
 DecisionUpdateRequest.model_rebuild()
 
 
@@ -203,7 +212,6 @@ app = FastAPI(
     description="Event-Sourcing portföy, karar günlüğü ve makro simülasyon API'si",
     version="0.1.0",
     lifespan=lifespan,
-    dependencies=[Depends(verify_api_token)] if API_TOKEN else [],
 )
 
 

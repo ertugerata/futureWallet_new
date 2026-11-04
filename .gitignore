@@ -79,3 +79,6 @@ logs/
 *.pem
 *.key
 secrets/
+
+#graphify
+graphify-out/*

@@ -351,11 +351,11 @@ class PocketBaseClient:
             ) from e
 
         self._pb = pocketbase.PocketBase(POCKETBASE_URL)
-        self._admin = pocketbase.Admin(POCKETBASE_URL)
 
-        # Admin auth (kollek. yönetim için; uygulama auth'sı ayrı FastAPI token)
+        # Admin servis: kollek. yönetim için; uygulama auth'sı ayrı FastAPI token
+        self._admin = self._pb.admins
         try:
-            self._admin.login(POCKETBASE_EMAIL, POCKETBASE_PASSWORD)
+            self._admin.auth_with_password(POCKETBASE_EMAIL, POCKETBASE_PASSWORD)
             logger.info("PocketBase admin authenticated (collection management).")
         except Exception as exc:
             logger.warning(
@@ -365,6 +365,10 @@ class PocketBaseClient:
 
         # İş mantığı client'ı ayrı olacak (user auth ile); bu admin client sadece şema/yönetim.
         self._business_client: pocketbase.PocketBase | None = None
+
+    def collection(self, name: str):
+        """PB collection accessor (servis pattern: client.collection('decisions').get_list(...))."""
+        return self._pb.collection(name)
 
     @property
     def client(self) -> Any:
@@ -383,7 +387,7 @@ class PocketBaseClient:
     async def collection_exists(self, name: str) -> bool:
         """İlgili koleksiyon PB'de var mı?"""
         try:
-            self._admin.get_collection(name)
+            self._pb.collections.get_one(name)
             return True
         except Exception:
             return False
@@ -395,7 +399,7 @@ class PocketBaseClient:
             logger.debug("Collection '%s' already exists.", name)
             return True
         try:
-            self._admin.create_collection(schema)
+            self._pb.collections.create(body_params=schema)
             logger.info("Collection '%s' created.", name)
             return True
         except Exception as exc:

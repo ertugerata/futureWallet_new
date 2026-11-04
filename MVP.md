@@ -46,12 +46,16 @@ Piyasadaki geleneksel varlık takip uygulamalarından farklı olarak FutureWalle
   * **Duygu Durumu Tag'leri:** `FOMO`, `STRATEGIC`, `PANIC`, `DIVIDEND`, `OPPORTUNITY`.
   * Hedef Fiyat & Beklenen Vade.
 * **AI Post-Mortem (Karar Değerlendirme):** Vade sonunda OpenRouter LLM, kararın arkasındaki gerekçe ile piyasa gerçekleşmesini karşılaştırıp kullanıcıya Türkçe öğrenme notu sunar (*"FOMO kaynaklı alımlarınız ortalama %-12 kaybettirdi"*).
+* **DELETE /api/decisions/{id}:** Kararı fiziksel olarak siler (bağlı gölge pozisyonlar da silinir).
+* **GET /api/decisions/stats:** Sentiment ve action bazında karar istatistikleri (ortalama getiri, hedef tutma oranı).
+* **Otomatik EXPIRED akışı:** Zamanlayıcı (APScheduler) ile vadesi geçmiş OPEN kararlar otomatik olarak EXPIRED yapılır ve outcome alanları doldurulur.
 
 ### 3.3. Modül 3: Gölge Portföy Motoru (Counterfactual / What-If Engine)
 
 * **Karşılaştırmalı Takip:** Kullanıcının sattığı veya almayı düşünüp vazgeçtiği pozisyonlar "Gölge Portföy" olarak kaydedilir.
+* **Otomatik Gölge Oluşturma:** Karar oluşturulduğunda (özellikle SELL işlemiyle ilişkili bir karar varsa) otomatik olarak `HELD_INSTEAD` gölge pozisyonu oluşturulur; kullanıcı manuel olarak `BOUGHT_INSTEAD` gölge pozisyonu da ekleyebilir.
+* **API:** POST/GET/DELETE `/api/counterfactual/shadow-positions` uç noktaları; `GET /api/counterfactual?decision_id=` ile kıyaslama.
 * **Fırsat Maliyeti Hesabı:** Gerçek Portföy Getirisi vs. Gölge Portföy Getirisi kıyası ile karar doğruluğu test edilir.
-
 ### 3.4. Modül 4: Reel Satın Alma Gücü & Multi-Benchmark
 
 * **Nominal vs. Reel Getiri:** TÜİK TÜFE ve US CPI verileriyle enflasyondan arındırılmış net getiri (Real Return).
@@ -59,7 +63,10 @@ Piyasadaki geleneksel varlık takip uygulamalarından farklı olarak FutureWalle
 
 ### 3.5. Modül 5: Monte Carlo & AI Senaryo Motoru
 
-* **Monte Carlo Simülasyonu:** Geçmiş volatilite ve korelasyon verilerine dayanarak 10.000 olasılıksal 3, 6 ve 12 aylık portföy değerleme dağılımları (GBM temsili ile drift çift-varyans düzeltmesi).
+* **Monte Carlo Simülasyonu:** Geçmiş volatilite ve korelasyon verilerine dayanarak 10.000 olasılıksal 3, 6 ve 12 aylık portföy değerleme dağılımları (GBM temsili ile drift düzeltmeli varyans düzeltmesi).
+* **API:** GET `/api/simulation/monte-carlo` → histogram (40 kutu), p5/p50/p95 değerleri, `currency` alanı.
+* **POST /api/simulation/stress-test:** Makro şok senaryoları altında portföy risk dağılımları (p5/p50/p95).
+* **POST /api/simulation/narrative:** Simülasyon sonucu → Türkçe AI risk anlatısı.
 * **Makro Stres Testleri:** Faiz artışı, faiz indirimi, döviz şoku ve küresel durgunluk senaryoları.
 * **AI Risk Anlatısı:** Karmaşık sayısal simülasyon çıktılarını sade Türkçe metin ve risk tavsiyelerine dönüştüren LLM entegrasyonu.
 
@@ -79,16 +86,15 @@ FutureWallet/
 │   ├── simulation_service.py   # Monte Carlo & Stres Testi Engine
 │   ├── ai_service.py           # OpenRouter LLM Karar Yorumlama & Senaryo Anlatısı
 │   └── price_service.py        # yfinance, ccxt, PB price_history cache birleştirici
-├── web_app/                    # Web Arayüzü & Dashboard Components (HTML5 + TailwindCSS + Chart.js)
+├── web_app/                    # Web Arayüzü & Dashboard Components (HTML5 + Jinja2 + Chart.js + JavaScript)
 └── docker-compose.yml          # PocketBase + FastAPI container tanımları
-```
 
 ### Sistem Mimarisi
 
 ```
 +--------------------------------------------------------+
 |                     Frontend (Web UI)                  |
-|          HTML5 + TailwindCSS + Chart.js + JS            |
+          HTML5 + Jinja2 + Chart.js + JavaScript            |
 +---------------------------+----------------------------+
 |                                        |
 v                                        v
@@ -139,7 +145,10 @@ v
 | `target_date` | DateTime | Hedef vade (opsiyonel) |
 | `status` | Select | `OPEN`, `EXPIRED`, `REVIEWED`, `CLOSED` |
 | `ai_retrospective` | Text | AI Post-Mortem notu |
-| `outcome_return_pct` | Number | Gerçekleşen getiri % |
+ | `outcome_return_pct` | Number | Gerçekleşen getiri % |
+ | `decision_date` | DateTime | Karar tarih (geçmiş olabilir) |
+ | `outcome_price` | Number | Vade tarihi fiyatı (opsiyonel) |
+ | `target_hit` | Bool | Hedef gerçekleşti mi (opsiyonel) |
 
 ### 5.3. `shadow_portfolios` (Gölge Portföy)
 
@@ -151,7 +160,9 @@ v
 | `shadow_type` | Select | `HELD_INSTEAD`, `BOUGHT_INSTEAD` |
 | `entry_price` | Number | Giriş fiyatı |
 | `quantity` | Number | Miktar |
-| `entry_date` | DateTime | Başlangıç tarihi |
+ | `entry_date` | DateTime | Başlangıç tarihi |
+ | `exit_date` | DateTime | Çıkış tarihi (opsiyonel) |
+ | `asset_type` | Text | Varlık türü (opsiyonel) |
 
 ### 5.4. `macro_data` & `price_history`
 
@@ -173,7 +184,7 @@ v
 
 | Aşama / Sprint | Görev Tanımı | Tahmini Süre |
 | :--- | :--- | :--- |
-| **Sprint 1** | **Güvenlik, Altyapı & PocketBase Geçişi:** Auth/JWT katmanı, CSP/ALLOWED_ORIGINS, PB koleksiyon şemaları, SQLAlchemy → PB Async Client migrasyonu, docker-compose tanımları. | 1 Hafta |
-| **Sprint 2** | **Reel Değerleme, Benchmark & Gölge Portföy:** Fiyat servisi (yfinance + ccxt + PB cache), time-travel endpoint, EVDS/TÜFE entegrasyonu, Gram Altın formülü, benchmark endpoint, gölge portföy otomatik oluşturma. | 1 Hafta |
-| **Sprint 3** | **OpenRouter AI & Makro Simülasyon:** OpenRouter client, model fallback zinciri, karar retrospektifi endpoint, Monte Carlo (drift düzeltmeli GBM), stres test endpoint, AI risk anlatısı endpoint. | 1 Hafta |
+ | **Sprint 1** | **Güvenlik, Altyapı & PocketBase Geçişi:** Auth/JWT katmanı, CSP/ALLOWED_ORIGINS, PB koleksiyon şemaları, SQLAlchemy → PB Async Client migrasyonu, docker-compose tanımları, **asset_symbol regex doğrulaması (Pydantic field_validator), web UI innerHTML→textContent güvenlik temizliği.** | 1 Hafta |
+ | **Sprint 2** | **Reel Değerleme, Benchmark & Gölge Portföy:** Fiyat servisi (yfinance + ccxt + PB cache), time-travel endpoint, EVDS/TÜFE entegrasyonu, Gram Altın formülü, benchmark endpoint, **gölge portföy otomatik oluşturma (karar anında HELD_INSTEAD/BOUGHT_INSTEAD), POST/GET/DELETE shadow-positions endpoint'leri, fırsat maliyeti hesabı.** | 1 Hafta |
+ | **Sprint 3** | **OpenRouter AI & Makro Simülasyon:** **OpenRouter client (fallback zinciri: claude-3.5-sonnet → gemini-2.0-flash → deepseek-r1)**, model fallback, karar retrospektifi endpoint, Monte Carlo (drift düzeltmeli GBM), **histogram (40 kutu), POST /api/simulation/stress-test, POST /api/simulation/narrative, AI risk anlatısı endpoint.** | 1 Hafta |
 | **Sprint 4** | **Web Arayüzü & Yayına Hazırlık:** Karar formu doğrulamaları, USD/TRY seçici entegrasyonu, stres test histogram/p5/p50/p95 çizgileri, Docker USER app, requirements.txt sürüm kilitleme, pip-audit. | 1 Hafta |
