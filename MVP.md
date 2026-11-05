@@ -1,4 +1,5 @@
 # 🚀 FutureWallet – MVP Dokümanı (PocketBase + FastAPI + OpenRouter)
+
 > **Sürüm:** 2.0  
 > **Mimari:** PocketBase (DB/Auth) + FastAPI (Hesaplama) + OpenRouter (LLM)  
 > **Tarih:** Kasım 2026
@@ -7,9 +8,9 @@
 
 ## 1. Ürün Özeti & Vizyon
 
-**FutureWallet**, yatırımcıların portföylerini sadece anlık fiyatlarla değil; **tarihsel zaman yolculuğu (Time-Travel)**, **enflasyondan arındırılmış satın alma gücü**, **karar psiko-analizi (Decision Journaling)** ve **AI/Monte Carlo stres testleri** ile yönetmelerini sağlayan yeni nesil bir **Finansal Karar Destek ve Öğrenme Platformudur**.
+**FutureWallet**, yatırımcıların portföylerini sadece anlık fiyatlarla değil; **tarihsel zaman yolculuğu (Time-Travel)**, **enflasyondan arındırılmış satın alma gücü**, **karar psikoanalizi (Decision Journaling)** ve **AI/Monte Carlo stres testleri** ile yönetmelerini sağlayan yeni nesil bir **Finansal Karar Destek ve Öğrenme Platformudur**.
 
-Piyasadaki geleneksel varlık takip uygulamalarından farklı olarak FutureWallet; *"Şu an ne kadarım var?"* sorusunun ötesine geçerek *"Bu kararı neden aldım?", "Satmasaydım ne olurdu?", "Enflasyona karşı gerçek satın alma gücüm ne durumda?"* ve *"Makro şoklarda portföyüm nasıl tepki verir?"* sorularına yanıt verir.
+Piyasadaki geleneksel varlık takip uygulamalarından farklı olarak FutureWallet; *"Şu an ne kadarım var?"* sorusunun ötesine geçerek *"Bu kararı neden aldım?"*, *"Satmasaydım ne olurdu?"*, *"Enflasyona karşı gerçek satın alma gücüm ne durumda?"* ve *"Makro şoklarda portföyüm nasıl tepki verir?"* sorularına yanıt verir.
 
 ### Piyasadaki Uygulamalardan Farkı
 
@@ -35,7 +36,7 @@ Piyasadaki geleneksel varlık takip uygulamalarından farklı olarak FutureWalle
 ### 3.1. Modül 1: Tarihsel Portföy Değerleme & İşlem Defteri (Ledger Engine)
 
 * **Event-Sourcing Muhasebe Yapısı:** Tüm işlemler (Alım, Satım, Temettü, Nakit Akışı) zaman damgalı `Event` olarak PocketBase `transactions` koleksiyonunda tutulur.
-* **Time-Travel Motoru:** Seçilen $T_{başlangıç}$ tarihindeki portföy snapshot'ı otomatik hesaplanır ve $T_{hedef}$ tarihindeki fiyatlarla değerlenir.
+* **Time-Travel Motoru:** Seçilen $T_{\text{başlangıç}}$ tarihindeki portföy snapshot'ı otomatik hesaplanır ve $T_{\text{hedef}}$ tarihindeki fiyatlarla değerlenir.
 * **Fiyat Servisi:** `price_service.py` — yfinance, ccxt ve PocketBase `price_history` cache'ini birleştirir.
 
 ### 3.2. Modül 2: Karar Günlüğü & AI Retrospektifi (Decision Journaling)
@@ -56,10 +57,11 @@ Piyasadaki geleneksel varlık takip uygulamalarından farklı olarak FutureWalle
 * **Otomatik Gölge Oluşturma:** Karar oluşturulduğunda (özellikle SELL işlemiyle ilişkili bir karar varsa) otomatik olarak `HELD_INSTEAD` gölge pozisyonu oluşturulur; kullanıcı manuel olarak `BOUGHT_INSTEAD` gölge pozisyonu da ekleyebilir.
 * **API:** POST/GET/DELETE `/api/counterfactual/shadow-positions` uç noktaları; `GET /api/counterfactual?decision_id=` ile kıyaslama.
 * **Fırsat Maliyeti Hesabı:** Gerçek Portföy Getirisi vs. Gölge Portföy Getirisi kıyası ile karar doğruluğu test edilir.
+
 ### 3.4. Modül 4: Reel Satın Alma Gücü & Multi-Benchmark
 
 * **Nominal vs. Reel Getiri:** TÜİK TÜFE ve US CPI verileriyle enflasyondan arındırılmış net getiri (Real Return).
-* **Varış Sepet Katsayısı:** Portföyün Gram Altın, S&P 500 ve Ortalama Ev/Kira katsayısı cinsinden değişimi.
+* **Varlık Sepet Katsayısı:** Portföyün Gram Altın, S&P 500 ve Ortalama Ev/Kira katsayısı cinsinden değişimi.
 
 ### 3.5. Modül 5: Monte Carlo & AI Senaryo Motoru
 
@@ -88,29 +90,30 @@ FutureWallet/
 │   └── price_service.py        # yfinance, ccxt, PB price_history cache birleştirici
 ├── web_app/                    # Web Arayüzü & Dashboard Components (HTML5 + Jinja2 + Chart.js + JavaScript)
 └── docker-compose.yml          # PocketBase + FastAPI container tanımları
+```
 
 ### Sistem Mimarisi
 
-```
+```text
 +--------------------------------------------------------+
 |                     Frontend (Web UI)                  |
-          HTML5 + Jinja2 + Chart.js + JavaScript            |
+|         HTML5 + Jinja2 + Chart.js + JavaScript         |
 +---------------------------+----------------------------+
-|                                        |
-v                                        v
+                            |
+                            v
 +-----------------------+        +-----------------------+
 |  PocketBase Server    |        |  FastAPI Backend      |
-|  - REST API & WebSockets|       |  - Ledger & Snapshot  |
-|  - Auth & RLS         |        |  - Real Valuation     |
+|  - REST API & WebSockets       |  - Ledger & Snapshot  |
+|  - Auth & RLS         |<------>|  - Real Valuation     |
 |  - SQLite Storage     |        |  - Monte Carlo & VaR  |
 +-----------------------+        |  - OpenRouter AI      |
-+-----------------------+--------+
-|
-v
-+-----------------------+
-|  OpenRouter Provider  |
-|  (Claude/Gemini/DS)   |
-+-----------------------+
+                                 +-----------+-----------+
+                                             |
+                                             v
+                                 +-----------------------+
+                                 |  OpenRouter Provider  |
+                                 |  (Claude/Gemini/DS)   |
+                                 +-----------------------+
 ```
 
 ---
@@ -137,7 +140,7 @@ v
 |------|-----|----------|
 | `id` | Text | PK |
 | `user` | Relation (users) | Sahip kullanıcı |
-| `asset_symbol` | Text | Kararlı olduğu varlık |
+| `asset_symbol` | Text | Karar verilen varlık |
 | `action` | Select | `BUY`, `SELL`, `HOLD` |
 | `sentiment` | Select | `FOMO`, `PANIC`, `STRATEGIC`, `DIVIDEND`, `OPPORTUNITY` |
 | `rationale` | Text | Karar gerekçesi (max 5000 karakter) |
@@ -145,29 +148,29 @@ v
 | `target_date` | DateTime | Hedef vade (opsiyonel) |
 | `status` | Select | `OPEN`, `EXPIRED`, `REVIEWED`, `CLOSED` |
 | `ai_retrospective` | Text | AI Post-Mortem notu |
- | `outcome_return_pct` | Number | Gerçekleşen getiri % |
- | `decision_date` | DateTime | Karar tarih (geçmiş olabilir) |
- | `outcome_price` | Number | Vade tarihi fiyatı (opsiyonel) |
- | `target_hit` | Bool | Hedef gerçekleşti mi (opsiyonel) |
+| `outcome_return_pct` | Number | Gerçekleşen getiri % |
+| `decision_date` | DateTime | Karar tarihi (geçmiş olabilir) |
+| `outcome_price` | Number | Vade tarihi fiyatı (opsiyonel) |
+| `target_hit` | Bool | Hedef gerçekleşti mi (opsiyonel) |
 
 ### 5.3. `shadow_portfolios` (Gölge Portföy)
 
 | Alan | Tip | Açıklama |
 |------|-----|----------|
 | `id` | Text | PK |
-| `decision` | Relation (decisions) | Kaynağını çektığı karar |
+| `decision` | Relation (decisions) | Kaynağını aldığı karar |
 | `asset_symbol` | Text | Gölge pozisyon varlığı |
 | `shadow_type` | Select | `HELD_INSTEAD`, `BOUGHT_INSTEAD` |
 | `entry_price` | Number | Giriş fiyatı |
 | `quantity` | Number | Miktar |
- | `entry_date` | DateTime | Başlangıç tarihi |
- | `exit_date` | DateTime | Çıkış tarihi (opsiyonel) |
- | `asset_type` | Text | Varlık türü (opsiyonel) |
+| `entry_date` | DateTime | Başlangıç tarihi |
+| `exit_date` | DateTime | Çıkış tarihi (opsiyonel) |
+| `asset_type` | Text | Varlık türü (opsiyonel) |
 
 ### 5.4. `macro_data` & `price_history`
 
 * **macro_data:** Tarihsel TÜFE/CPI serileri (`date`, `gold_try`, `gold_usd`, `sp500`, `tr_cpi`, `us_cpi`).
-* **price_history:** Varış sembollerinin günlük/historical fiyat cache'leri.
+* **price_history:** Varlık sembollerinin günlük/tarihsel fiyat önbellekleri (cache).
 
 ---
 
@@ -184,7 +187,7 @@ v
 
 | Aşama / Sprint | Görev Tanımı | Tahmini Süre |
 | :--- | :--- | :--- |
- | **Sprint 1** | **Güvenlik, Altyapı & PocketBase Geçişi:** Auth/JWT katmanı, CSP/ALLOWED_ORIGINS, PB koleksiyon şemaları, SQLAlchemy → PB Async Client migrasyonu, docker-compose tanımları, **asset_symbol regex doğrulaması (Pydantic field_validator), web UI innerHTML→textContent güvenlik temizliği.** | 1 Hafta |
- | **Sprint 2** | **Reel Değerleme, Benchmark & Gölge Portföy:** Fiyat servisi (yfinance + ccxt + PB cache), time-travel endpoint, EVDS/TÜFE entegrasyonu, Gram Altın formülü, benchmark endpoint, **gölge portföy otomatik oluşturma (karar anında HELD_INSTEAD/BOUGHT_INSTEAD), POST/GET/DELETE shadow-positions endpoint'leri, fırsat maliyeti hesabı.** | 1 Hafta |
- | **Sprint 3** | **OpenRouter AI & Makro Simülasyon:** **OpenRouter client (fallback zinciri: claude-3.5-sonnet → gemini-2.0-flash → deepseek-r1)**, model fallback, karar retrospektifi endpoint, Monte Carlo (drift düzeltmeli GBM), **histogram (40 kutu), POST /api/simulation/stress-test, POST /api/simulation/narrative, AI risk anlatısı endpoint.** | 1 Hafta |
+| **Sprint 1** | **Güvenlik, Altyapı & PocketBase Geçişi:** Auth/JWT katmanı, CSP/ALLOWED_ORIGINS, PB koleksiyon şemaları, SQLAlchemy → PB Async Client migrasyonu, docker-compose tanımları, asset_symbol regex doğrulaması (Pydantic field_validator), web UI innerHTML→textContent güvenlik temizliği. | 1 Hafta |
+| **Sprint 2** | **Reel Değerleme, Benchmark & Gölge Portföy:** Fiyat servisi (yfinance + ccxt + PB cache), time-travel endpoint, EVDS/TÜFE entegrasyonu, Gram Altın formülü, benchmark endpoint, gölge portföy otomatik oluşturma (karar anında HELD_INSTEAD/BOUGHT_INSTEAD), POST/GET/DELETE shadow-positions endpoint'leri, fırsat maliyeti hesabı. | 1 Hafta |
+| **Sprint 3** | **OpenRouter AI & Makro Simülasyon:** OpenRouter client (fallback zinciri: claude-3.5-sonnet → gemini-2.0-flash → deepseek-r1), model fallback, karar retrospektifi endpoint, Monte Carlo (drift düzeltmeli GBM), histogram (40 kutu), POST /api/simulation/stress-test, POST /api/simulation/narrative, AI risk anlatısı endpoint. | 1 Hafta |
 | **Sprint 4** | **Web Arayüzü & Yayına Hazırlık:** Karar formu doğrulamaları, USD/TRY seçici entegrasyonu, stres test histogram/p5/p50/p95 çizgileri, Docker USER app, requirements.txt sürüm kilitleme, pip-audit. | 1 Hafta |

@@ -50,9 +50,12 @@ from services.decision_service import (
     decision_to_dict,
     generate_ai_retrospective as svc_generate_ai_retrospective,
     get_decision as svc_get_decision,
+    get_sentiment_summary,
+    get_status_summary,
     list_decisions as svc_list_decisions,
     update_decision as svc_update_decision,
 )
+from services.pocketbase import get_client
 from services.ledger_service import (
     add_transaction as srv_add_transaction,
     get_portfolio_snapshot as srv_get_portfolio_snapshot,
@@ -135,6 +138,12 @@ class DecisionCreateRequest(BaseModel):
     target_date: Optional[date] = Field(
         None, description="Hedef tarih (ISO YYYY-MM-DD)"
     )
+    decision_date: Optional[date] = Field(
+        None, description="Karar tarihi (ISO YYYY-MM-DD; geçmiş olabilir, gelecek yok)"
+    )
+    track_shadow: bool = Field(
+        False, description="True → SELL kararında HELD_INSTEAD gölge pozisyonu otomatik oluştur"
+    )
     transaction_id: Optional[str] = Field(
         None, max_length=36, description="İşlem ID (opsiyonel)"
     )
@@ -150,14 +159,42 @@ class DecisionCreateRequest(BaseModel):
                 raise ValueError(f"Geçersiz sentiment: {v}. Kabul: FOMO, STRATEGIC, PANIC, DIVIDEND, RISK_REDUCTION, OPPORTUNITY")
             return v
         return v
+DecisionCreateRequest.model_rebuild()
 
-    @field_validator("target_date", mode="before")
+# ShadowPositionCreateRequest (Prompt 12: gölge pozisyon oluşturma)
+class ShadowPositionCreateRequest(BaseModel):
+    decision_id: str = Field(..., description="İlgili karar ID")
+    asset_symbol: str = Field(
+        pattern=r"^[A-Z0-9.=^\-/]{1,20}$",
+        max_length=20,
+        description="Varlık sembolü",
+    )
+    shadow_type: Literal["HELD_INSTEAD", "BOUGHT_INSTEAD"] = Field(
+        ..., description="HELD_INSTEAD | BOUGHT_INSTEAD"
+    )
+    entry_date: Optional[date] = Field(
+        None, description="Giriş tarihí (ISO YYYY-MM-DD; yoksa bugün)"
+    )
+    entry_price: Optional[float] = Field(
+        None, ge=0, description="Giriş fiyatı (pozitif); yoksa güncel fiyat"
+    )
+    quantity: Optional[float] = Field(
+        None, ge=0, description="Miktar (pozitif); yoksa 0"
+    )
+    exit_date: Optional[date] = Field(
+        None, description="Çıkış tarihi (opsiyonel)"
+    )
+    asset_type: Optional[str] = Field(
+        None, max_length=50, description="Varlık türü (crypto, stock_tr, stock_us, commodity, forex, cash)"
+    )
+
+    @field_validator("entry_date", "exit_date", mode="before")
     @classmethod
     def empty_date_to_none(cls, v: Any) -> Optional[date]:
         if v is None or v == "":
             return None
         return v
-DecisionCreateRequest.model_rebuild()
+ShadowPositionCreateRequest.model_rebuild()
 class DecisionUpdateRequest(BaseModel):
     rationale: Optional[str] = Field(
         None, max_length=5000, description="Yeni gerekçе (max 5000 karakter)"
@@ -366,7 +403,8 @@ async def create_decision_endpoint(
     body: DecisionCreateRequest,
     request: Request,
 ):
-    """Yeni karar oluştur. user_id → X-User-ID header'ı veya 'unknown'."""
+    """Yeni karar oluştur. user_id → X-User-ID header'ı veya 'unknown'.
+    track_shadow=True ve action=SELL → HELD_INSTEAD gölge pozisyonu otomatik oluşturulur (Prompt 12)."""
     user_id = request.headers.get("X-User-ID", "unknown")
 
     try:
@@ -378,8 +416,22 @@ async def create_decision_endpoint(
             sentiment=body.sentiment,
             target_price=body.target_price,
             target_date=body.target_date,
+            decision_date=body.decision_date,
             transaction_id=body.transaction_id,
         )
+
+        # track_shadow: SELL kararında HELD_INSTEAD gölge pozisyonu oluştur
+        if body.track_shadow and body.action.upper() == "SELL":
+            create_shadow_position(
+                user_id=user_id,
+                decision_id=result["id"],
+                asset_symbol=body.asset_symbol,
+                shadow_type="HELD_INSTEAD",
+                entry_price=body.target_price,
+                quantity=1.0,
+                entry_date=body.decision_date,
+            )
+
         return result
     except ValueError as e:
         raise HTTPException(400, str(e))
@@ -438,7 +490,7 @@ async def generate_retrospective_endpoint(decision_id: str):
 
 
 # ---------------------------------------------------------------------------
-# Placeholder endpoint'ler (henüz implement edilmemiş service'ler)
+# Counterfactual / What-If endpoint'ler (Prompt 12: PB geçişli service)
 # ---------------------------------------------------------------------------
 
 @app.get("/api/counterfactual", dependencies=[Depends(verify_api_token)])
@@ -446,24 +498,115 @@ async def counterfactual_endpoint(
     decision_id: str = Query(..., description="Karar ID"),
     as_of: Optional[date] = Query(None, description="ISO YYYY-MM-DD. Yoksa bugün."),
 ):
-    """What-If senaryosu: decision_id ile gölge portföy kıyaslaması."""
+    """What-If senaryosu: decision_id ile gölge portföy kıyaslaması (PB)."""
     as_of_date = as_of or date.today()
+    result = what_if_scenario(decision_id, as_of=as_of_date)
+    if "error" in result:
+        return JSONResponse(status_code=404, content=result)
+    return result
 
-    session = get_session()
+
+@app.post("/api/counterfactual/shadow-positions", status_code=201,
+         dependencies=[Depends(verify_api_token)])
+async def create_shadow_position_endpoint(
+    body: ShadowPositionCreateRequest,
+    request: Request,
+):
+    """Yeni gölge pozisyon oluştur (Prompt 12)."""
+    user_id = request.headers.get("X-User-ID", "unknown")
     try:
-        result = what_if_scenario(session, decision_id, as_of=as_of_date)
-        session.commit()
-        if "error" in result:
-            return JSONResponse(status_code=404, content=result)
+        result = create_shadow_position(
+            user_id=user_id,
+            decision_id=body.decision_id,
+            asset_symbol=body.asset_symbol,
+            shadow_type=body.shadow_type,
+            entry_date=body.entry_date,
+            entry_price=body.entry_price,
+            quantity=body.quantity,
+            exit_date=body.exit_date,
+            asset_type=body.asset_type,
+        )
         return result
     except ValueError as e:
-        session.rollback()
         raise HTTPException(400, str(e))
-    except Exception:
-        session.rollback()
-        raise
-    finally:
-        session.close()
+
+
+@app.get("/api/counterfactual/shadow-positions", dependencies=[Depends(verify_api_token)])
+async def list_shadow_positions_endpoint(
+    decision_id: Optional[str] = Query(None, description="Karar ID filter"),
+    asset_symbol: Optional[str] = Query(None, description="Varlık sembolü filter"),
+):
+    """Gölge pozisyon listesi (filter ile)."""
+    return get_shadow_positions(
+        decision_id=decision_id,
+        asset_symbol=asset_symbol,
+    )
+
+
+@app.delete("/api/counterfactual/shadow-positions/{position_id}",
+           dependencies=[Depends(verify_api_token)])
+async def delete_shadow_position_endpoint(position_id: str, request: Request):
+    """Gölge pozisyonunu sil (PB shadow_portfolios)."""
+    user_id = request.headers.get("X-User-ID", "unknown")
+    try:
+        client = get_client()
+        sp_coll = client.collection("shadow_portfolios")
+        sp_coll.delete(position_id)
+        return {"status": "deleted", "position_id": position_id}
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
+@app.get("/api/decisions/stats", dependencies=[Depends(verify_api_token)])
+async def decisions_stats_endpoint():
+    """Sentiment ve action bazında karar istatistikleri (Prompt 13)."""
+    sentiment_summary = get_sentiment_summary()
+    status_summary = get_status_summary()
+    decisions = svc_list_decisions(limit=1000)
+
+    outcomes = [d["outcome_return_pct"] for d in decisions
+                if d.get("outcome_return_pct") is not None]
+    N_OUTCOME_MIN = 3
+    if len(outcomes) >= N_OUTCOME_MIN:
+        outcomes_sorted = sorted(outcomes)
+        n = len(outcomes_sorted)
+        median_outcome = outcomes_sorted[n // 2] if n % 2 else (
+            (outcomes_sorted[n // 2 - 1] + outcomes_sorted[n // 2]) / 2
+        )
+        mean_outcome = sum(outcomes) / n
+        stats = {
+            "sentiment_counts": sentiment_summary,
+            "status_counts": status_summary,
+            "outcome": {
+                "count": n,
+                "mean": round(mean_outcome, 4),
+                "median": round(median_outcome, 4),
+                "min": round(min(outcomes), 4),
+                "max": round(max(outcomes), 4),
+            },
+            "insufficient_data": False,
+        }
+    else:
+        stats = {
+            "sentiment_counts": sentiment_summary,
+            "status_counts": status_summary,
+            "outcome": {"count": len(outcomes)},
+            "insufficient_data": True,
+        }
+    return stats
+
+
+@app.delete("/api/decisions/{decision_id}", dependencies=[Depends(verify_api_token)])
+async def delete_decision_endpoint(decision_id: str, request: Request):
+    """Kararı sil (bağlı gölge pozisyonlar cascade silinir; transaction etkilenmez)."""
+    user_id = request.headers.get("X-User-ID", "unknown")
+    try:
+        client = get_client()
+        decisions_coll = client.collection("decisions")
+        decisions_coll.delete(decision_id)
+        return {"status": "deleted", "decision_id": decision_id}
+    except Exception as e:
+        raise HTTPException(500, str(e))
 
 
 @app.get("/api/simulation/monte-carlo", dependencies=[Depends(verify_api_token)])
@@ -700,6 +843,10 @@ def decision_to_dict(decision) -> dict:
             "status":           getattr(decision, "status", "OPEN"),
             "ai_retrospective": getattr(decision, "ai_retrospective", None),
             "transaction_id":   getattr(decision, "transaction_id", None),
+            "decision_date":    _parse_pb_date(getattr(decision, "decision_date", None)),
+            "outcome_return_pct": getattr(decision, "outcome_return_pct", None),
+            "outcome_price":     getattr(decision, "outcome_price", None),
+            "target_hit":        getattr(decision, "target_hit", None),
         }
     # dict (ordinal dict) ise doğrudan kullan
     return {
@@ -714,4 +861,8 @@ def decision_to_dict(decision) -> dict:
         "status":           decision.get("status", "OPEN"),
         "ai_retrospective": decision.get("ai_retrospective"),
         "transaction_id":   decision.get("transaction_id"),
+        "decision_date":    decision.get("decision_date"),
+        "outcome_return_pct": decision.get("outcome_return_pct"),
+        "outcome_price":     decision.get("outcome_price"),
+        "target_hit":        decision.get("target_hit"),
     }

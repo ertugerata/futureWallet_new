@@ -85,8 +85,59 @@ def create_decision(
     sentiment: Optional[str] = None,
     target_price: Optional[float] = None,
     target_date: Optional[date] = None,
+    decision_date: Optional[date] = None,
     transaction_id: Optional[str] = None,
 ) -> Dict:
+    """Yeni bir karar kaydı oluşturur (Prompt 13: decision_date eklendi).
+
+    Args:
+        user_id:      PB auth kullanıcı ID'si.
+        asset_symbol: Varlık sembolü (BTC, THYAO, GC=F, …).
+        action:       İşlem tipi — BUY, SELL, HOLD.
+        rationale:    Karar gerekçesi (opsiyonel, max 5000).
+        sentiment:    Duygu durum tag'i (None → yok). Allowed: SENTIMENT_ALLOWED.
+        target_price: Hedef fiyat (opsiyonel, >0).
+        target_date:  Hedef tarih (opsiyonel).
+        decision_date:Karar tarihi (opsiyonel; gelecekte olamaz, yoksa today).
+        transaction_id: İlgili transaction ID (opsiyonel).
+
+    Returns:
+        Decision dict (decision_to_dict formatında).
+    """
+    # decision_date: gelecek tarih reddedilir
+    if decision_date is not None and decision_date > date.today():
+        raise ValueError("decision_date gelecekte olamaz")
+
+    action_upper = action.upper()
+    if action_upper not in ACTION_ALLOWED:
+        raise ValueError(f"action: {action!r} — allowed: {ACTION_ALLOWED}")
+
+    sentiment_upper: Optional[str] = None
+    if sentiment is not None:
+        sentiment_upper = sentiment.upper()
+        if sentiment_upper not in SENTIMENT_ALLOWED:
+            raise ValueError(
+                f"sentiment: {sentiment!r} — allowed: {SENTIMENT_ALLOWED}"
+            )
+
+    client = get_client()
+    decisions = client.collection("decisions")
+
+    data = {
+        "user":             user_id,
+        "asset_symbol":     asset_symbol.upper(),
+        "action":           action_upper,
+        "rationale":        rationale,
+        "sentiment":        sentiment_upper,
+        "target_price":     target_price,
+        "target_date":      target_date.isoformat() if target_date else None,
+        "decision_date":    decision_date.isoformat() if decision_date else None,
+        "status":           "OPEN",
+        "transaction_id":   transaction_id,
+    }
+
+    record = decisions.create(data)  # PB otomatik ID atar
+    return decision_to_dict(record)
     """Yeni bir karar kaydı oluşturur (Prompt 13: decision_date eklendi).
 
     Args:

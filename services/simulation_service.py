@@ -319,8 +319,16 @@ def monte_carlo_simulation(
             **asset_pcts,
         })
 
+    # Histogram (40 kutu) – son değerlerin dağılımı (Prompt 10)
+    final_values = portfolio_paths[:, -1]
+    hist, bin_edges = np.histogram(final_values, bins=40)
+    histogram = {
+        "bins": [round(float(x), 2) for x in bin_edges],
+        "counts": [int(x) for x in hist],
+    }
+
     data_quality = "estimated" if missing_data_warning else "ok"
-    currency = "TRY"  # Prompt 10: API'den gelmeli, şimdilik varsayılan
+    currency = "TRY"
 
     return {
         "days": days,
@@ -329,6 +337,7 @@ def monte_carlo_simulation(
         "percentile_values": {
             "portfolio": portfolio_percentiles,
         },
+        "histogram": histogram,
         "asset_names": asset_symbols,
         "asset_final_values": asset_final_values,
         "total_initial_value": round(total_initial, 2),
