@@ -24,21 +24,20 @@ from __future__ import annotations
 
 import uuid
 
-from alembic import op
 from sqlalchemy import (
-    BigInteger,
     Boolean,
     Column,
     Date,
     DateTime,
     Float,
-    Integer,
     MetaData,
     String,
     Table,
     Text,
     func,
 )
+
+from alembic import op
 
 # ---------------------------------------------------------------------------
 # Metadata ve tabel tanımları
@@ -82,14 +81,22 @@ transactions = Table(
     MetaData(),
     _uuid_pk("id"),
     Column("asset_symbol", String(20), nullable=False),
-    Column("type", String(20), nullable=False),  # BUY, SELL, DIVIDEND, CASH_IN, CASH_OUT
+    Column(
+        "type", String(20), nullable=False
+    ),  # BUY, SELL, DIVIDEND, CASH_IN, CASH_OUT
     Column("quantity", Float, nullable=False),
     Column("price", Float, nullable=False),
     Column("fee", Float, nullable=True),
     Column("timestamp", DateTime, nullable=False),
     Column("voided", Boolean, nullable=False, server_default="0"),
     Column("created_at", DateTime, nullable=False, server_default=func.now()),
-    Column("updated_at", DateTime, nullable=False, server_default=func.now(), onupdate=func.now()),
+    Column(
+        "updated_at",
+        DateTime,
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    ),
 )
 
 
@@ -103,11 +110,17 @@ decisions = Table(
     _uuid_pk("id"),
     Column("asset_symbol", String(20), nullable=False),
     Column("action", String(10), nullable=False),  # BUY, SELL, HOLD
-    Column("rationale", Text, nullable=True),  # max 5000 karakter (app katmanı validasyonu)
-    Column("sentiment", String(30), nullable=True),  # FOMO, STRATEGIC, PANIC, DIVIDEND, RISK_REDUCTION
+    Column(
+        "rationale", Text, nullable=True
+    ),  # max 5000 karakter (app katmanı validasyonu)
+    Column(
+        "sentiment", String(30), nullable=True
+    ),  # FOMO, STRATEGIC, PANIC, DIVIDEND, RISK_REDUCTION
     Column("target_price", Float, nullable=True),
     Column("target_date", Date, nullable=True),
-    Column("status", String(20), nullable=False, server_default="OPEN"),  # OPEN, REVIEWED, EXPIRED
+    Column(
+        "status", String(20), nullable=False, server_default="OPEN"
+    ),  # OPEN, REVIEWED, EXPIRED
     Column("ai_retrospective", Text, nullable=True),
     Column("transaction_id", String(36), nullable=True),
     Column("outcome_return_pct", Float, nullable=True),
@@ -115,7 +128,13 @@ decisions = Table(
     Column("decision_date", DateTime, nullable=True),
     Column("target_hit", Boolean, nullable=True),
     Column("created_at", DateTime, nullable=False, server_default=func.now()),
-    Column("updated_at", DateTime, nullable=False, server_default=func.now(), onupdate=func.now()),
+    Column(
+        "updated_at",
+        DateTime,
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    ),
 )
 
 

@@ -13,7 +13,6 @@ from __future__ import annotations
 import pytest
 from fastapi import status
 
-
 # ---------------------------------------------------------------------------
 # 1. Asset symbol regex doğrulama
 # ---------------------------------------------------------------------------

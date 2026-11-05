@@ -2,16 +2,16 @@
 FutureWallet Web Dashboard - FastAPI Jinja2 Templates
 """
 
-from fastapi import Request
-from fastapi.templating import Jinja2Templates
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import HTMLResponse
-
 from pathlib import Path
+
+from fastapi import Request
+from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 TEMPLATE_DIR = PROJECT_ROOT / "web_app" / "templates"
-STATIC_DIR  = PROJECT_ROOT / "web_app" / "static"
+STATIC_DIR = PROJECT_ROOT / "web_app" / "static"
 
 templates = Jinja2Templates(directory=str(TEMPLATE_DIR))
 

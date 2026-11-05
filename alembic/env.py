@@ -12,21 +12,22 @@ from __future__ import annotations
 
 import logging
 import os
-from pathlib import Path
-
-from alembic import context
-from sqlalchemy import engine_from_config, pool
 
 # Bu dosyanın bulunduğu dizin (alembic/) — buradan bir üst seviyeye çık
 # ve proje köküne sys.path eklenir (db, config importları için).
 import sys
+from pathlib import Path
+
+from sqlalchemy import engine_from_config, pool
+
+from alembic import context
 
 _ALEMBIC_DIR = Path(__file__).resolve().parent
 _PROJECT_ROOT = _ALEMBIC_DIR.parent
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
-from db import Base  # noqa: E402  (sys.path artık proje kökünü içerir)
+from db import Base
 
 # ---------------------------------------------------------------------------
 # Loglama

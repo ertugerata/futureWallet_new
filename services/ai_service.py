@@ -18,10 +18,6 @@ Kullanım:
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Optional
-from urllib.parse import quote
-
 import config
 
 # ---------------------------------------------------------------------------
@@ -71,7 +67,7 @@ KURAL:
 
 def _build_retrospective_prompt(
     decision: dict,
-    market_data: Optional[dict] = None,
+    market_data: dict | None = None,
 ) -> str:
     """Karar POST-MORTEM prompt'u (Prompt 7)."""
     symbol = decision.get("asset_symbol", "?")
@@ -85,7 +81,7 @@ def _build_retrospective_prompt(
     rationale_wrapped = _sanitize_user_input(rationale)
 
     prompt_parts = [
-        f"Karar detayı:",
+        "Karar detayı:",
         f"  Varlık: {symbol}",
         f"  İşlem: {action}",
         f"  Duygu Durumu: {sentiment}",
@@ -109,9 +105,9 @@ def _build_retrospective_prompt(
 
 def generate_decision_retrospective(
     decision: dict,
-    market_data: Optional[dict] = None,
-    api_key: Optional[str] = None,
-    model: Optional[str] = None,
+    market_data: dict | None = None,
+    api_key: str | None = None,
+    model: str | None = None,
 ) -> str:
     """Karar için AI post-mortem metni üretir (Prompt 7).
 
@@ -124,7 +120,9 @@ def generate_decision_retrospective(
     model = model or config.GEMINI_MODEL
 
     if not api_key:
-        raise AIUnavailableError("Google API anahtarı yapılandırılmadı (GOOGLE_API_KEY).")
+        raise AIUnavailableError(
+            "Google API anahtarı yapılandırılmadı (GOOGLE_API_KEY)."
+        )
 
     user_prompt = _build_retrospective_prompt(decision, market_data)
     full_prompt = f"{_RETROSPECTIVE_SYSTEM_PROMPT}\n\nKullanıcı girişi:\n{user_prompt}"
@@ -168,16 +166,18 @@ KURAL:
 
 def generate_risk_narrative(
     simulation_result: dict,
-    context: Optional[dict] = None,
-    api_key: Optional[str] = None,
-    model: Optional[str] = None,
+    context: dict | None = None,
+    api_key: str | None = None,
+    model: str | None = None,
 ) -> str:
     """Monte Carlo / stres test sonucu için Türkçe risk anlatısı (Prompt 7)."""
     api_key = api_key or config.GOOGLE_API_KEY
     model = model or config.GEMINI_MODEL
 
     if not api_key:
-        raise AIUnavailableError("Google API anahtarı yapılandırılmadı (GOOGLE_API_KEY).")
+        raise AIUnavailableError(
+            "Google API anahtarı yapılandırılmadı (GOOGLE_API_KEY)."
+        )
 
     user_prompt = _build_risk_narrative_prompt(simulation_result, context)
     full_prompt = f"{_RISK_NARRATIVE_SYSTEM_PROMPT}\n\nKullanıcı girişi:\n{user_prompt}"
@@ -204,7 +204,7 @@ def generate_risk_narrative(
 
 def _build_risk_narrative_prompt(
     simulation_result: dict,
-    context: Optional[dict] = None,
+    context: dict | None = None,
 ) -> str:
     """Risk anlatısı için kullanıcı prompt'u."""
     parts = [

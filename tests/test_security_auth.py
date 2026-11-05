@@ -16,7 +16,6 @@ from __future__ import annotations
 import pytest
 from fastapi import status
 
-
 # ---------------------------------------------------------------------------
 # 1. Token yokken 401
 # ---------------------------------------------------------------------------
@@ -167,7 +166,7 @@ def test_retrospective_under_rate_limit(
                 status.HTTP_200_OK,
                 status.HTTP_201_CREATED,
                 status.HTTP_503_SERVICE_UNAVAILABLE,
-            ), f"{i+1}. çağrı {resp.status_code} döndü: {resp.text}"
+            ), f"{i + 1}. çağrı {resp.status_code} döndü: {resp.text}"
 
 
 def test_retrospective_rate_limit_429(api_client, test_db) -> None:

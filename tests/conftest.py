@@ -7,19 +7,18 @@ mock edilmiş dış servisler (yfinance, ccxt, EVDS, Gemini) sağlar.
 
 from __future__ import annotations
 
-import os
-from typing import Generator
+import os as _os
+
+# Proje kökünü sys.path'te olmak zorunda (api/app.py zaten yapıyor ama
+# pytest salt tests/ dizininden çalışırken db/service importları için gerekli).
+import sys
+from collections.abc import Generator
 from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, Session
-
-# Proje kökünü sys.path'te olmak zorunda (api/app.py zaten yapıyor ama
-# pytest salt tests/ dizininden çalışırken db/service importları için gerekli).
-import sys
-import os as _os
+from sqlalchemy.orm import Session, sessionmaker
 
 _PROJECT_ROOT = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), ".."))
 if _PROJECT_ROOT not in sys.path:
@@ -57,7 +56,7 @@ def test_engine() -> Generator[object, None, None]:
 @pytest.fixture(scope="function")
 def test_db(test_engine) -> Generator[Session, None, None]:
     """Bakım içi session: test başı yeni, test sonu rollback/close."""
-    from db import Base  # noqa: I001  (import側ローカル)
+    from db import Base
 
     Base.metadata.create_all(test_engine)
     TestSession = sessionmaker(bind=test_engine)
@@ -114,7 +113,9 @@ def mock_gemini() -> Generator[MagicMock, None, None]:
     generate_content.side_effect = Exception(...) ile hata scenaroları testlenir.
     """
     mock_model_instance = MagicMock()
-    mock_model_instance.generate_content.return_value.text = "AI retrospective test çıktısı."
+    mock_model_instance.generate_content.return_value.text = (
+        "AI retrospective test çıktısı."
+    )
     mock_model = MagicMock()
     mock_model.GenerativeModel.return_value = mock_model_instance
 
@@ -149,7 +150,10 @@ def mock_pocketbase() -> Generator[MagicMock, None, None]:
 
     def _make_collection(name: str) -> MagicMock:
         col = MagicMock()
-        col.create.return_value = {"id": "mock-id", "create_time": "2024-01-01T00:00:00Z"}
+        col.create.return_value = {
+            "id": "mock-id",
+            "create_time": "2024-01-01T00:00:00Z",
+        }
         col.get_list.return_value = []
         col.retrieve.return_value = None
         col.update.return_value = {"id": "mock-id"}
@@ -160,8 +164,14 @@ def mock_pocketbase() -> Generator[MagicMock, None, None]:
     mock_client.collection_exists.return_value = True
 
     with patch("services.pocketbase.get_client", return_value=mock_client, create=True):
-        with patch("services.pocketbase.PocketBaseClient", return_value=mock_client, create=True):
+        with patch(
+            "services.pocketbase.PocketBaseClient",
+            return_value=mock_client,
+            create=True,
+        ):
             yield mock_client
+
+
 # ---------------------------------------------------------------------------
 
 
@@ -180,7 +190,6 @@ def api_client(
     """
     # API_TOKEN varsayılan içinde mock token ayarla — testlerde
     # gerçek token beklenmez; auth tests'i kendi fixture'larıyla mock'lar.
-    from config import API_TOKEN, ALLOWED_ORIGINS, ALLOWED_HOSTS
 
     # Config'u test token ile geçici olarak aş
     import config as config_mod
@@ -205,4 +214,5 @@ def api_client(
     config_mod.ALLOWED_HOSTS = _orig_hosts
     # Rate limit state'ini temizle (testler arasında kalıcık önle)
     from api.app import _RETRO_RATE_LIMITS
+
     _RETRO_RATE_LIMITS.clear()

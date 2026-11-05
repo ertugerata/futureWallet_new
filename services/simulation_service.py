@@ -17,37 +17,34 @@ Düzeltmeler:
 
 from __future__ import annotations
 
-from typing import Dict, List, Optional
-
 import numpy as np
 import pandas as pd
 
 from services.multi_asset_manager import AssetManager
-import config
-
 
 # ---------------------------------------------------------------------------
 # Tip tanımları
 # ---------------------------------------------------------------------------
 
-MonteCarloResult = Dict  # {'days': int, 'n_simulations': int, 'percentiles': List[int],
-                          #  'percentile_values': {'portfolio': {'p5': ..., 'p50': ..., 'p95': ...}},
-                          #  'asset_names': List[str], 'asset_final_values': List[Dict],
-                          #  'total_initial_value': float, 'currency': str, 'data_quality': str}
+MonteCarloResult = dict  # {'days': int, 'n_simulations': int, 'percentiles': List[int],
+#  'percentile_values': {'portfolio': {'p5': ..., 'p50': ..., 'p95': ...}},
+#  'asset_names': List[str], 'asset_final_values': List[Dict],
+#  'total_initial_value': float, 'currency': str, 'data_quality': str}
 
-StressTestResult = Dict  # {'original_value': float, 'days': int, 'n_simulations': int,
-                          #  'stressed_values': Dict[str, Dict], 'worst_case': float, 'worst_case_name': str}
+StressTestResult = dict  # {'original_value': float, 'days': int, 'n_simulations': int,
+#  'stressed_values': Dict[str, Dict], 'worst_case': float, 'worst_case_name': str}
 
 
 # ---------------------------------------------------------------------------
 # Yardımcı: varlık getiri verilerini çek
 # ---------------------------------------------------------------------------
 
+
 def _fetch_asset_returns(
     symbol: str,
     asset_type: str,
     days: int = 504,
-) -> Optional[pd.Series]:
+) -> pd.Series | None:
     """Bir varlığın günlük log getiri serisi.
 
     Returns:
@@ -74,11 +71,11 @@ def _fetch_asset_returns(
 
 
 def _fetch_all_asset_returns(
-    assets: List[Dict],
+    assets: list[dict],
     days: int = 504,
-) -> Dict[str, Optional[pd.Series]]:
+) -> dict[str, pd.Series | None]:
     """Birden fazla varlık için log getiri serileri."""
-    returns: Dict[str, Optional[pd.Series]] = {}
+    returns: dict[str, pd.Series | None] = {}
     for asset in assets:
         sym = asset["symbol"]
         typ = asset.get("type", "crypto")
@@ -88,8 +85,8 @@ def _fetch_all_asset_returns(
 
 
 def _calculate_covariance_matrix(
-    returns_dict: Dict[str, Optional[pd.Series]],
-    asset_symbols: List[str],
+    returns_dict: dict[str, pd.Series | None],
+    asset_symbols: list[str],
 ) -> np.ndarray:
     """Varlıkların günlük log getiri kovaryans matrisi.
 
@@ -98,7 +95,11 @@ def _calculate_covariance_matrix(
     n = len(asset_symbols)
     cov_matrix = np.zeros((n, n))
 
-    available = [sym for sym in asset_symbols if sym in returns_dict and returns_dict[sym] is not None]
+    available = [
+        sym
+        for sym in asset_symbols
+        if sym in returns_dict and returns_dict[sym] is not None
+    ]
     if not available:
         return cov_matrix
 
@@ -115,7 +116,9 @@ def _calculate_covariance_matrix(
     cov = df.cov().values
     for i, sym_i in enumerate(available):
         for j, sym_j in enumerate(available):
-            cov_matrix[asset_symbols.index(sym_i), asset_symbols.index(sym_j)] = cov[i, j]
+            cov_matrix[asset_symbols.index(sym_i), asset_symbols.index(sym_j)] = cov[
+                i, j
+            ]
 
     return cov_matrix
 
@@ -124,13 +127,14 @@ def _calculate_covariance_matrix(
 # GBM simülasyonu (Prompt 10 – düzeltme: varyans düzeltmesi YOK)
 # ---------------------------------------------------------------------------
 
+
 def _simulate_paths_gbm(
     initial_value: float,
     mean_return: float,
     daily_vol: float,
     days: int,
     n_simulations: int,
-    seed: Optional[int] = None,
+    seed: int | None = None,
 ) -> np.ndarray:
     """Tek varlık GBM simülasyonu.
 
@@ -157,7 +161,7 @@ def _simulate_paths_multivariate(
     cov_matrix: np.ndarray,
     days: int,
     n_simulations: int,
-    seed: Optional[int] = None,
+    seed: int | None = None,
 ) -> np.ndarray:
     """Korelasyonlu çok varlıklı GBM simülasyonu (Prompt 10 – Cholesky).
 
@@ -193,23 +197,26 @@ def _simulate_paths_multivariate(
     return paths
 
 
-def _percentile_values(paths: np.ndarray, percentiles: List[int]) -> Dict[str, float]:
+def _percentile_values(paths: np.ndarray, percentiles: list[int]) -> dict[str, float]:
     """Son gün değerlerinin percentillerini hesapla."""
     final_values = paths[:, -1]
-    return {f"p{p}": round(float(np.percentile(final_values, p)), 2) for p in percentiles}
+    return {
+        f"p{p}": round(float(np.percentile(final_values, p)), 2) for p in percentiles
+    }
 
 
 # ---------------------------------------------------------------------------
 # 1. Monte Carlo Simülasyonu (Prompt 10 – düzeltmeler)
 # ---------------------------------------------------------------------------
 
+
 def monte_carlo_simulation(
     session,
-    asset_list: List[Dict],
+    asset_list: list[dict],
     days: int = 252,
     n_simulations: int = 10000,
-    percentiles: Optional[List[int]] = None,
-    seed: Optional[int] = None,
+    percentiles: list[int] | None = None,
+    seed: int | None = None,
     use_ledger: bool = True,
 ) -> MonteCarloResult:
     """Portföy için Monte Carlo simülasyonu (Prompt 10 düzeltmeleri).
@@ -230,7 +237,9 @@ def monte_carlo_simulation(
         percentiles = [5, 50, 95]
 
     if n_simulations > 200_000:
-        raise ValueError(f"n_simulations={n_simulations} → maksimum 200,000 (Prompt 3).")
+        raise ValueError(
+            f"n_simulations={n_simulations} → maksimum 200,000 (Prompt 3)."
+        )
 
     asset_symbols = [a["symbol"] for a in asset_list]
 
@@ -240,6 +249,7 @@ def monte_carlo_simulation(
         amount = a.get("amount", 1.0)
         if use_ledger:
             from services.ledger_service import get_portfolio_snapshot
+
             snapshot = get_portfolio_snapshot(session, as_of=None)
             holdings = {h["asset_symbol"]: h for h in snapshot.get("holdings", [])}
             amount = holdings.get(a["symbol"], {}).get("quantity", 0.0)
@@ -255,8 +265,8 @@ def monte_carlo_simulation(
     returns_dict = _fetch_all_asset_returns(asset_list, days=min(days * 2, 504))
 
     # Ortalama getiri ve volatilite
-    means: List[float] = []
-    volds: List[float] = []
+    means: list[float] = []
+    volds: list[float] = []
     missing_data_warning = False
     for i, sym in enumerate(asset_symbols):
         rets = returns_dict.get(sym)
@@ -313,11 +323,13 @@ def monte_carlo_simulation(
     asset_final_values = []
     for i, sym in enumerate(asset_symbols):
         asset_pcts = _percentile_values(asset_paths[:, :, i], percentiles)
-        asset_final_values.append({
-            "symbol": sym,
-            "initial_value": round(initial_values[i], 2),
-            **asset_pcts,
-        })
+        asset_final_values.append(
+            {
+                "symbol": sym,
+                "initial_value": round(initial_values[i], 2),
+                **asset_pcts,
+            }
+        )
 
     # Histogram (40 kutu) – son değerlerin dağılımı (Prompt 10)
     final_values = portfolio_paths[:, -1]
@@ -350,16 +362,16 @@ def monte_carlo_simulation(
 # 2. Stres Testi (Prompt 10 – gerçekleştirilmiş)
 # ---------------------------------------------------------------------------
 
-DEFAULT_STRESS_SCENARIOS: Dict[str, Dict] = {
+DEFAULT_STRESS_SCENARIOS: dict[str, dict] = {
     "rate_hike": {
         "description": "Faiz artışı şoku",
         "asset_impacts": {
-            "crypto":    {"price_shock_pct": -0.15, "vol_multiplier": 1.8},
-            "stock_tr":  {"price_shock_pct": -0.08,  "vol_multiplier": 1.5},
-            "stock_us":  {"price_shock_pct": -0.10,  "vol_multiplier": 1.6},
-            "commodity": {"price_shock_pct": +0.05,  "vol_multiplier": 1.3},
-            "cash":      {"price_shock_pct": +0.02,  "vol_multiplier": 1.0},
-            "default":   {"price_shock_pct": -0.05,  "vol_multiplier": 1.4},
+            "crypto": {"price_shock_pct": -0.15, "vol_multiplier": 1.8},
+            "stock_tr": {"price_shock_pct": -0.08, "vol_multiplier": 1.5},
+            "stock_us": {"price_shock_pct": -0.10, "vol_multiplier": 1.6},
+            "commodity": {"price_shock_pct": +0.05, "vol_multiplier": 1.3},
+            "cash": {"price_shock_pct": +0.02, "vol_multiplier": 1.0},
+            "default": {"price_shock_pct": -0.05, "vol_multiplier": 1.4},
         },
         "vol_multiplier": 1.5,
         "drift_shift": -0.0002,
@@ -367,12 +379,12 @@ DEFAULT_STRESS_SCENARIOS: Dict[str, Dict] = {
     "rate_cut": {
         "description": "Faiz indirimi şoku",
         "asset_impacts": {
-            "crypto":    {"price_shock_pct": +0.10, "vol_multiplier": 1.2},
-            "stock_tr":  {"price_shock_pct": +0.06, "vol_multiplier": 1.1},
-            "stock_us":  {"price_shock_pct": +0.08, "vol_multiplier": 1.2},
+            "crypto": {"price_shock_pct": +0.10, "vol_multiplier": 1.2},
+            "stock_tr": {"price_shock_pct": +0.06, "vol_multiplier": 1.1},
+            "stock_us": {"price_shock_pct": +0.08, "vol_multiplier": 1.2},
             "commodity": {"price_shock_pct": -0.02, "vol_multiplier": 1.1},
-            "cash":      {"price_shock_pct": -0.01, "vol_multiplier": 1.0},
-            "default":   {"price_shock_pct": +0.04, "vol_multiplier": 1.1},
+            "cash": {"price_shock_pct": -0.01, "vol_multiplier": 1.0},
+            "default": {"price_shock_pct": +0.04, "vol_multiplier": 1.1},
         },
         "vol_multiplier": 1.2,
         "drift_shift": +0.0001,
@@ -380,12 +392,12 @@ DEFAULT_STRESS_SCENARIOS: Dict[str, Dict] = {
     "fx_shock": {
         "description": "Döviz kuru şoku (TRY kaybı)",
         "asset_impacts": {
-            "crypto":    {"price_shock_pct": +0.10, "vol_multiplier": 1.2},
-            "stock_tr":  {"price_shock_pct": +0.05, "vol_multiplier": 1.1},
-            "stock_us":  {"price_shock_pct": -0.10, "vol_multiplier": 1.3},
+            "crypto": {"price_shock_pct": +0.10, "vol_multiplier": 1.2},
+            "stock_tr": {"price_shock_pct": +0.05, "vol_multiplier": 1.1},
+            "stock_us": {"price_shock_pct": -0.10, "vol_multiplier": 1.3},
             "commodity": {"price_shock_pct": +0.08, "vol_multiplier": 1.2},
-            "cash":      {"price_shock_pct": -0.15, "vol_multiplier": 1.5},
-            "default":   {"price_shock_pct": +0.05, "vol_multiplier": 1.2},
+            "cash": {"price_shock_pct": -0.15, "vol_multiplier": 1.5},
+            "default": {"price_shock_pct": +0.05, "vol_multiplier": 1.2},
         },
         "vol_multiplier": 1.3,
         "drift_shift": 0.0,
@@ -393,12 +405,12 @@ DEFAULT_STRESS_SCENARIOS: Dict[str, Dict] = {
     "global_recession": {
         "description": "Küresel durgunluk",
         "asset_impacts": {
-            "crypto":    {"price_shock_pct": -0.25, "vol_multiplier": 2.0},
-            "stock_tr":  {"price_shock_pct": -0.20, "vol_multiplier": 1.8},
-            "stock_us":  {"price_shock_pct": -0.22, "vol_multiplier": 1.9},
+            "crypto": {"price_shock_pct": -0.25, "vol_multiplier": 2.0},
+            "stock_tr": {"price_shock_pct": -0.20, "vol_multiplier": 1.8},
+            "stock_us": {"price_shock_pct": -0.22, "vol_multiplier": 1.9},
             "commodity": {"price_shock_pct": -0.15, "vol_multiplier": 1.5},
-            "cash":      {"price_shock_pct": +0.02, "vol_multiplier": 1.0},
-            "default":   {"price_shock_pct": -0.15, "vol_multiplier": 1.7},
+            "cash": {"price_shock_pct": +0.02, "vol_multiplier": 1.0},
+            "default": {"price_shock_pct": -0.15, "vol_multiplier": 1.7},
         },
         "vol_multiplier": 1.8,
         "drift_shift": -0.0003,
@@ -406,12 +418,12 @@ DEFAULT_STRESS_SCENARIOS: Dict[str, Dict] = {
     "market_crash": {
         "description": "Piyasa çöküşü (anlık şok + yayılma)",
         "asset_impacts": {
-            "crypto":    {"price_shock_pct": -0.40, "vol_multiplier": 2.5},
-            "stock_tr":  {"price_shock_pct": -0.35, "vol_multiplier": 2.2},
-            "stock_us":  {"price_shock_pct": -0.40, "vol_multiplier": 2.5},
+            "crypto": {"price_shock_pct": -0.40, "vol_multiplier": 2.5},
+            "stock_tr": {"price_shock_pct": -0.35, "vol_multiplier": 2.2},
+            "stock_us": {"price_shock_pct": -0.40, "vol_multiplier": 2.5},
             "commodity": {"price_shock_pct": -0.25, "vol_multiplier": 1.8},
-            "cash":      {"price_shock_pct": +0.02, "vol_multiplier": 1.0},
-            "default":   {"price_shock_pct": -0.30, "vol_multiplier": 2.0},
+            "cash": {"price_shock_pct": +0.02, "vol_multiplier": 1.0},
+            "default": {"price_shock_pct": -0.30, "vol_multiplier": 2.0},
         },
         "vol_multiplier": 2.0,
         "drift_shift": -0.0005,
@@ -422,10 +434,10 @@ DEFAULT_STRESS_SCENARIOS: Dict[str, Dict] = {
 def stress_test(
     session,
     portfolio_value: float,
-    shocks: Optional[Dict[str, float]] = None,
+    shocks: dict[str, float] | None = None,
     days: int = 252,
     n_simulations: int = 1000,
-    seed: Optional[int] = None,
+    seed: int | None = None,
 ) -> StressTestResult:
     """Makro şok senaryoları altında portföy değerlerini simüle et (Prompt 10).
 
@@ -449,7 +461,7 @@ def stress_test(
             if name in scenarios:
                 scenarios[name] = _apply_custom_shock(scenarios[name], magnitude)
 
-    stressed_values: Dict[str, Dict] = {}
+    stressed_values: dict[str, dict] = {}
 
     for scenario_name, scenario in scenarios.items():
         description = scenario.get("description", scenario_name)
@@ -457,7 +469,9 @@ def stress_test(
         vol_mult = scenario.get("vol_multiplier", 1.0)
         drift_shift = scenario.get("drift_shift", 0.0)
 
-        impacts = asset_impacts.get("default", {"price_shock_pct": -0.05, "vol_multiplier": 1.4})
+        impacts = asset_impacts.get(
+            "default", {"price_shock_pct": -0.05, "vol_multiplier": 1.4}
+        )
         price_shock = impacts.get("price_shock_pct", -0.05)
         vol_mult_actual = impacts.get("vol_multiplier", vol_mult)
 
@@ -466,7 +480,9 @@ def stress_test(
         stressed_mean = drift_shift
 
         if n_simulations > 200_000:
-            raise ValueError(f"n_simulations={n_simulations} → maksimum 200,000 (Prompt 3).")
+            raise ValueError(
+                f"n_simulations={n_simulations} → maksimum 200,000 (Prompt 3)."
+            )
 
         Z = rng.standard_normal((n_simulations, days - 1))
         drift = stressed_mean  # Prompt 10: varyans düzeltmesi yok
@@ -489,12 +505,12 @@ def stress_test(
         final_values = paths[:, -1]
 
         stressed_values[scenario_name] = {
-            "description":    description,
+            "description": description,
             "expected_value": round(float(np.mean(final_values)), 2),
-            "p5":             round(float(np.percentile(final_values, 5)), 2),
-            "p50":            round(float(np.percentile(final_values, 50)), 2),
-            "p95":            round(float(np.percentile(final_values, 95)), 2),
-            "loss_pct":       round(float(np.mean(final_values)) / portfolio_value - 1, 6),
+            "p5": round(float(np.percentile(final_values, 5)), 2),
+            "p50": round(float(np.percentile(final_values, 50)), 2),
+            "p95": round(float(np.percentile(final_values, 95)), 2),
+            "loss_pct": round(float(np.mean(final_values)) / portfolio_value - 1, 6),
         }
 
     worst_value = portfolio_value
@@ -514,7 +530,7 @@ def stress_test(
     }
 
 
-def _apply_custom_shock(scenario: Dict, magnitude: float) -> Dict:
+def _apply_custom_shock(scenario: dict, magnitude: float) -> dict:
     """Özel şok büyüklüğü ile varsayılan senaryoyu scale et."""
     new_scenario = {k: v for k, v in scenario.items() if k != "asset_impacts"}
     asset_impacts = dict(scenario.get("asset_impacts", {}))
@@ -532,10 +548,11 @@ def _apply_custom_shock(scenario: Dict, magnitude: float) -> Dict:
 # 3. AI Risk Anlatısı (Prompt 7 → ai_service.generate_risk_narrative)
 # ---------------------------------------------------------------------------
 
+
 def generate_risk_narrative(
     simulation_result: MonteCarloResult,
-    portfolio_context: Optional[Dict] = None,
-    api_key: Optional[str] = None,
+    portfolio_context: dict | None = None,
+    api_key: str | None = None,
 ) -> str:
     """Monte Carlo / stres test sonucu için Türkçe risk anlatısı (Prompt 7).
 
@@ -543,7 +560,10 @@ def generate_risk_narrative(
     kullanılır (tek kaynak, hata yönetimi + exception sınıfları).
     """
     try:
-        from services.ai_service import generate_risk_narrative as ai_generate_risk_narrative
+        from services.ai_service import (
+            generate_risk_narrative as ai_generate_risk_narrative,
+        )
+
         return ai_generate_risk_narrative(
             simulation_result=simulation_result,
             context=portfolio_context,

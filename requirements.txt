@@ -25,6 +25,7 @@
 #   pytest       : test framework
 #   pytest-mock  : pytest fixture for unittest.mock
 #   httpx        : async HTTP client (TestClient için)
+#   pip-audit    : güvenlik açıklarını tarama (Prompt 15)
 #
 # KALDIRILDI / KALDIRILMACAK:
 #   google-generativeai : DEPRECATED — had anne periodogram SDK'sı
@@ -34,6 +35,7 @@
 # NOT: pip install -r requirements.txt ederken development bağımlılıkları
 #      da yüklenecek. Ayrılan develop/ test bağımlılıkları için pst/requirements
 #      kullanılabilir (varsa).
+
 yfinance>=0.2.31
 ccxt>=4.2.0
 pandas>=2.0
@@ -51,7 +53,12 @@ google-genai>=1.0.0
 python-dotenv>=1.0.0
 requests>=2.31.0
 
+# Güvenlik bağımlılıkları (transitive CVE'leri kapatmak için)
+# pyasn1: CVE-2026-119194, CVE-2026-119195, CVE-2026-119196, CVE-2026-119197
+pyasn1>=0.6.5
+
 # Test / development (Prompt 0, 15)
 pytest>=8.0.0
 pytest-mock>=3.10.0
 httpx>=0.28.0
+pip-audit>=2.0.0

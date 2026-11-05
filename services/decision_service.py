@@ -15,36 +15,37 @@ eksiklikleri – decision_date, target_hit, outcome alanları PB şemasında).
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import date, timedelta
-from typing import Callable, Dict, List, Optional
 
 import config
 from services.ai_service import (
-    AIUnavailableError,
     AIGenerationError,
+    AIUnavailableError,
     generate_decision_retrospective,
 )
-from services.pocketbase import get_client
 from services.multi_asset_manager import AssetManager
-
+from services.pocketbase import get_client
 
 # ---------------------------------------------------------------------------
 # Sabitler – duygu durum tag'leri (MVP §3.2)
 # ---------------------------------------------------------------------------
 
-SENTIMENT_ALLOWED = frozenset({
-    "FOMO",           # FOMO — Fersizlik
-    "STRATEGIC",      # Stratejik Analiz
-    "PANIC",          # Panik Satışı
-    "DIVIDEND",       # Temettü/Gelir
-    "RISK_REDUCTION", # Risk Azaltma
-})
+SENTIMENT_ALLOWED = frozenset(
+    {
+        "FOMO",  # FOMO — Fersizlik
+        "STRATEGIC",  # Stratejik Analiz
+        "PANIC",  # Panik Satışı
+        "DIVIDEND",  # Temettü/Gelir
+        "RISK_REDUCTION",  # Risk Azaltma
+    }
+)
 
 SENTIMENT_LABELS = {
-    "FOMO":           "FOMO (Fersizlik)",
-    "STRATEGIC":      "Stratejik Analiz",
-    "PANIC":          "Panik Satışı",
-    "DIVIDEND":       "Temettü/Gelir",
+    "FOMO": "FOMO (Fersizlik)",
+    "STRATEGIC": "Stratejik Analiz",
+    "PANIC": "Panik Satışı",
+    "DIVIDEND": "Temettü/Gelir",
     "RISK_REDUCTION": "Risk Azaltma",
 }
 
@@ -60,7 +61,8 @@ PB_DATETIME_FORMAT = "%Y-%m-%dT%H:%M:%S%z"  # PB DateTime fields formatı
 # Helper – PB record tarih alanlarını datetime.date'a çevir
 # ---------------------------------------------------------------------------
 
-def _parse_pb_date(value: Optional[str]) -> Optional[date]:
+
+def _parse_pb_date(value: str | None) -> date | None:
     """PB DateTime/Timestamp string → datetime.date."""
     if not value:
         return None
@@ -77,17 +79,18 @@ def _parse_pb_date(value: Optional[str]) -> Optional[date]:
 # 1. create_decision
 # ---------------------------------------------------------------------------
 
+
 def create_decision(
     user_id: str,
     asset_symbol: str,
     action: str,
-    rationale: Optional[str] = None,
-    sentiment: Optional[str] = None,
-    target_price: Optional[float] = None,
-    target_date: Optional[date] = None,
-    decision_date: Optional[date] = None,
-    transaction_id: Optional[str] = None,
-) -> Dict:
+    rationale: str | None = None,
+    sentiment: str | None = None,
+    target_price: float | None = None,
+    target_date: date | None = None,
+    decision_date: date | None = None,
+    transaction_id: str | None = None,
+) -> dict:
     """Yeni bir karar kaydı oluşturur (Prompt 13: decision_date eklendi).
 
     Args:
@@ -112,28 +115,26 @@ def create_decision(
     if action_upper not in ACTION_ALLOWED:
         raise ValueError(f"action: {action!r} — allowed: {ACTION_ALLOWED}")
 
-    sentiment_upper: Optional[str] = None
+    sentiment_upper: str | None = None
     if sentiment is not None:
         sentiment_upper = sentiment.upper()
         if sentiment_upper not in SENTIMENT_ALLOWED:
-            raise ValueError(
-                f"sentiment: {sentiment!r} — allowed: {SENTIMENT_ALLOWED}"
-            )
+            raise ValueError(f"sentiment: {sentiment!r} — allowed: {SENTIMENT_ALLOWED}")
 
     client = get_client()
     decisions = client.collection("decisions")
 
     data = {
-        "user":             user_id,
-        "asset_symbol":     asset_symbol.upper(),
-        "action":           action_upper,
-        "rationale":        rationale,
-        "sentiment":        sentiment_upper,
-        "target_price":     target_price,
-        "target_date":      target_date.isoformat() if target_date else None,
-        "decision_date":    decision_date.isoformat() if decision_date else None,
-        "status":           "OPEN",
-        "transaction_id":   transaction_id,
+        "user": user_id,
+        "asset_symbol": asset_symbol.upper(),
+        "action": action_upper,
+        "rationale": rationale,
+        "sentiment": sentiment_upper,
+        "target_price": target_price,
+        "target_date": target_date.isoformat() if target_date else None,
+        "decision_date": decision_date.isoformat() if decision_date else None,
+        "status": "OPEN",
+        "transaction_id": transaction_id,
     }
 
     record = decisions.create(data)  # PB otomatik ID atar
@@ -157,13 +158,11 @@ def create_decision(
     if action_upper not in ACTION_ALLOWED:
         raise ValueError(f"action: {action!r} — allowed: {ACTION_ALLOWED}")
 
-    sentiment_upper: Optional[str] = None
+    sentiment_upper: str | None = None
     if sentiment is not None:
         sentiment_upper = sentiment.upper()
         if sentiment_upper not in SENTIMENT_ALLOWED:
-            raise ValueError(
-                f"sentiment: {sentiment!r} — allowed: {SENTIMENT_ALLOWED}"
-            )
+            raise ValueError(f"sentiment: {sentiment!r} — allowed: {SENTIMENT_ALLOWED}")
 
     client = get_client()
     decisions = client.collection("decisions")
@@ -188,7 +187,8 @@ def create_decision(
 # 2. get_decision
 # ---------------------------------------------------------------------------
 
-def get_decision(decision_id: str) -> Optional[Dict]:
+
+def get_decision(decision_id: str) -> dict | None:
     """ID ile tek karar. Yoksa None."""
     client = get_client()
     decisions = client.collection("decisions")
@@ -202,16 +202,17 @@ def get_decision(decision_id: str) -> Optional[Dict]:
 # 3. list_decisions
 # ---------------------------------------------------------------------------
 
+
 def list_decisions(
-    status: Optional[str] = None,
-    sentiment: Optional[str] = None,
-    asset_symbol: Optional[str] = None,
-    action: Optional[str] = None,
-    target_date_from: Optional[date] = None,
-    target_date_to: Optional[date] = None,
-    limit: Optional[int] = None,
+    status: str | None = None,
+    sentiment: str | None = None,
+    asset_symbol: str | None = None,
+    action: str | None = None,
+    target_date_from: date | None = None,
+    target_date_to: date | None = None,
+    limit: int | None = None,
     order_by_date_desc: bool = True,
-) -> List[Dict]:
+) -> list[dict]:
     """Filtrelenmiş karar listesi.
 
     PB filter syntax: filter=field='value' AND field2='value2'
@@ -220,7 +221,7 @@ def list_decisions(
     client = get_client()
     decisions = client.collection("decisions")
 
-    filters: List[str] = []
+    filters: list[str] = []
     if status is not None:
         filters.append(f"status='{status.upper()}'")
     if sentiment is not None:
@@ -248,14 +249,15 @@ def list_decisions(
 # 4. update_decision
 # ---------------------------------------------------------------------------
 
+
 def update_decision(
     decision_id: str,
-    rationale: Optional[str] = None,
-    sentiment: Optional[str] = None,
-    target_price: Optional[float] = None,
-    target_date: Optional[date] = None,
-    status: Optional[str] = None,
-) -> Optional[Dict]:
+    rationale: str | None = None,
+    sentiment: str | None = None,
+    target_price: float | None = None,
+    target_date: date | None = None,
+    status: str | None = None,
+) -> dict | None:
     """Karar alanlarını günceller. None → o alan değiştirilmez.
 
     Returns:
@@ -274,9 +276,7 @@ def update_decision(
     if sentiment is not None:
         sentiment_upper = sentiment.upper()
         if sentiment_upper not in SENTIMENT_ALLOWED:
-            raise ValueError(
-                f"sentiment: {sentiment!r} — allowed: {SENTIMENT_ALLOWED}"
-            )
+            raise ValueError(f"sentiment: {sentiment!r} — allowed: {SENTIMENT_ALLOWED}")
         record["sentiment"] = sentiment_upper
     if target_price is not None:
         record["target_price"] = target_price
@@ -285,9 +285,7 @@ def update_decision(
     if status is not None:
         status_upper = status.upper()
         if status_upper not in STATUS_ALLOWED:
-            raise ValueError(
-                f"status: {status!r} — allowed: {STATUS_ALLOWED}"
-            )
+            raise ValueError(f"status: {status!r} — allowed: {STATUS_ALLOWED}")
         record["status"] = status_upper
 
     decisions.update(record)
@@ -298,7 +296,8 @@ def update_decision(
 # 5. close_decision
 # ---------------------------------------------------------------------------
 
-def close_decision(decision_id: str) -> Optional[Dict]:
+
+def close_decision(decision_id: str) -> dict | None:
     """Kararı REVIEWED durumuna taşır (kullanıcı taraflı gözden geçirme)."""
     return update_decision(decision_id, status="REVIEWED")
 
@@ -307,7 +306,8 @@ def close_decision(decision_id: str) -> Optional[Dict]:
 # 6. decision_to_dict
 # ---------------------------------------------------------------------------
 
-def decision_to_dict(record) -> Dict:
+
+def decision_to_dict(record) -> dict:
     """PB decisions record veya dict → flat dict (API response / serializasyon).
 
     idempotent: dict girişte değerni doğrudan döner; PB Record girişte convert eder.
@@ -316,22 +316,22 @@ def decision_to_dict(record) -> Dict:
     if isinstance(record, dict):
         return record
     return {
-        "id":               record.id,
-        "date":             _parse_pb_date(getattr(record, "date", None)),
-        "asset_symbol":     getattr(record, "asset_symbol", ""),
-        "action":           getattr(record, "action", ""),
-        "rationale":        getattr(record, "rationale", None),
-        "sentiment":        getattr(record, "sentiment", None),
-        "target_price":     getattr(record, "target_price", None),
-        "target_date":      _parse_pb_date(getattr(record, "target_date", None)),
-        "status":           getattr(record, "status", "OPEN"),
+        "id": record.id,
+        "date": _parse_pb_date(getattr(record, "date", None)),
+        "asset_symbol": getattr(record, "asset_symbol", ""),
+        "action": getattr(record, "action", ""),
+        "rationale": getattr(record, "rationale", None),
+        "sentiment": getattr(record, "sentiment", None),
+        "target_price": getattr(record, "target_price", None),
+        "target_date": _parse_pb_date(getattr(record, "target_date", None)),
+        "status": getattr(record, "status", "OPEN"),
         "ai_retrospective": getattr(record, "ai_retrospective", None),
-        "transaction_id":   getattr(record, "transaction_id", None),
-        "user":             getattr(record, "user", None),
-        "decision_date":    _parse_pb_date(getattr(record, "decision_date", None)),
+        "transaction_id": getattr(record, "transaction_id", None),
+        "user": getattr(record, "user", None),
+        "decision_date": _parse_pb_date(getattr(record, "decision_date", None)),
         "outcome_return_pct": getattr(record, "outcome_return_pct", None),
-        "outcome_price":     getattr(record, "outcome_price", None),
-        "target_hit":        getattr(record, "target_hit", None),
+        "outcome_price": getattr(record, "outcome_price", None),
+        "target_hit": getattr(record, "target_hit", None),
     }
 
 
@@ -339,7 +339,8 @@ def decision_to_dict(record) -> Dict:
 # 7. get_sentiment_summary
 # ---------------------------------------------------------------------------
 
-def get_sentiment_summary() -> Dict[str, int]:
+
+def get_sentiment_summary() -> dict[str, int]:
     """Her sentiment tag'ına göre karar sayıları (in-memory aggregation)."""
     client = get_client()
     decisions = client.collection("decisions")
@@ -356,7 +357,8 @@ def get_sentiment_summary() -> Dict[str, int]:
 # 8. get_status_summary
 # ---------------------------------------------------------------------------
 
-def get_status_summary() -> Dict[str, int]:
+
+def get_status_summary() -> dict[str, int]:
     """OPEN / EXPIRED / REVIEWED / CLOSED sayımları."""
     client = get_client()
     decisions = client.collection("decisions")
@@ -370,13 +372,31 @@ def get_status_summary() -> Dict[str, int]:
 
 
 # ---------------------------------------------------------------------------
+# 8b. delete_decision
+# ---------------------------------------------------------------------------
+
+
+def delete_decision(decision_id: str) -> bool:
+    """Bir kararı sil (Prompt 13)."""
+    client = get_client()
+    decisions = client.collection("decisions")
+    try:
+        record = decisions.get_list(params=f"filter=id='{decision_id}'&per_page=1")[0]
+        decisions.delete(record)
+        return True
+    except (IndexError, Exception):
+        return False
+
+
+# ---------------------------------------------------------------------------
 # 9. check_decision_target
 # ---------------------------------------------------------------------------
 
+
 def check_decision_target(
     decision_id: str,
-    price_fn: Optional[Callable[[str], Optional[float]]] = None,
-) -> Dict:
+    price_fn: Callable[[str], float | None] | None = None,
+) -> dict:
     """Bir kararın hedef fiyat / vade gerçekleşme durumunu kontrol eder.
 
     BUY → hedef fiyatın üzerindeyse "hit"
@@ -402,24 +422,18 @@ def check_decision_target(
         price_fn = lambda sym: mgr.get_price(sym, _guess_asset_type(sym))
 
     current_price = (
-        price_fn(decision["asset_symbol"])
-        if decision["asset_symbol"]
-        else None
+        price_fn(decision["asset_symbol"]) if decision["asset_symbol"] else None
     )
 
-    target_hit: Optional[bool] = None
-    if (
-        decision["target_price"] is not None
-        and current_price is not None
-    ):
+    target_hit: bool | None = None
+    if decision["target_price"] is not None and current_price is not None:
         if decision["action"] == "BUY":
             target_hit = current_price >= decision["target_price"]
         elif decision["action"] == "SELL":
             target_hit = current_price <= decision["target_price"]
 
     target_date_passed = (
-        decision["target_date"] is not None
-        and decision["target_date"] < date.today()
+        decision["target_date"] is not None and decision["target_date"] < date.today()
     )
 
     if decision["status"] == "REVIEWED":
@@ -430,16 +444,17 @@ def check_decision_target(
         status_suggestion = "OPEN"
 
     return {
-        "decision_id":        decision_id,
-        "asset_symbol":       decision["asset_symbol"],
-        "action":             decision["action"],
-        "target_price":       decision["target_price"],
-        "target_date":        decision["target_date"].isoformat()
-                              if decision["target_date"] else None,
-        "current_price":      current_price,
-        "target_hit":         target_hit,
+        "decision_id": decision_id,
+        "asset_symbol": decision["asset_symbol"],
+        "action": decision["action"],
+        "target_price": decision["target_price"],
+        "target_date": decision["target_date"].isoformat()
+        if decision["target_date"]
+        else None,
+        "current_price": current_price,
+        "target_hit": target_hit,
         "target_date_passed": target_date_passed,
-        "status_suggestion":  status_suggestion,
+        "status_suggestion": status_suggestion,
     }
 
 
@@ -447,9 +462,10 @@ def check_decision_target(
 # 10. get_decisions_due_for_review
 # ---------------------------------------------------------------------------
 
-def get_decisions_due_for_review() -> List[Dict]:
+
+def get_decisions_due_for_review() -> list[dict]:
     """Hedef tarihi geçmiş ama henüz REVIEWED edilmemiş kararlar."""
-    due: List[Dict] = []
+    due: list[dict] = []
     for d in list_decisions(status="OPEN"):
         if d["target_date"] is not None and d["target_date"] < date.today():
             due.append(d)
@@ -461,7 +477,8 @@ def get_decisions_due_for_review() -> List[Dict]:
 # 11. auto_close_expired_decisions
 # ---------------------------------------------------------------------------
 
-def auto_close_expired_decisions(days_before: int = 0) -> List[Dict]:
+
+def auto_close_expired_decisions(days_before: int = 0) -> list[dict]:
     """Hedef tarihleri dolmuş ama REVIEWED yapılmamış kararları EXPIRED yapar.
 
     Args:
@@ -472,7 +489,7 @@ def auto_close_expired_decisions(days_before: int = 0) -> List[Dict]:
         Kapatılan (artık EXPIRED) decision listesi.
     """
     cutoff = date.today() - timedelta(days=days_before)
-    closed: List[Dict] = []
+    closed: list[dict] = []
     for d in list_decisions(status="OPEN"):
         if d["target_date"] is not None and d["target_date"] < cutoff:
             updated = update_decision(d["id"], status="EXPIRED")
@@ -485,11 +502,12 @@ def auto_close_expired_decisions(days_before: int = 0) -> List[Dict]:
 # 12. generate_ai_retrospective (Prompt 7 – düzeltme: hata yutma + DB değişmez)
 # ---------------------------------------------------------------------------
 
+
 def generate_ai_retrospective(
     decision_id: str,
-    price_fn: Optional[Callable[[str], Optional[float]]] = None,
-    market_context: Optional[str] = None,
-) -> Dict:
+    price_fn: Callable[[str], float | None] | None = None,
+    market_context: str | None = None,
+) -> dict:
     """Bir karar için AI post-mortem (retrospektif) üretir.
 
     Prompt 7 düzeltmeleri:
@@ -521,16 +539,14 @@ def generate_ai_retrospective(
         price_fn = lambda sym: mgr.get_price(sym, _guess_asset_type(sym))
 
     current_price = (
-        price_fn(decision["asset_symbol"])
-        if decision["asset_symbol"]
-        else None
+        price_fn(decision["asset_symbol"]) if decision["asset_symbol"] else None
     )
 
     # market_data: decision tarihi ve vade tarihi fiyatlarını Prompt 7'a besle
     market_data = {"price_on_decision": current_price} if current_price else None
 
     api_available = bool(config.GOOGLE_API_KEY)
-    retrospective: Optional[str] = None
+    retrospective: str | None = None
 
     if api_available:
         try:
@@ -548,10 +564,10 @@ def generate_ai_retrospective(
             decisions.update(decision)
 
             return {
-                "decision_id":     decision_id,
-                "retrospective":   retrospective,
-                "status":          "REVIEWED",
-                "api_available":   True,
+                "decision_id": decision_id,
+                "retrospective": retrospective,
+                "status": "REVIEWED",
+                "api_available": True,
             }
 
         except AIUnavailableError:
@@ -573,10 +589,10 @@ def generate_ai_retrospective(
             }
 
     return {
-        "decision_id":     decision_id,
-        "retrospective":   None,
-        "status":          decision["status"],  # değişmez
-        "api_available":   False,
+        "decision_id": decision_id,
+        "retrospective": None,
+        "status": decision["status"],  # değişmez
+        "api_available": False,
     }
 
 
@@ -584,10 +600,11 @@ def generate_ai_retrospective(
 # Yardımcı: retrospective prompt'ı  (Prompt 7 – eskisi kaldırıldı)
 # ---------------------------------------------------------------------------
 
+
 def _build_retrospective_prompt(
-    decision: Dict,
-    current_price: Optional[float],
-    market_context: Optional[str],
+    decision: dict,
+    current_price: float | None,
+    market_context: str | None,
 ) -> str:
     """AI post-mortem için KULLANICI BAŞLIĞI prompt (Prompt 7).
 
@@ -596,10 +613,7 @@ def _build_retrospective_prompt(
     Bu fonksiyon yalnızca kararın temel context'ini hazırlar.
     """
     target_hit_str = "Bilinmiyor"
-    if (
-        decision.get("target_price") is not None
-        and current_price is not None
-    ):
+    if decision.get("target_price") is not None and current_price is not None:
         if decision["action"] == "BUY":
             hit = current_price >= decision["target_price"]
             target_hit_str = "ÜSTİNDE" if hit else "ALTINDA"
@@ -652,6 +666,7 @@ def _build_retrospective_prompt(
 # ---------------------------------------------------------------------------
 # Helper: asset türünü tahmin et
 # ---------------------------------------------------------------------------
+
 
 def _guess_asset_type(symbol: str) -> str:
     """Price fetch için asset türü tahmini.

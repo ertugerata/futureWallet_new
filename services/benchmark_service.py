@@ -16,26 +16,24 @@ MVP §3.4, TODO 2.2, Prompt 11 (Benchmark / enflasyon verisi).
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta
-from typing import Dict, Optional
 
 import pandas as pd
-import yfinance as yf
 import requests
+import yfinance as yf
 
 from config import FRED_API_KEY, TCMB_API_KEY
 from services.pocketbase import get_client
-
 
 # ---------------------------------------------------------------------------
 # Sabitler / konfigürasyon
 # ---------------------------------------------------------------------------
 
-GC_F_TICKER = "GC=F"        # Ons Altın (USD) – COMEX
-XAUUSD_TICKER = "XAUUSD"    # Gram Altın (USD) – şişe
-SP500_TICKER = "^GSPC"      # S&P 500
+GC_F_TICKER = "GC=F"  # Ons Altın (USD) – COMEX
+XAUUSD_TICKER = "XAUUSD"  # Gram Altın (USD) – şişe
+SP500_TICKER = "^GSPC"  # S&P 500
 USDTRY_TICKER = "USDTRY=X"  # USD/TRY kur
 
-FRED_CPI_SERIES = "CPIAUCSL"         # US CPI (All Urban Consumers)
+FRED_CPI_SERIES = "CPIAUCSL"  # US CPI (All Urban Consumers)
 TCMB_TUFE_SERIES = "TUFE_G_0000000001"  # TÜİK TÜFE (2023=100)
 
 EVDS_JSON_URL = "https://evds.tcmb.gov.tr/evds_services/api/values"
@@ -47,6 +45,7 @@ GRAMS_PER_OUNCE = 31.1035  # ons → gram
 # ---------------------------------------------------------------------------
 # 1. Piyasa fiyatları (yfinance) – PB'den bağımsız
 # ---------------------------------------------------------------------------
+
 
 def fetch_gold_prices(
     start: date,
@@ -93,7 +92,7 @@ def fetch_sp500_prices(
 def fetch_usd_try_rate(
     start: date,
     end: date,
-) -> Optional[pd.Series]:
+) -> pd.Series | None:
     """USD/TRY kuru serisi (yfinance USDTRY=X).
 
     Returns:
@@ -116,9 +115,9 @@ def fetch_usd_try_rate(
     return series
 
 
-def get_current_market_prices() -> Dict[str, Optional[float]]:
+def get_current_market_prices() -> dict[str, float | None]:
     """Güncel (bugün) Altın ve S&P 500 ve USD/TRY fiyatlarını döndürür."""
-    out: Dict[str, Optional[float]] = {
+    out: dict[str, float | None] = {
         "gold_usd": None,
         "sp500": None,
         "usd_try": None,
@@ -158,10 +157,11 @@ def get_current_market_prices() -> Dict[str, Optional[float]]:
 # 2. TÜİK TÜFE (TR enflasyon) – EVDS API (Prompt 11)
 # ---------------------------------------------------------------------------
 
+
 def _evds_fetch_turkey_cpi(
     start: date,
     end: date,
-) -> Optional[pd.DataFrame]:
+) -> pd.DataFrame | None:
     """TCMB EVDS API'sinden TÜFE (TUFE_G_0000000001) serisini çeker.
 
     GET {EVDS_JSON_URL}?series=...&startDate=...&endDate=...&key={TCMB_API_KEY}
@@ -213,7 +213,7 @@ def fetch_turkey_cpi(
     start: date,
     end: date,
     allow_estimate: bool = False,
-) -> "pd.DataFrame":
+) -> pd.DataFrame:
     """Türkiye TÜFE endeksi serisi (aylık).
 
     allow_estimate=False ve veri yoksa ValueError (Prompt 11).
@@ -248,10 +248,11 @@ def fetch_turkey_cpi(
 # 3. US CPI (ABD enflasyon) – FRED API (Prompt 11)
 # ---------------------------------------------------------------------------
 
+
 def _fred_fetch_us_cpi(
     start: date,
     end: date,
-) -> Optional[pd.DataFrame]:
+) -> pd.DataFrame | None:
     """FRED API'sinden US CPI (CPIAUCSL) serisini çeker."""
     if not FRED_API_KEY:
         return None
@@ -297,7 +298,7 @@ def fetch_us_cpi(
     start: date,
     end: date,
     allow_estimate: bool = False,
-) -> "pd.DataFrame":
+) -> pd.DataFrame:
     """US CPI (CPIAUCSL) serisi.
 
     allow_estimate=False ve veri yoksa ValueError (Prompt 11).
@@ -332,10 +333,11 @@ def fetch_us_cpi(
 # 4. Gram Altın TL (Prompt 11)
 # ---------------------------------------------------------------------------
 
+
 def compute_gold_try_gram(
-    gold_usd_ons: Optional[float],
-    usd_try: Optional[float],
-) -> Optional[float]:
+    gold_usd_ons: float | None,
+    usd_try: float | None,
+) -> float | None:
     """Gram altın TL fiyatı = (ons altın USD / 31.1035) * USDTRY."""
     if gold_usd_ons is None or usd_try is None:
         return None
@@ -346,16 +348,17 @@ def compute_gold_try_gram(
 # 5. Tüm makro verilerini çekip PB'ye kaydet  (Prompt 11 – source/is_estimate)
 # ---------------------------------------------------------------------------
 
+
 def fetch_and_save_macro_data(
     user_id: str,
-    start: Optional[date] = None,
-    end: Optional[date] = None,
+    start: date | None = None,
+    end: date | None = None,
     save_sp500: bool = True,
     save_gold_usd: bool = True,
     save_gold_try_gram: bool = True,
     save_tr_cpi: bool = True,
     save_us_cpi: bool = True,
-) -> Dict[str, int]:
+) -> dict[str, int]:
     """Tüm makro verilerini çeker ve PB `macro_data` koleksiyonuna kaydeder.
 
     PB macro_data alanları:
@@ -367,7 +370,7 @@ def fetch_and_save_macro_data(
     if end is None:
         end = date.today()
 
-    stats: Dict[str, int] = {
+    stats: dict[str, int] = {
         "gold_usd": 0,
         "sp500": 0,
         "gold_try_gram": 0,
@@ -382,16 +385,24 @@ def fetch_and_save_macro_data(
     if save_gold_usd:
         gold_df = fetch_gold_prices(start, end, granularity="1mo")
         stats["gold_usd"] = _upsert_to_pb(
-            macro, gold_df, "gold_usd", user_id,
-            source="yfinance", is_estimate=False,
+            macro,
+            gold_df,
+            "gold_usd",
+            user_id,
+            source="yfinance",
+            is_estimate=False,
         )
 
     # S&P 500
     if save_sp500:
         sp_df = fetch_sp500_prices(start, end, granularity="1mo")
         stats["sp500"] = _upsert_to_pb(
-            macro, sp_df, "sp500", user_id,
-            source="yfinance", is_estimate=False,
+            macro,
+            sp_df,
+            "sp500",
+            user_id,
+            source="yfinance",
+            is_estimate=False,
         )
 
     # Gram altın TL
@@ -405,8 +416,12 @@ def fetch_and_save_macro_data(
             gold_try_df = gold_try_df.dropna()
             if not gold_try_df.empty:
                 stats["gold_try_gram"] = _upsert_to_pb(
-                    macro, gold_try_df, "gold_try_gram", user_id,
-                    source="derived", is_estimate=False,
+                    macro,
+                    gold_try_df,
+                    "gold_try_gram",
+                    user_id,
+                    source="derived",
+                    is_estimate=False,
                 )
 
     # TÜFE
@@ -414,8 +429,12 @@ def fetch_and_save_macro_data(
         try:
             tr_df = fetch_turkey_cpi(start, end, allow_estimate=False)
             stats["tr_cpi"] = _upsert_to_pb(
-                macro, tr_df, "tr_cpi", user_id,
-                source="EVDS/TÜİK", is_estimate=False,
+                macro,
+                tr_df,
+                "tr_cpi",
+                user_id,
+                source="EVDS/TÜİK",
+                is_estimate=False,
             )
         except ValueError:
             pass
@@ -425,8 +444,12 @@ def fetch_and_save_macro_data(
         try:
             us_df = fetch_us_cpi(start, end, allow_estimate=False)
             stats["us_cpi"] = _upsert_to_pb(
-                macro, us_df, "us_cpi", user_id,
-                source="FRED", is_estimate=False,
+                macro,
+                us_df,
+                "us_cpi",
+                user_id,
+                source="FRED",
+                is_estimate=False,
             )
         except ValueError:
             pass
@@ -473,7 +496,7 @@ def _upsert_to_pb(
         except Exception:
             existing = []
 
-        record_data: Dict = {
+        record_data: dict = {
             "date": pb_date_str,
             value_col: float(val),
             "source": source,
@@ -496,10 +519,11 @@ def _upsert_to_pb(
 # 6. Reel değerleme: enflasyondan arındırılmış getiri  (Prompt 11)
 # ---------------------------------------------------------------------------
 
+
 def get_cpi_for_date(
     dt: date,
-    cpi_type: str = "us",   # "us" | "tr"
-) -> Optional[float]:
+    cpi_type: str = "us",  # "us" | "tr"
+) -> float | None:
     """Belirtilen tarihteki veya en yakın geçmiş CPI değerini PB macro_data'den döndürür.
 
     PB macro_data: date (DateTime), tr_cpi / us_cpi (float).
@@ -532,7 +556,7 @@ def adjust_for_inflation(
     date_from: date,
     date_to: date,
     cpi_type: str = "tr",
-) -> Optional[float]:
+) -> float | None:
     """Nominal bir değeri, date_from'tan date_toye kadar olan enflasyona göre ayarlar.
 
     reel_değer = nominal × CPI(başlangıç) / CPI(bitiş)
@@ -554,7 +578,7 @@ def compute_real_return(
     date_start: date,
     date_end: date,
     cpi_type: str = "tr",
-) -> Dict:
+) -> dict:
     """Portföyün reel (enflasyondan arındırılmış) getirisini hesaplar."""
     cpi_from = get_cpi_for_date(date_start, cpi_type)
     cpi_to = get_cpi_for_date(date_end, cpi_type)
@@ -565,11 +589,11 @@ def compute_real_return(
         else 0.0
     )
 
-    real_return: Optional[float] = None
+    real_return: float | None = None
     if cpi_from and cpi_to and cpi_to > 0:
-        real_return = (
-            (portfolio_value_end / portfolio_value_start) * (cpi_from / cpi_to) - 1.0
-        )
+        real_return = (portfolio_value_end / portfolio_value_start) * (
+            cpi_from / cpi_to
+        ) - 1.0
 
     return {
         "nominal_return_pct": round(nominal_return, 6),
@@ -584,6 +608,7 @@ def compute_real_return(
 # 7. Benchmark kıyas  (Prompt 11)
 # ---------------------------------------------------------------------------
 
+
 def compare_to_benchmark(
     portfolio_value_start: float,
     portfolio_value_end: float,
@@ -592,23 +617,24 @@ def compare_to_benchmark(
     benchmark_gold: bool = True,
     benchmark_sp500: bool = True,
     benchmark_gold_try_gram: bool = True,
-) -> Dict:
+) -> dict:
     """Portföy performansını Altın, Gram Altın TL ve S&P 500 ile kıyaslar.
 
     PB macro_data'den fiyatları çeker; yoksa yfinance'den çeker.
     """
-    out: Dict = {
+    out: dict = {
         "portfolio_return_pct": round(
             (portfolio_value_end - portfolio_value_start) / portfolio_value_start
             if portfolio_value_start
-            else 0.0, 6
+            else 0.0,
+            6,
         ),
         "gold_usd": {"price_start": None, "price_end": None, "return_pct": None},
         "gold_try_gram": {"price_start": None, "price_end": None, "return_pct": None},
         "sp500": {"price_start": None, "price_end": None, "return_pct": None},
     }
 
-    def _get_pb_price(col: str, dt: date) -> Optional[float]:
+    def _get_pb_price(col: str, dt: date) -> float | None:
         client = get_client()
         macro = client.collection("macro_data")
         try:
@@ -665,9 +691,10 @@ def compare_to_benchmark(
 # 8. Sağlık kontrolü
 # ---------------------------------------------------------------------------
 
-def check_data_sources() -> Dict[str, bool]:
+
+def check_data_sources() -> dict[str, bool]:
     """Veri kaynaklarının erişilebilirliğini test eder."""
-    out: Dict[str, bool] = {"yfinance": False, "evds": False, "fred": False}
+    out: dict[str, bool] = {"yfinance": False, "evds": False, "fred": False}
 
     try:
         g = yf.download(GC_F_TICKER, period="5d", progress=False)

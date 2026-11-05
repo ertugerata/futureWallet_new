@@ -9,6 +9,7 @@ Prompt 7 (AI/SDK geçiş) düzeltmeleri ile senkronize edilmiştir.
 """
 
 from os import environ
+
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -48,7 +49,7 @@ POCKETBASE_PASSWORD: str = environ.get("POCKETBASE_PASSWORD", "changeme")
 # ---------------------------------------------------------------------------
 # Veritabanı (Prompt 6 – geçiş NOT*) =======================================================================
 # ---------------------------------------------------------------------------
-#(*) SQLAlchemy/SQLite → PocketBase geçişi: bu dosya artık POCKETBASE_URL üzerinden
+# (*) SQLAlchemy/SQLite → PocketBase geçişi: bu dosya artık POCKETBASE_URL üzerinden
 #    PocketBase Async Python SDK kullanır (services/pocketbase.py).
 #    DATABASE_URL sıfırlandıktan sonra artık kullanılmaz; gelecekte tamamen kaldırılacak.
 #    Testlerde PB instance'a bağlı kalınabilir (memory SQLite yerine PB embedded).

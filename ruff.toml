@@ -1,0 +1,23 @@
+# Ruff configuration for FutureWallet
+# FastAPI pattern: Query() in argument defaults is standard FastAPI usage
+
+[lint]
+select = [
+    "F",      # Pyflakes
+    "E",      # pycodestyle errors
+    "W",      # pycodestyle warnings
+    "I",      # isort
+    "RUF",    # Ruff-specific rules
+    "B",      # flake8-bugbear
+    "PL",     # Pylint
+    "TRY",    # tryceratops
+]
+ignore = [
+    "B008",   # FastAPI Query() in defaults - false positive
+]
+
+[lint.isort]
+known-first-party = ["api", "services", "config", "db"]
+
+[format]
+line-length = 100

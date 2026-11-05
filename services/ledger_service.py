@@ -11,31 +11,33 @@ Prompt 9 (time-travel fiyat düzeltmesi).
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import date, timedelta
-from typing import Callable, Dict, List, Optional
 
-from services.pocketbase import get_client
 from services.multi_asset_manager import AssetManager
-
+from services.pocketbase import get_client
 
 # ---------------------------------------------------------------------------
 # Tip tanımları
 # ---------------------------------------------------------------------------
 
-AssetHolding = Dict  # {'asset_symbol': str, 'quantity': float, 'type': str,
-                      #  'average_cost': float, 'total_cost': float, 'value': float}
+AssetHolding = dict  # {'asset_symbol': str, 'quantity': float, 'type': str,
+#  'average_cost': float, 'total_cost': float, 'value': float}
 
-PortfolioSnapshot = Dict  # {'holdings': List[AssetHolding], 'total_value': float, 'as_of_date': str}
+PortfolioSnapshot = (
+    dict  # {'holdings': List[AssetHolding], 'total_value': float, 'as_of_date': str}
+)
 
-TimeTravelResult = Dict  # {'holdings': List[AssetHolding], 'value_at_start': float,
-                          #  'value_at_target': float, 'pnl': float, 'pnl_pct': float}
+TimeTravelResult = dict  # {'holdings': List[AssetHolding], 'value_at_start': float,
+#  'value_at_target': float, 'pnl': float, 'pnl_pct': float}
 
 
 # ---------------------------------------------------------------------------
 # Yardımcı: PB timestamp string → date
 # ---------------------------------------------------------------------------
 
-def _parse_pb_date(value: Optional[str]) -> Optional[date]:
+
+def _parse_pb_date(value: str | None) -> date | None:
     """PB DateTime string → datetime.date."""
     if not value:
         return None
@@ -50,6 +52,7 @@ def _parse_pb_date(value: Optional[str]) -> Optional[date]:
 # ---------------------------------------------------------------------------
 # Yardımcı: asset türü tahmini (tek tanım – Prompt 15)
 # ---------------------------------------------------------------------------
+
 
 def _guess_asset_type(symbol: str) -> str:
     """Price fetch için asset türü tahmini."""
@@ -73,9 +76,10 @@ def _guess_asset_type(symbol: str) -> str:
 # Yardımcı: Transaction listesinden net pozisyonları hesapla
 # ---------------------------------------------------------------------------
 
+
 def _build_holdings_from_transactions(
-    transactions: List[Dict],
-) -> Dict[str, AssetHolding]:
+    transactions: list[dict],
+) -> dict[str, AssetHolding]:
     """PB transactions kayıtları → net pozisyonlar.
 
     - BUY: quantity × price + fee → average_cost Güncelleme
@@ -83,7 +87,7 @@ def _build_holdings_from_transactions(
     - DIVIDEND: quantity artar (cash received)
     - voided işlemler hariç tutulur.
     """
-    holdings: Dict[str, AssetHolding] = {}
+    holdings: dict[str, AssetHolding] = {}
 
     for tx in transactions:
         if tx.get("voided", False):
@@ -113,8 +117,12 @@ def _build_holdings_from_transactions(
 
         elif tx_type == "SELL":
             if sym in holdings:
-                holdings[sym]["quantity"] = max(0.0, holdings[sym]["quantity"] - quantity)
-                holdings[sym]["total_cost"] = holdings[sym]["quantity"] * holdings[sym]["average_cost"]
+                holdings[sym]["quantity"] = max(
+                    0.0, holdings[sym]["quantity"] - quantity
+                )
+                holdings[sym]["total_cost"] = (
+                    holdings[sym]["quantity"] * holdings[sym]["average_cost"]
+                )
 
         elif tx_type == "DIVIDEND":
             if sym not in holdings:
@@ -135,7 +143,8 @@ def _build_holdings_from_transactions(
 # Yardımcı: belirtilen tarihteki holdings'leri PB transactions'dan hesapla
 # ---------------------------------------------------------------------------
 
-def _get_holdings_at_date(user_id: str, as_of: date) -> Dict[str, AssetHolding]:
+
+def _get_holdings_at_date(user_id: str, as_of: date) -> dict[str, AssetHolding]:
     """Belirtilen tarihteki holdings'leri PB transactions collection'undan hesapla.
 
     as_of + 1 gün (00:00) → o günün işlemleri dahil (Prompt 8 düzeltmesi).
@@ -163,10 +172,11 @@ def _get_holdings_at_date(user_id: str, as_of: date) -> Dict[str, AssetHolding]:
 # 1. get_portfolio_snapshot (Prompt 4, 8)
 # ---------------------------------------------------------------------------
 
+
 def get_portfolio_snapshot(
     user_id: str,
-    as_of: Optional[date] = None,
-    price_fn: Optional[Callable[[str, str], Optional[float]]] = None,
+    as_of: date | None = None,
+    price_fn: Callable[[str, str], float | None] | None = None,
 ) -> PortfolioSnapshot:
     """Kullanıcının portföy snapshot'ı.
 
@@ -208,11 +218,12 @@ def get_portfolio_snapshot(
 # 2. time_travel_portfolio (Prompt 9 – düzeltme: T_start ve T_target fiyat farkı)
 # ---------------------------------------------------------------------------
 
+
 def time_travel_portfolio(
     user_id: str,
     t_start: date,
     t_target: date,
-    price_fn: Optional[Callable[[str, str], Optional[float]]] = None,
+    price_fn: Callable[[str, str], float | None] | None = None,
 ) -> TimeTravelResult:
     """T_start dağılımını T_target fiyatlarıyla değerlendirir.
 
@@ -237,7 +248,7 @@ def time_travel_portfolio(
 
     start_holdings = _get_holdings_at_date(user_id, t_start)
 
-    def _value_at(holdings: Dict[str, AssetHolding], ref_date: date) -> float:
+    def _value_at(holdings: dict[str, AssetHolding], ref_date: date) -> float:
         total = 0.0
         for sym, h in holdings.items():
             atype = h.get("type", _guess_asset_type(sym))
@@ -270,6 +281,7 @@ def time_travel_portfolio(
 # 3. add_transaction (Prompt 8 – event log kaydı)
 # ---------------------------------------------------------------------------
 
+
 def add_transaction(
     user_id: str,
     asset_symbol: str,
@@ -277,8 +289,8 @@ def add_transaction(
     quantity: float,
     price: float,
     fee: float = 0.0,
-    timestamp: Optional[date] = None,
-) -> Dict:
+    timestamp: date | None = None,
+) -> dict:
     """Yeni bir işlem kaydı ekler (event log'a yaz).
 
     Returns:
@@ -322,6 +334,8 @@ def add_transaction(
         "timestamp": timestamp.isoformat(),
         "voided": False,
     }
+
+
 #
 #
 # ---------------------------------------------------------------------------
@@ -331,10 +345,10 @@ def add_transaction(
 
 def get_transactions(
     user_id: str,
-    asset_symbol: Optional[str] = None,
-    tx_type: Optional[str] = None,
-    limit: Optional[int] = None,
-) -> List[Dict]:
+    asset_symbol: str | None = None,
+    tx_type: str | None = None,
+    limit: int | None = None,
+) -> list[dict]:
     """Kullanıcının işlem listesi (filtrelenmiş).
 
     PB transactions collection'undan okur; voided işlemler DÃ¡HIL'dÄ±r.
@@ -348,9 +362,7 @@ def get_transactions(
         filter_parts.append(f'type = "{tx_type.upper()}"')
     filter_str = " AND ".join(filter_parts)
     params = (
-        f'filter={filter_str}'
-        f'&sort=timestamp DESC'
-        f'&per_page={limit if limit else 100}'
+        f"filter={filter_str}&sort=timestamp DESC&per_page={limit if limit else 100}"
     )
     records = transactions.get_list(params=params)
     return [
@@ -372,7 +384,7 @@ def get_transactions(
 def void_transaction(
     user_id: str,
     transaction_id: str,
-) -> Dict:
+) -> dict:
     """İşlem kaydını voided yap (soft delete).
 
     Sadece kendi kullanıcısının işlemini void edebilir.
@@ -385,5 +397,3 @@ def void_transaction(
     record.voided = True
     transactions.update(record)
     return {"status": "voided", "transaction_id": transaction_id}
-
-

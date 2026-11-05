@@ -76,6 +76,74 @@ Piyasadaki uygulamalar yalnızca *"Şu an ne kadar paranız var?"* sorusuna yan�
    ```
 
 6. **Tarayıcınızdan erişin:** [http://localhost:8000/web/](http://localhost:8000/web/)
+---
+
+## 🔐 Yapılandırma (Environment Variables)
+
+Uygulama, `.env` dosyası veya Docker environment variable'ları ile yapılandırılır.
+
+### Gerekli Ortam Değişkenleri
+
+| Değişken | Açıklama | Varsayılan | Gerekli |
+|----------|----------|------------|---------|
+| `API_TOKEN` | API erişim token'ı (Bearer token auth) | `""` (boş) | **Evet** (production) |
+| `POCKETBASE_URL` | PocketBase instance URL'si | `http://localhost:8080` | Optional |
+| `ALLOWED_ORIGINS` | CORS'da izin verilen origin'ler (virgülle ayrılmış) | `""` (boş) | Optional |
+| `ALLOWED_HOSTS` | TrustedHostMiddleware için izin verilen Host değerleri | `localhost,127.0.0.1` | Optional |
+
+### Opsiyonel Ortam Değişkenleri
+
+| Değişken | Açıklama | Varsayılan |
+|----------|----------|-----------|
+| `DEBUG` | Debug modu (`true`/`false`) | `false` |
+| `GOOGLE_API_KEY` | Gemini/OpenRouter API anahtarı | `""` |
+| `GEMINI_MODEL` | LLM model adı | `google/gemini-2.0-flash` |
+| `TCMB_API_KEY` | TCMB EVDS API anahtarı | `""` |
+| `FRED_API_KEY` | US CPI verisi için FRED API anahtarı | `""` |
+| `APP_HOST` | FastAPI bind adresi | `127.0.0.1` |
+| `APP_PORT` | FastAPI portu | `8000` |
+
+### .env Dosyası Örneği
+
+```bash
+# .env dosyasını oluşturun
+cp .env.example .env
+
+# Ardından düzenleyin:
+API_TOKEN=your-secure-api-token-here
+POCKETBASE_URL=http://localhost:8080
+ALLOWED_ORIGINS=http://localhost:3000,https://yourdomain.com
+DEBUG=false
+GOOGLE_API_KEY=your-google-api-key
+```
+
+### Auth/Token Kullanımı
+
+API'ye erişim için `Authorization: Bearer <token>` header'ı kullanılır:
+
+```bash
+# Örnek: API'ye istek gönderimi
+curl -X GET "http://localhost:8000/api/decisions"   -H "Authorization: Bearer your-api-token"
+```
+
+> **Güvenlik Notu:** Production'da `API_TOKEN` mutlaka ayarlanmalıdır. 
+Daha fazla bilgi için [GitHub Actions CI](.github/workflows/ci.yml) dosyasını inceleyin.
+
+### CORS Yapılandırması
+
+`ALLOWED_ORIGINS` değişkeni, CORS middleware'sinde izin verilen origin'leri belirtir:
+
+- Boş bırakılırsa → yalnızca same-origin istekleri kabul edilir
+- Virgülle ayrılmış liste olarak belirtilir: `http://localhost:3000,https://app.example.com`
+- Her origin kendi başına trim işleminden geçirilir
+
+```bash
+# Birden fazla origin izin ver
+export ALLOWED_ORIGINS="http://localhost:3000,https://yourdomain.com"
+```
+
+---
+ [http://localhost:8000/web/](http://localhost:8000/web/)
 
 ---
 
@@ -216,18 +284,29 @@ Bu durumda, `data/` dizini içinde `futurewallet.db` dosyası oluşur ve contain
 
 ---
 
-## 📄 Lisans
 
-MIT - detaylar için [LICENSE.md](LICENSE.md)
+---
+## ⚠️ Yasal Uyarı
+
+> **Bu ürün yatırım tavsiyesi değildir.**
+
+FutureWallet, yatırımcıların karar süreçlerini takip etmeleri için bir **karar destek** platformudur. 
+Burada sunulan:
+
+- Portföy değerlemeleri
+- Reel getiri hesaplamaları
+- Monte Carlo simülasyonları
+- AI destekli analizler ve öneriler
+
+... türetilmiştir. Bu bilgiler:
+
+- Geçmiş verilere dayanır ve geleceği garanti etmez
+- Piyasa koşullarından etkilenebilir
+- Kavramaz yatırım kararları için temel oluşturulamaz
+
+Yatırım kararlarınızı vermeden önce lütfen kendi araştırmanızı yapın ve gerekirse profesyonel finansal danışmana başvurun.
 
 ---
 
-## 🤝 Katkıda Bulunmak
-
-- Fork edin ve özellik/Eklemek istediğiniz konuları `main` branch'ine PR gönderin
-- Sorun bildirimi için GitHub Issues sayfasını kullanın
-- Daha fazla bilgi için [MVP.md](MVP.md) dosyasını inceleyin
 
 ---
-
-**FutureWallet** - Yatırımcıların kararlarını geleceğe taşıyabilmesi için tasarlanmış bir platform. 🚀

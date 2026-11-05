@@ -18,15 +18,14 @@ from datetime import date, datetime
 from uuid import uuid4
 
 from sqlalchemy import (
-    create_engine,
     Date,
     DateTime,
     Float,
     ForeignKey,
     String,
-    Table,
-    text,
+    create_engine,
     event,
+    text,
 )
 from sqlalchemy.orm import (
     DeclarativeBase,
@@ -38,13 +37,13 @@ from sqlalchemy.orm import (
 
 import config
 
-
 logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
 # SQLAlchemy taban class
 # ---------------------------------------------------------------------------
+
 
 class Base(DeclarativeBase):
     pass
@@ -54,13 +53,16 @@ class Base(DeclarativeBase):
 # 5.1 transactions (İşlem Defteri / Event Sourcing Ledger)
 # ---------------------------------------------------------------------------
 
+
 class Transaction(Base):
     __tablename__ = "transactions"
 
-    id: Mapped[str] = mapped_column(String(36), primary_key=True,
-                                     default=lambda: str(uuid4()))
+    id: Mapped[str] = mapped_column(
+        String(36), primary_key=True, default=lambda: str(uuid4())
+    )
     timestamp: Mapped[datetime] = mapped_column(
-        DateTime, server_default=text("CURRENT_TIMESTAMP"), nullable=False)
+        DateTime, server_default=text("CURRENT_TIMESTAMP"), nullable=False
+    )
     asset_symbol: Mapped[str] = mapped_column(String(20), nullable=False)
     type: Mapped[str] = mapped_column(String(10), nullable=False)
     quantity: Mapped[float] = mapped_column(Float, nullable=False)
@@ -70,7 +72,7 @@ class Transaction(Base):
     # Decision ilişkisi: Transaction silinince Decision SILINMEMSİN
     # → ondelete="SET NULL" (Decision.transaction_id NULL olur)
     # → cascade="delete" KALDIRILDI (eski: decision cascade="delete")
-    decision: Mapped["Decision | None"] = relationship(
+    decision: Mapped[Decision | None] = relationship(
         "Decision",
         back_populates="transaction",
         uselist=False,
@@ -82,11 +84,13 @@ class Transaction(Base):
 # 5.2 decisions (Karar Günlüğü)
 # ---------------------------------------------------------------------------
 
+
 class Decision(Base):
     __tablename__ = "decisions"
 
-    id: Mapped[str] = mapped_column(String(36), primary_key=True,
-                                     default=lambda: str(uuid4()))
+    id: Mapped[str] = mapped_column(
+        String(36), primary_key=True, default=lambda: str(uuid4())
+    )
     # ondelete="SET NULL" — Transaction silinince NULL olur, Decision kalsın
     transaction_id: Mapped[str | None] = mapped_column(
         String(36),
@@ -94,7 +98,8 @@ class Decision(Base):
         nullable=True,
     )
     date: Mapped[datetime] = mapped_column(
-        DateTime, server_default=text("CURRENT_TIMESTAMP"), nullable=False)
+        DateTime, server_default=text("CURRENT_TIMESTAMP"), nullable=False
+    )
     asset_symbol: Mapped[str] = mapped_column(String(20), nullable=False)
     action: Mapped[str] = mapped_column(String(10), nullable=False)
     rationale: Mapped[str] = mapped_column(String(5000), nullable=True)
@@ -106,9 +111,10 @@ class Decision(Base):
 
     # Navigation
     transaction: Mapped[Transaction | None] = relationship(
-        "Transaction", back_populates="decision")
+        "Transaction", back_populates="decision"
+    )
     # Decision silinince ShadowPortfolio'lar da silinir (cascade="delete")
-    shadow_portfolios: Mapped[list["ShadowPortfolio"]] = relationship(
+    shadow_portfolios: Mapped[list[ShadowPortfolio]] = relationship(
         "ShadowPortfolio",
         back_populates="decision",
         cascade="delete",
@@ -119,28 +125,35 @@ class Decision(Base):
 # 5.3 shadow_portfolios (Gölge Portföy / What-If)
 # ---------------------------------------------------------------------------
 
+
 class ShadowPortfolio(Base):
     __tablename__ = "shadow_portfolios"
 
-    id: Mapped[str] = mapped_column(String(36), primary_key=True,
-                                     default=lambda: str(uuid4()))
+    id: Mapped[str] = mapped_column(
+        String(36), primary_key=True, default=lambda: str(uuid4())
+    )
     decision_id: Mapped[str] = mapped_column(
-        String(36), ForeignKey("decisions.id"), nullable=False)
+        String(36), ForeignKey("decisions.id"), nullable=False
+    )
     asset_symbol: Mapped[str] = mapped_column(String(20), nullable=False)
     simulated_action: Mapped[str] = mapped_column(
-        String(20), nullable=False)  # HELD_INSTEAD, BOUGHT_INSTEAD
+        String(20), nullable=False
+    )  # HELD_INSTEAD, BOUGHT_INSTEAD
     entry_date: Mapped[datetime] = mapped_column(
-        DateTime, server_default=text("CURRENT_TIMESTAMP"), nullable=False)
+        DateTime, server_default=text("CURRENT_TIMESTAMP"), nullable=False
+    )
     entry_price: Mapped[float] = mapped_column(Float, nullable=False)
     quantity: Mapped[float] = mapped_column(Float, nullable=False)
 
-    decision: Mapped["Decision"] = relationship("Decision",
-                                                back_populates="shadow_portfolios")
+    decision: Mapped[Decision] = relationship(
+        "Decision", back_populates="shadow_portfolios"
+    )
 
 
 # ---------------------------------------------------------------------------
 # 5.4 macro_data (Benchmark & Enflasyon Önbelleği)
 # ---------------------------------------------------------------------------
+
 
 class MacroData(Base):
     __tablename__ = "macro_data"
@@ -157,8 +170,8 @@ class MacroData(Base):
 # Engine & session
 # ---------------------------------------------------------------------------
 
-_engine: "create_engine | None" = None
-_SessionFactory: "sessionmaker | None" = None
+_engine: create_engine | None = None
+_SessionFactory: sessionmaker | None = None
 
 
 def _set_sqlite_pragma(dbapi_connection, connection_record) -> None:

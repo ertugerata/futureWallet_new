@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""
+r"""
 FutureWallet – sembol temizleme aracı (Prompt 2.4).
 
 Mevcut veritabanındaki kayıtları tarar; asset_symbol regex
@@ -23,8 +23,9 @@ sys.path.insert(
     str(Path(__file__).resolve().parent.parent),
 )
 
-from db import get_session, Transaction, Decision, ShadowPortfolio  # noqa: E402
-from sqlalchemy import select  # noqa: E402
+from sqlalchemy import select
+
+from db import Decision, ShadowPortfolio, Transaction, get_session
 
 ASSET_SYMBOL_PAT = re.compile(r"^[A-Z0-9.=^\-/]{1,20}$")
 
@@ -44,16 +45,24 @@ def scan(session) -> list[dict]:
         (Decision, "decisions", "asset_symbol"),
         (ShadowPortfolio, "shadow_portfolios", "asset_symbol"),
     ]:
-        rows = session.execute(
-            select(getattr(model, sym_col)).where(getattr(model, sym_col).isnot(None))
-        ).scalars().all()
+        rows = (
+            session.execute(
+                select(getattr(model, sym_col)).where(
+                    getattr(model, sym_col).isnot(None)
+                )
+            )
+            .scalars()
+            .all()
+        )
         for row in rows:
             sym = row[0] if isinstance(row, tuple) else row
             if sym and not _check_symbol(str(sym)):
-                problems.append({
-                    "table": label,
-                    "symbol": str(sym),
-                })
+                problems.append(
+                    {
+                        "table": label,
+                        "symbol": str(sym),
+                    }
+                )
 
     return problems
 
@@ -73,9 +82,7 @@ def fix(session, problems: list[dict]) -> int:
             deleted += 1
         elif p["table"] == "decisions":
             session.execute(
-                Decision.__table__.delete().where(
-                    Decision.asset_symbol == p["symbol"]
-                )
+                Decision.__table__.delete().where(Decision.asset_symbol == p["symbol"])
             )
             deleted += 1
         elif p["table"] == "transactions":
@@ -90,9 +97,7 @@ def fix(session, problems: list[dict]) -> int:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="FutureWallet sembol temizleme aracı"
-    )
+    parser = argparse.ArgumentParser(description="FutureWallet sembol temizleme aracı")
     parser.add_argument(
         "--fix",
         action="store_true",

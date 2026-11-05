@@ -29,7 +29,7 @@ await shutdown_pocketbase()                 # app shutdown
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List
+from typing import Any
 
 from config import POCKETBASE_EMAIL, POCKETBASE_PASSWORD, POCKETBASE_URL
 
@@ -39,7 +39,7 @@ logger = logging.getLogger(__name__)
 # Koleksiyon şemaları (Prompt 5.2 – MVP.md §5)
 # ---------------------------------------------------------------------------
 
-TRANSACTIONS_SCHEMA: Dict[str, Any] = {
+TRANSACTIONS_SCHEMA: dict[str, Any] = {
     "name": "transactions",
     "type": "base",
     "listRule": "",
@@ -98,7 +98,7 @@ TRANSACTIONS_SCHEMA: Dict[str, Any] = {
     ],
 }
 
-DECISIONS_SCHEMA: Dict[str, Any] = {
+DECISIONS_SCHEMA: dict[str, Any] = {
     "name": "decisions",
     "type": "base",
     "listRule": "",
@@ -175,7 +175,7 @@ DECISIONS_SCHEMA: Dict[str, Any] = {
     ],
 }
 
-SHADOW_PORTFOLIOS_SCHEMA: Dict[str, Any] = {
+SHADOW_PORTFOLIOS_SCHEMA: dict[str, Any] = {
     "name": "shadow_portfolios",
     "type": "base",
     "listRule": "",
@@ -188,7 +188,11 @@ SHADOW_PORTFOLIOS_SCHEMA: Dict[str, Any] = {
             "name": "decision",
             "type": "relation",
             "maxSelect": 1,
-            "relation": {"collection": "decisions", "cascadeDelete": True, "maxSelect": 1},
+            "relation": {
+                "collection": "decisions",
+                "cascadeDelete": True,
+                "maxSelect": 1,
+            },
         },
         {
             "name": "user",
@@ -237,7 +241,7 @@ SHADOW_PORTFOLIOS_SCHEMA: Dict[str, Any] = {
     ],
 }
 
-MACRO_DATA_SCHEMA: Dict[str, Any] = {
+MACRO_DATA_SCHEMA: dict[str, Any] = {
     "name": "macro_data",
     "type": "base",
     "listRule": "",
@@ -283,7 +287,7 @@ MACRO_DATA_SCHEMA: Dict[str, Any] = {
     ],
 }
 
-PRICE_HISTORY_SCHEMA: Dict[str, Any] = {
+PRICE_HISTORY_SCHEMA: dict[str, Any] = {
     "name": "price_history",
     "type": "base",
     "listRule": "",
@@ -319,7 +323,7 @@ PRICE_HISTORY_SCHEMA: Dict[str, Any] = {
     ],
 }
 
-ALL_COLLECTIONS: List[Dict[str, Any]] = [
+ALL_COLLECTIONS: list[dict[str, Any]] = [
     TRANSACTIONS_SCHEMA,
     DECISIONS_SCHEMA,
     SHADOW_PORTFOLIOS_SCHEMA,
@@ -332,6 +336,7 @@ ALL_COLLECTIONS: List[Dict[str, Any]] = [
 # PocketBaseClient (lazy singleton)
 # ---------------------------------------------------------------------------
 
+
 class PocketBaseClient:
     """Lazy singleton Async PocketBase client.
 
@@ -340,7 +345,7 @@ class PocketBaseClient:
     business servislerde collection() → list/create/update/delete işlemleri için kullanılır.
     """
 
-    _instance: "PocketBaseClient | None" = None
+    _instance: PocketBaseClient | None = None
 
     def __init__(self) -> None:
         try:
@@ -378,7 +383,7 @@ class PocketBaseClient:
         return self._business_client
 
     @classmethod
-    async def get_instance(cls) -> "PocketBaseClient":
+    async def get_instance(cls) -> PocketBaseClient:
         """Async factory (event loop'a bağlı olabileceği için async)."""
         if cls._instance is None:
             cls._instance = cls()
@@ -392,7 +397,7 @@ class PocketBaseClient:
         except Exception:
             return False
 
-    async def create_collection(self, schema: Dict[str, Any]) -> bool:
+    async def create_collection(self, schema: dict[str, Any]) -> bool:
         """Koleksiyon oluştur. Zaten varsa True döner, hata durumunda False."""
         name = schema.get("name", "<no-name>")
         if await self.collection_exists(name):

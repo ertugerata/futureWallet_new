@@ -356,6 +356,17 @@ async function runMonteCarlo() {
       content.className = 'ai-content';
       content.textContent = result.narrative;
       $('#aiNarrative').appendChild(content);
+      
+      // Disclaimer
+      const disclaimer = document.createElement('div');
+      disclaimer.className = 'ai-disclaimer';
+      disclaimer.style.marginTop = '1rem';
+      disclaimer.style.padding = '0.5rem';
+      disclaimer.style.borderTop = '1px solid #ddd';
+      disclaimer.style.fontSize = '0.8rem';
+      disclaimer.style.color = '#666';
+      disclaimer.textContent = '⚠️ Bu AI analizi yatırım tavsiyesi değildir. Kararlarınız kendi araştırmanıza dayanmalıdır.';
+      $('#aiNarrative').appendChild(disclaimer);
     } else {
       const content = document.createElement('div');
       content.className = 'ai-content';
