@@ -38,6 +38,7 @@ SENTIMENT_ALLOWED = frozenset(
         "PANIC",  # Panik Satışı
         "DIVIDEND",  # Temettü/Gelir
         "RISK_REDUCTION",  # Risk Azaltma
+        "OPPORTUNITY",  # Fırsat
     }
 )
 

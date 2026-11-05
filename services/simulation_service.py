@@ -211,8 +211,8 @@ def _percentile_values(paths: np.ndarray, percentiles: list[int]) -> dict[str, f
 
 
 def monte_carlo_simulation(
-    session,
-    asset_list: list[dict],
+    user_id: str = "unknown",
+    asset_list: list[dict] | None = None,
     days: int = 252,
     n_simulations: int = 10000,
     percentiles: list[int] | None = None,
@@ -222,8 +222,9 @@ def monte_carlo_simulation(
     """Portföy için Monte Carlo simülasyonu (Prompt 10 düzeltmeleri).
 
     Args:
-        session: SQLAlchemy Session (PB geçişi devam ederken geçici).
+        user_id: Kullanıcı ID (PocketBase). Snapshot çekmek için.
         asset_list: [{'symbol': 'BTC', 'type': 'crypto', 'amount': 0.5}, ...]
+                   None ise ledger'dan gelenecek.
         days: Kaç gün (varsayılan 252 = 1 yıl; use_ledger=True ise 3/6/12 ay)
         n_simulations: Kaç patika (varsayılan 10,000; 200k yol sınırı)
         percentiles: Percentiller (varsayılan [5, 50, 95])
@@ -250,7 +251,13 @@ def monte_carlo_simulation(
         if use_ledger:
             from services.ledger_service import get_portfolio_snapshot
 
-            snapshot = get_portfolio_snapshot(session, as_of=None)
+            # Ledger'dan miktarları çek (PocketBase uyumlu)
+            if use_ledger:
+                from services.ledger_service import get_portfolio_snapshot
+
+                snapshot = get_portfolio_snapshot(user_id=user_id, as_of=None)
+                holdings = {h["asset_symbol"]: h for h in snapshot.get("holdings", [])}
+                amount = holdings.get(a["symbol"], {}).get("quantity", 0.0)
             holdings = {h["asset_symbol"]: h for h in snapshot.get("holdings", [])}
             amount = holdings.get(a["symbol"], {}).get("quantity", 0.0)
         mgr = AssetManager()

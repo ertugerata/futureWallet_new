@@ -1,3 +1,203 @@
+
+function fmtCurrency(n, currency = 'TRY') {
+  return new Intl.NumberFormat('tr-TR', { 
+    style: 'currency', 
+    currency, 
+    maximumFractionDigits: 0 
+  }).format(n ?? 0);
+}
+
+function fmtPct(v) {
+  return (v == null ? '—' : (v >= 0 ? '+' : '') + v.toFixed(2) + '%');
+}
+
+function drawHistogram(ctx, histogram, p5, p50, p95, maxValue) {
+  const bins = histogram.bins;
+  const counts = histogram.counts;
+  const barCount = bins.length - 1;
+  const barWidth = (ctx.canvas.width - 100) / barCount;
+  
+  // Find max count for scaling
+  const maxCount = Math.max(...counts);
+  
+  // Draw bars
+  for (let i = 0; i < barCount; i++) {
+    const x = 50 + i * barWidth;
+    const barHeight = (counts[i] / maxCount) * (ctx.canvas.height - 60);
+    ctx.fillStyle = '#3b82f6';
+    ctx.fillRect(x, ctx.canvas.height - barHeight - 30, barWidth - 2, barHeight);
+  }
+  
+  // Draw percentile lines
+  const scaleX = (val) => 50 + ((val - bins[0]) / (bins[binCount] - bins[0])) * (ctx.canvas.width - 100);
+  
+  ctx.strokeStyle = '#ef4444';
+  ctx.setLineDash([5, 5]);
+  ctx.beginPath();
+  ctx.moveTo(scaleX(p5), 10);
+  ctx.lineTo(scaleX(p5), ctx.canvas.height - 30);
+  ctx.stroke();
+  
+  ctx.strokeStyle = '#22c55e';
+  ctx.beginPath();
+  ctx.moveTo(scaleX(p50), 10);
+  ctx.lineTo(scaleX(p50), ctx.canvas.height - 30);
+  ctx.stroke();
+  
+  ctx.strokeStyle = '#3b82f6';
+  ctx.beginPath();
+  ctx.moveTo(scaleX(p95), 10);
+  ctx.lineTo(scaleX(p95), ctx.canvas.height - 30);
+  ctx.stroke();
+  
+  ctx.setLineDash([]);
+  
+  // Labels
+  ctx.fillStyle = '#ef4444';
+  ctx.fillText('p5: ' + fmtCurrency(p5), scaleX(p5) + 5, 20);
+  ctx.fillStyle = '#22c55e';
+  ctx.fillText('p50: ' + fmtCurrency(p50), scaleX(p50) + 5, 20);
+  ctx.fillStyle = '#3b82f6';
+  ctx.fillText('p95: ' + fmtCurrency(p95), scaleX(p95) + 5, 20);
+}
+
+
+
+/* USD/TRY Seçici */
+.currency-selector {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: rgba(255,255,255,0.9);
+  border-radius: 6px;
+}
+.currency-selector label {
+  font-size: 0.85rem;
+  color: #666;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.currency-selector select {
+  padding: 4px 8px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  background: white;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+/* Sentiment Özet Kartı */
+.sentiment-summary-card {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+  padding: 12px;
+  background: #f8f9fa;
+  border-radius: 8px;
+}
+.sentiment-summary-card .summary-loading {
+  grid-column: 1 / -1;
+  text-align: center;
+  color: #888;
+  font-size: 0.9rem;
+}
+.sentiment-stat {
+  text-align: center;
+  padding: 8px;
+  background: white;
+  border-radius: 6px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+.sentiment-stat .sentiment-label {
+  font-size: 0.75rem;
+  color: #666;
+  text-transform: uppercase;
+  margin-bottom: 4px;
+}
+.sentiment-stat .sentiment-count {
+  font-size: 1.5rem;
+  font-weight: bold;
+  color: var(--accent, #3b82f6);
+}
+.sentiment-stat .sentiment-pct {
+  font-size: 0.8rem;
+  color: #888;
+}
+
+/* Stres Test Histogram */
+.mc-summary .percentile-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-bottom: 1px solid #eee;
+}
+.mc-summary .percentile-row:last-child {
+  border-bottom: none;
+}
+.mc-summary .percentile-label {
+  font-weight: 600;
+  color: #333;
+}
+.mc-summary .percentile-value {
+  color: #666;
+}
+.mc-summary .histogram-info {
+  margin-top: 12px;
+  padding: 12px;
+  background: #f8f9fa;
+  border-radius: 6px;
+}
+.mc-summary .histogram-info h4 {
+  margin: 0 0 8px 0;
+  font-size: 0.9rem;
+  color: #666;
+}
+.mc-summary .histogram-bars {
+  display: flex;
+  align-items: flex-end;
+  height: 80px;
+  gap: 2px;
+}
+.mc-summary .histogram-bar {
+  flex: 1;
+  background: linear-gradient(to top, #3b82f6, #60a5fa);
+  border-radius: 2px 2px 0 0;
+  min-height: 4px;
+  position: relative;
+}
+.mc-summary .histogram-bar .bar-label {
+  position: absolute;
+  bottom: -20px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 0.6rem;
+  color: #888;
+  white-space: nowrap;
+}
+.mc-summary .p5-line, .mc-summary .p50-line, .mc-summary .p95-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  border-top: 2px dashed;
+  pointer-events: none;
+}
+.mc-summary .p5-line { border-color: #ef4444; top: 95%; }
+.mc-summary .p50-line { border-color: #22c55e; top: 50%; }
+.mc-summary .p95-line { border-color: #3b82f6; top: 5%; }
+
+/* AI Disclaimer */
+.ai-disclaimer {
+  margin-top: 1rem;
+  padding: 0.5rem;
+  border-top: 1px solid #ddd;
+  font-size: 0.8rem;
+  color: #666;
+}
+
 /* ── FutureWallet Dashboard – Client-side logic ───────────────────── */
 'use strict';
 
@@ -132,9 +332,56 @@ $('#snapshotDate').addEventListener('change', loadSnapshot);
 (function setDefaultDate() {
   const d = new Date().toISOString().slice(0, 10);
   $('#snapshotDate').value = d;
+// Currency selector change handler
+$('#currencySelect').addEventListener('change', function(e) {
+  window._currency = e.target.value;
+  // Update all displayed values
+  document.querySelectorAll('.value-display').forEach(el => {
+    const val = parseFloat(el.dataset.value);
+    if (!isNaN(val)) {
+      el.textContent = fmtCurrency(val, window._currency);
+    }
+  });
+  // Update chart if exists
+  if (window._mcChart) {
+    // Would need to redraw with new currency
+  }
+});
+
+window._currency = 'TRY';
+
 })();
 
 /* ── Panel 2: Decisions ───────────────────────────────────────────── */
+/**
+ * Sentiment özet kartını doldur
+ */
+async function loadSentimentSummary() {
+  try {
+    const res = await req('/api/decisions/stats');
+    const card = $('#sentimentSummary');
+    if (!res || !res.sentiment) {
+      card.innerHTML = '<div class="summary-loading">Veri yok</div>';
+      return;
+    }
+
+    const total = res.total || Object.values(res.sentiment).reduce((a, b) => a + b, 0);
+    let html = '';
+    for (const [sentiment, count] of Object.entries(res.sentiment)) {
+      const pct = total > 0 ? ((count / total) * 100).toFixed(1) : '0.0';
+      const label = sentiment.charAt(0) + sentiment.slice(1).toLowerCase();
+      html += '<div class="sentiment-stat">' +
+        '<div class="sentiment-label">' + label + '</div>' +
+        '<div class="sentiment-count">' + count + '</div>' +
+        '<div class="sentiment-pct">' + pct + '%</div>' +
+        '</div>';
+    }
+    card.innerHTML = html;
+  } catch (e) {
+    console.error('Sentiment summary yüklenemedi:', e);
+  }
+}
+
 async function loadDecisions() {
   const tbody = $('#decisionsBody');
   tbody.innerHTML = '';
@@ -392,10 +639,231 @@ async function runMonteCarlo() {
 $('#btnSimRun').addEventListener('click', runMonteCarlo);
 
 /* ── Boot ─────────────────────────────────────────────────────────── */
+
+
+/* USD/TRY Seçici */
+.currency-selector {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: rgba(255,255,255,0.9);
+  border-radius: 6px;
+}
+.currency-selector label {
+  font-size: 0.85rem;
+  color: #666;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.currency-selector select {
+  padding: 4px 8px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  background: white;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+/* Sentiment Özet Kartı */
+.sentiment-summary-card {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+  padding: 12px;
+  background: #f8f9fa;
+  border-radius: 8px;
+}
+.sentiment-summary-card .summary-loading {
+  grid-column: 1 / -1;
+  text-align: center;
+  color: #888;
+  font-size: 0.9rem;
+}
+.sentiment-stat {
+  text-align: center;
+  padding: 8px;
+  background: white;
+  border-radius: 6px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+.sentiment-stat .sentiment-label {
+  font-size: 0.75rem;
+  color: #666;
+  text-transform: uppercase;
+  margin-bottom: 4px;
+}
+.sentiment-stat .sentiment-count {
+  font-size: 1.5rem;
+  font-weight: bold;
+  color: var(--accent, #3b82f6);
+}
+.sentiment-stat .sentiment-pct {
+  font-size: 0.8rem;
+  color: #888;
+}
+
+/* Stres Test Histogram */
+.mc-summary .percentile-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-bottom: 1px solid #eee;
+}
+.mc-summary .percentile-row:last-child {
+  border-bottom: none;
+}
+.mc-summary .percentile-label {
+  font-weight: 600;
+  color: #333;
+}
+.mc-summary .percentile-value {
+  color: #666;
+}
+.mc-summary .histogram-info {
+  margin-top: 12px;
+  padding: 12px;
+  background: #f8f9fa;
+  border-radius: 6px;
+}
+.mc-summary .histogram-info h4 {
+  margin: 0 0 8px 0;
+  font-size: 0.9rem;
+  color: #666;
+}
+.mc-summary .histogram-bars {
+  display: flex;
+  align-items: flex-end;
+  height: 80px;
+  gap: 2px;
+}
+.mc-summary .histogram-bar {
+  flex: 1;
+  background: linear-gradient(to top, #3b82f6, #60a5fa);
+  border-radius: 2px 2px 0 0;
+  min-height: 4px;
+  position: relative;
+}
+.mc-summary .histogram-bar .bar-label {
+  position: absolute;
+  bottom: -20px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 0.6rem;
+  color: #888;
+  white-space: nowrap;
+}
+.mc-summary .p5-line, .mc-summary .p50-line, .mc-summary .p95-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  border-top: 2px dashed;
+  pointer-events: none;
+}
+.mc-summary .p5-line { border-color: #ef4444; top: 95%; }
+.mc-summary .p50-line { border-color: #22c55e; top: 50%; }
+.mc-summary .p95-line { border-color: #3b82f6; top: 5%; }
+
+/* AI Disclaimer */
+.ai-disclaimer {
+  margin-top: 1rem;
+  padding: 0.5rem;
+  border-top: 1px solid #ddd;
+  font-size: 0.8rem;
+  color: #666;
+}
+
+
+
+function fmtCurrency(n, currency = 'TRY') {
+  return new Intl.NumberFormat('tr-TR', { 
+    style: 'currency', 
+    currency, 
+    maximumFractionDigits: 0 
+  }).format(n ?? 0);
+}
+
+function fmtPct(v) {
+  return (v == null ? '—' : (v >= 0 ? '+' : '') + v.toFixed(2) + '%');
+}
+
+function drawHistogram(ctx, histogram, p5, p50, p95, maxValue) {
+  const bins = histogram.bins;
+  const counts = histogram.counts;
+  const barCount = bins.length - 1;
+  const barWidth = (ctx.canvas.width - 100) / barCount;
+  
+  // Find max count for scaling
+  const maxCount = Math.max(...counts);
+  
+  // Draw bars
+  for (let i = 0; i < barCount; i++) {
+    const x = 50 + i * barWidth;
+    const barHeight = (counts[i] / maxCount) * (ctx.canvas.height - 60);
+    ctx.fillStyle = '#3b82f6';
+    ctx.fillRect(x, ctx.canvas.height - barHeight - 30, barWidth - 2, barHeight);
+  }
+  
+  // Draw percentile lines
+  const scaleX = (val) => 50 + ((val - bins[0]) / (bins[binCount] - bins[0])) * (ctx.canvas.width - 100);
+  
+  ctx.strokeStyle = '#ef4444';
+  ctx.setLineDash([5, 5]);
+  ctx.beginPath();
+  ctx.moveTo(scaleX(p5), 10);
+  ctx.lineTo(scaleX(p5), ctx.canvas.height - 30);
+  ctx.stroke();
+  
+  ctx.strokeStyle = '#22c55e';
+  ctx.beginPath();
+  ctx.moveTo(scaleX(p50), 10);
+  ctx.lineTo(scaleX(p50), ctx.canvas.height - 30);
+  ctx.stroke();
+  
+  ctx.strokeStyle = '#3b82f6';
+  ctx.beginPath();
+  ctx.moveTo(scaleX(p95), 10);
+  ctx.lineTo(scaleX(p95), ctx.canvas.height - 30);
+  ctx.stroke();
+  
+  ctx.setLineDash([]);
+  
+  // Labels
+  ctx.fillStyle = '#ef4444';
+  ctx.fillText('p5: ' + fmtCurrency(p5), scaleX(p5) + 5, 20);
+  ctx.fillStyle = '#22c55e';
+  ctx.fillText('p50: ' + fmtCurrency(p50), scaleX(p50) + 5, 20);
+  ctx.fillStyle = '#3b82f6';
+  ctx.fillText('p95: ' + fmtCurrency(p95), scaleX(p95) + 5, 20);
+}
+
+
 (async function boot() {
   await checkHealth();
   await loadSnapshot();
+  await loadSentimentSummary();
   await loadDecisions();
   // Tarih değişince snapshot'ı otomatik yenile
   setInterval(checkHealth, 30_000);
+// Currency selector change handler
+$('#currencySelect').addEventListener('change', function(e) {
+  window._currency = e.target.value;
+  // Update all displayed values
+  document.querySelectorAll('.value-display').forEach(el => {
+    const val = parseFloat(el.dataset.value);
+    if (!isNaN(val)) {
+      el.textContent = fmtCurrency(val, window._currency);
+    }
+  });
+  // Update chart if exists
+  if (window._mcChart) {
+    // Would need to redraw with new currency
+  }
+});
+
+window._currency = 'TRY';
+
 })();

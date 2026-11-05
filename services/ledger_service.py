@@ -198,18 +198,38 @@ def get_portfolio_snapshot(
         price_fn = lambda sym, atype: mgr.get_price(sym, atype)
 
     total_value = 0.0
+    total_cost = 0.0
     for sym, h in holdings.items():
         atype = h.get("type", _guess_asset_type(sym))
         p = price_fn(sym, atype)
         if p is not None:
             h["value"] = h["quantity"] * p
             total_value += h["value"]
+            # Unrealized P/L hesapla
+            if h.get("average_cost", 0) > 0 and h["quantity"] > 0:
+                h["unrealized_pnl"] = (p - h["average_cost"]) * h["quantity"]
+                h["unrealized_pnl_pct"] = ((p - h["average_cost"]) / h["average_cost"]) * 100
+            else:
+                h["unrealized_pnl"] = 0.0
+                h["unrealized_pnl_pct"] = 0.0
         else:
             h["value"] = 0.0
+            h["unrealized_pnl"] = 0.0
+            h["unrealized_pnl_pct"] = 0.0
+        h.setdefault("average_cost", 0.0)
+        h.setdefault("total_cost", 0.0)
+        total_cost += h.get("total_cost", 0.0)
+
+    # Toplam average cost
+    total_avg_cost = total_cost / total_value if total_value > 0 else 0.0
 
     return {
         "holdings": list(holdings.values()),
         "total_value": total_value,
+        "total_cost": total_cost,
+        "average_cost": total_avg_cost,
+        "unrealized_pnl": total_value - total_cost,
+        "unrealized_pnl_pct": ((total_value - total_cost) / total_cost * 100) if total_cost > 0 else 0.0,
         "as_of_date": as_of.isoformat(),
     }
 
@@ -223,38 +243,56 @@ def time_travel_portfolio(
     user_id: str,
     t_start: date,
     t_target: date,
-    price_fn: Callable[[str, str], float | None] | None = None,
+    price_fn: Callable[[str, str, date], Optional[float]] | None = None,
 ) -> TimeTravelResult:
     """T_start dağılımını T_target fiyatlarıyla değerlendirir.
 
     Sabit dağılım ("satmasaydım" mantığı):
       - start_holdings = snapshot(t_start) miktarları
-      - value_at_start = start_holdings × fiyat(t_start)
-      - value_at_target = AYNI start_holdings × fiyat(t_target)
+      - value_at_start = start_holdings × fiyat(t_start)  ← GARİŞİK fiyat
+      - value_at_target = AYNI start_holdings × fiyat(t_target)  ← GARİŞİK fiyat
       - actual_value_at_target = snapshot(t_target) (işlemler dahil)
+
+    Args:
+        user_id: Kullanıcı ID
+        t_start: Başlangıç tarihi
+        t_target: Hedef tarih
+        price_fn: (symbol, asset_type, date) -> Optional[float].
+                  None ise price_service.get_price_on kullanılır.
 
     Returns:
         {
             "holdings": [...],
             "value_at_start": float,
             "value_at_target": float,
+            "value_at_actual": float,
             "pnl": float,
             "pnl_pct": float,
+            "missing_prices": [str,...],  # fiyat bulunamayan semboller
         }
     """
+    # price_fn yoksa price_service kullan
     if price_fn is None:
-        mgr = AssetManager()
-        price_fn = lambda sym, atype: mgr.get_price(sym, atype)
+        from services.price_service import get_price_on, guess_asset_type as ps_guess
+
+        def _default_price_fn(sym: str, atype: str, ref_date: date) -> Optional[float]:
+            return get_price_on(sym, atype or ps_guess(sym), ref_date)
+
+        price_fn = _default_price_fn
 
     start_holdings = _get_holdings_at_date(user_id, t_start)
+
+    missing_prices: list[str] = []
 
     def _value_at(holdings: dict[str, AssetHolding], ref_date: date) -> float:
         total = 0.0
         for sym, h in holdings.items():
             atype = h.get("type", _guess_asset_type(sym))
-            p = price_fn(sym, atype)
+            p = price_fn(sym, atype, ref_date)
             if p is not None:
                 total += h["quantity"] * p
+            else:
+                missing_prices.append(sym)
         return total
 
     value_at_start = _value_at(start_holdings, t_start)

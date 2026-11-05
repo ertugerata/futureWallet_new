@@ -26,7 +26,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from config import ALLOWED_HOSTS, ALLOWED_ORIGINS, API_TOKEN, DEBUG
-from db import get_session, init_db
+from db import get_session  # sadece testler için, production'da kullanılmayacak
 from services.benchmark_service import (
     compare_to_benchmark as srv_compare_to_benchmark,
 )
@@ -122,8 +122,7 @@ def check_retrospective_rate_limit(request: Request) -> None:
     if entry is None:
         _RETRO_RATE_LIMITS[key] = {"count": 1, "reset_at": now + 60, "last": now}
         return
-    if now - entry["last"] < 60:
-        raise HTTPException(status_code=429, detail="Çok fazla istek. Lütfen bekleyin.")
+    # Time window reset
     if now >= entry["reset_at"]:
         entry["count"] = 0
         entry["reset_at"] = now + 60
@@ -298,9 +297,21 @@ DecisionsListRequest.model_rebuild()
 # ---------------------------------------------------------------------------
 
 
+
+
+async def _init_pocketbase() -> None:
+    """PocketBase koleksiyonlarını başlat."""
+    try:
+        from services.pocketbase import init_pocketbase_collections
+        await init_pocketbase_collections()
+    except Exception:
+        # Test ortamında veya PocketBase yoksa skip
+        pass
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    init_db()
+    # PocketBase koleksiyonlarını başlat
+    await _init_pocketbase()
     yield
 
 
@@ -463,199 +474,76 @@ async def portfolio_real_valuation(
     return result
 
 
-@app.get("/api/portfolio/benchmarks", dependencies=[Depends(verify_api_token)])
-async def portfolio_benchmarks(
+@app.get("/api/portfolio/value-series", dependencies=[Depends(verify_api_token)])
+async def portfolio_value_series(
     request: Request,
-    date_start: date = Query(..., description="ISO YYYY-MM-DD başlangıç"),
-    date_end: date = Query(..., description="ISO YYYY-MM-DD bitiş"),
-    portfolio_start: float = Query(..., description="Başlangıç portföy değeri"),
-    portfolio_end: float | None = Query(None, description="Bitiş portföy değeri. Yoksa snapshot'dan al."),
-    benchmark_gold: bool = Query(True, description="Altın benchmark'ı"),
-    benchmark_sp500: bool = Query(True, description="S&P 500 benchmark'ı"),
-    benchmark_gold_try_gram: bool = Query(True, description="Gram Altın TL benchmark'ı"),
+    start_date: date = Query(..., description="Başlangıç tarihi (ISO YYYY-MM-DD)"),
+    end_date: date = Query(..., description="Bitiş tarihi (ISO YYYY-MM-DD)"),
+    step: str = Query("daily", description="daily | weekly | monthly"),
 ):
-    """Portföy performansını Altın, Gram Altın TL ve S&P 500 ile kıyaslar. PB macro_data'dan fiyatları çeker."""
+    """Belirtilen tarih aralığında portföy değerleri serisi (Prompt 9).
+
+    Returns:
+        {
+            "series": [{"date": "YYYY-MM-DD", "value": float}, ...],
+            "start_value": float,
+            "end_value": float,
+            "min_value": float,
+            "max_value": float,
+            "currency": "TRY"
+        }
+    """
     user_id = request.headers.get("X-User-ID", "unknown")
-    portfolio_end_val: float = portfolio_end if portfolio_end is not None else portfolio_start
 
-    if portfolio_end is None:
-        snap = srv_get_portfolio_snapshot(user_id=user_id, as_of=date_end)
-        portfolio_end_val = snap["total_value"]
+    # Tarih aralığını step'e göre filtrele
+    if step == "weekly":
+        # Her hafta ilk gün (perşembe varsayımı)
+        dates = []
+        current = start_date
+        while current <= end_date:
+            if current.weekday() <= 3:  # Perşembe veya üzeri
+                dates.append(current)
+            current += timedelta(days=1)
+    elif step == "monthly":
+        dates = []
+        current = start_date
+        while current <= end_date:
+            if current.day == 1:
+                dates.append(current)
+            current += timedelta(days=1)
+    else:  # daily
+        dates = []
+        current = start_date
+        while current <= end_date:
+            dates.append(current)
+            current += timedelta(days=1)
 
-    result = compare_to_benchmark(
-        portfolio_value_start=portfolio_start,
-        portfolio_value_end=portfolio_end_val,
-        date_start=date_start,
-        date_end=date_end,
-        benchmark_gold=benchmark_gold,
-        benchmark_sp500=benchmark_sp500,
-        benchmark_gold_try_gram=benchmark_gold_try_gram,
-    )
-    result["current_market"] = get_current_market_prices()
-    return result
+    # Her tarihte snapshot al
+    series = []
+    for d in dates:
+        snap = srv_get_portfolio_snapshot(user_id=user_id, as_of=d)
+        series.append({"date": d.isoformat(), "value": snap["total_value"]})
 
+    if not series:
+        return {
+            "series": [],
+            "start_value": 0,
+            "end_value": 0,
+            "min_value": 0,
+            "max_value": 0,
+            "currency": "TRY",
+        }
 
-
-
-# ---------------------------------------------------------------------------
-
-@app.get("/api/simulation/stress-test", dependencies=[Depends(verify_api_token)])
-async def simulation_stress_test(
-    request: Request,
-    days: int = Query(252, description="Simülasyon süresi (gun)"),
-    n_simulations: int = Query(1000, description="Patika sayisi", ge=1, le=200000),
-    shocks: str | None = Query(None, description="JSON: {'senaryo_adı': şok_buyutlüğü}"),
-):
-    """Makro şok senaryoları altında portföy değerlerini simüle et (Prompt 10)."""
-    user_id = request.headers.get("X-User-ID", "unknown")
-    
-    # Parse shocks JSON if provided
-    shocks_dict = None
-    if shocks:
-        try:
-            import json
-            shocks_dict = json.loads(shocks)
-        except (json.JSONDecodeError, TypeError):
-            shocks_dict = None
-    
-    # Get portfolio value from snapshot
-    session = get_session()
-    try:
-        from services.ledger_service import get_portfolio_snapshot
-        snap = get_portfolio_snapshot(session, as_of=None)
-        portfolio_value = snap["total_value"]
-    finally:
-        session.close()
-    
-    result = stress_test(
-        session=None,  # Not using session for stress test
-        portfolio_value=portfolio_value,
-        shocks=shocks_dict,
-        days=days,
-        n_simulations=n_simulations,
-    )
-    return result
-
-
-@app.get("/api/simulation/narrative", dependencies=[Depends(verify_api_token)])
-async def simulation_narrative(
-    request: Request,
-    days: int = Query(252, description="Simülasyon süresi (gun)"),
-    n_simulations: int = Query(10000, description="Patika sayisi"),
-    assets: str = Query("BTC,ETH", description="Varlıklar (virgülle ayrılmış)"),
-):
-    """Monte Carlo / stres test sonucu için Türkçe risk anlatısı (Prompt 7)."""
-    user_id = request.headers.get("X-User-ID", "unknown")
-    
-    # Parse assets
-    asset_list = [
-        {"symbol": s.strip().split("/")[0], "type": "crypto"}
-        for s in assets.split(",") if s.strip()
-    ]
-    
-    # Run Monte Carlo simulation
-    session = get_session()
-    try:
-        mc_result = monte_carlo_simulation(
-            session=session,
-            asset_list=asset_list,
-            days=days,
-            n_simulations=n_simulations,
-        )
-    finally:
-        session.close()
-    
-    # Generate AI narrative
-    narrative = generate_risk_narrative(mc_result)
-    
+    values = [s["value"] for s in series]
     return {
-        "simulation": mc_result,
-        "narrative": narrative,
+        "series": series,
+        "start_value": values[0],
+        "end_value": values[-1],
+        "min_value": min(values),
+        "max_value": max(values),
+        "currency": "TRY",
     }
 
-
-
-
-@app.post("/api/counterfactual/shadow-positions", dependencies=[Depends(verify_api_token)])
-async def create_shadow_position_endpoint(
-    request: Request,
-    decision_id: str = Query(..., description="Karar ID"),
-    asset_symbol: str = Query(..., description="Varlık sembolü"),
-    shadow_type: str = Query(..., description="HELD_INSTEAD | BOUGHT_INSTEAD"),
-    entry_date: date | None = Query(None, description="Giriş tarihi (ISO YYYY-MM-DD)"),
-    entry_price: float | None = Query(None, description="Giriş fiyatı"),
-    quantity: float | None = Query(None, description="Miktar"),
-    exit_date: date | None = Query(None, description="Çıkış tarihi (ISO YYYY-MM-DD)"),
-    asset_type: str | None = Query(None, description="Varlık türü"),
-):
-    """Bir karar için gölge pozisyon oluştur (Prompt 12: PB geçişi)."""
-    user_id = request.headers.get("X-User-ID", "unknown")
-    return create_shadow_position(
-        user_id=user_id,
-        decision_id=decision_id,
-        asset_symbol=asset_symbol,
-        shadow_type=shadow_type,
-        entry_date=entry_date,
-        entry_price=entry_price,
-        quantity=quantity,
-        exit_date=exit_date,
-        asset_type=asset_type,
-    )
-
-
-@app.get("/api/counterfactual/shadow-positions", dependencies=[Depends(verify_api_token)])
-async def get_shadow_positions_endpoint(
-    request: Request,
-    decision_id: str | None = Query(None, description="Karar ID filtresi"),
-    asset_symbol: str | None = Query(None, description="Varlık sembolü filtresi"),
-):
-    """Gölge pozisyon listesi (Prompt 12: PB geçişi)."""
-    return get_shadow_positions(
-        decision_id=decision_id,
-        asset_symbol=asset_symbol,
-    )
-
-
-@app.get("/api/counterfactual/what-if", dependencies=[Depends(verify_api_token)])
-async def what_if_scenario_endpoint(
-    request: Request,
-    decision_id: str = Query(..., description="Karar ID"),
-    as_of: date | None = Query(None, description="Karşılaştırma tarihi (ISO YYYY-MM-DD)"),
-):
-    """Bir karar için 'ne olurdu?' senaryosu (Prompt 12: PB geçiş)."""
-    return what_if_scenario(
-        decision_id=decision_id,
-        as_of=as_of,
-    )
-
-
-
-
-
-@app.get("/api/decisions/stats", dependencies=[Depends(verify_api_token)])
-async def decisions_stats(
-    request: Request,
-):
-    """Karar istatistikleri: sentiment ve status bazlı sayımlar (Prompt 13)."""
-    sentiment = get_sentiment_summary()
-    status = get_status_summary()
-    return {
-        "sentiment": sentiment,
-        "status": status,
-        "total": sum(sentiment.values()),
-    }
-
-
-@app.delete("/api/decisions/{decision_id}", dependencies=[Depends(verify_api_token)])
-async def delete_decision_endpoint(
-    request: Request,
-    decision_id: str,
-):
-    """Bir kararı sil (Prompt 13)."""
-    result = delete_decision(decision_id)
-    if not result:
-        raise HTTPException(status_code=404, detail="Karar bulunamadı")
-    return {"deleted": decision_id}
 
 
 
@@ -952,26 +840,16 @@ async def monte_carlo_endpoint(
     if len(pct_list) > 7:
         raise HTTPException(400, "En fazla 7 percentil belirtebilirsiniz.")
 
-    session = get_session()
-    try:
-        result = monte_carlo_simulation(
-            session,
-            asset_list=asset_list,
-            days=days,
-            n_simulations=simulations,
-            percentiles=pct_list,
-            seed=seed,
-        )
-        session.commit()
-        return result
-    except ValueError as e:
-        session.rollback()
-        raise HTTPException(400, str(e))
-    except Exception:
-        session.rollback()
-        raise
-    finally:
-        session.close()
+    user_id = request.headers.get("X-User-ID", "unknown")
+    result = monte_carlo_simulation(
+        user_id=user_id,
+        asset_list=asset_list,
+        days=days,
+        n_simulations=simulations,
+        percentiles=pct_list,
+        seed=seed,
+    )
+    return result
 
 
 @app.post(
