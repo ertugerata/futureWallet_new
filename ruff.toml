@@ -17,6 +17,7 @@ select = [
 ignore = [
     "B008",   # FastAPI Query() in defaults - false positive
 ]
+allowed-confusables = ["ı", "İ"]
 
 [lint.isort]
 known-first-party = ["api", "services", "config", "db"]
