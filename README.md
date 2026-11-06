@@ -12,28 +12,30 @@ Piyasadaki uygulamalar yalnızca *"Şu an ne kadar paranız var?"* sorusuna yan�
 
 1. **Reel Büyüme:** Portföyüm enflasyona (TÜİK/ENAG/US CPI), Altına veya S&P 500'e karşı gerçekten değer kazandı mı?
 2. **Karar Günlüğü:** Bu alım/satım kararını verirken ne düşünüyordum? Psikolojik faktörler (FOMO, Panik vb.) performansımı nasıl etkiledi?
-3. **Alternatif Senaryolar (What-If):** O hisseyi satmayıp tutsaydım veya Altın yerine S&P500 alsaydım şu an ne durumdaydım?
+3. **Alternatif Senaryolar (What-If):** O hisseyi satmayıp tutsaydım veya Altın yerine S&P 500 alsaydım şu an ne durumdaydım?
 4. **Gelecek Simülasyonu:** Enflasyon, faiz veya kur şoklarında portföyümün risk ve getiri dağılımı (Monte Carlo + AI) ne olur?
 
 ---
 
 ## ✨ Temel Özellikler
 
-- 📜 **Event Sourcing & İşlem Defteri (Ledger):** Tüm alım, satım, temettü ve transfer hareketlerinin zaman damgalı kaydı. İstenen geçmiş tarihe dönük anlık portföy snapshot'ı alma.
-- 📓 **Karar Günlüğü (Decision Journal):** İşlem anında strateji notu ve duygu durumu kaydı. 3/6 ay sonra AI destekli karar retrospektifi (Post-Mortem).
-- 📉 **Reel Değerleme & Benchmark Engine:** TÜİK, ENAG, US CPI, Gram Altın, S&P 500 ve Gösterge Mevduat ile enflasyondan arındırılmış reel getiri analizi.
-- 🔀 **Gölge Portföy (Counterfactual Engine):** Alınmayan veya erken satılan kararların alternatif senaryolarla paralel takibi.
-- 🎲 **Monte Carlo & AI Senaryo Motoru:** Tarihsel kriz testleri ve makro değişkenlerle (faiz/enflasyon/kur) geleceğe dönük risk haritası ve LLM destekli durum analizi.
+- 📜 **Event Sourcing & İşlem Defteri (Ledger):** Tüm alım, satım, temettü ve nakit hareketlerinin zaman damgalı kaydı. İstenen geçmiş tarihe dönük anlık portföy snapshot'ı alma.
+- 📓 **Karar Günlüğü (Decision Journal):** İşlem anında strateji notu ve duygu durumu kaydı (FOMO, STRATEGIC, PANIC, DIVIDEND, OPPORTUNITY). Vade sonunda AI destekli karar retrospektifi (Post-Mortem).
+- 📉 **Reel Değerleme & Benchmark Engine:** TÜİK TÜFE, US CPI, Gram Altın ve S&P 500 ile enflasyondan arındırılmış reel getiri ve alpha analizi.
+- 🔀 **Gölge Portföy (Counterfactual Engine):** Alınmayan (BOUGHT_INSTEAD) veya erken satılan (HELD_INSTEAD) kararların alternatif senaryolarla fırsat maliyeti takibi.
+- 🎲 **Monte Carlo & Makro Stres Testi Motoru:** Varlık korelasyonlu geometrik Brownian hareketi (GBM), makro şok senaryoları (faiz, kur şoku, piyasa çöküşü) ve LLM destekli durum analizi.
 
 ---
 
 ## 🛠 Mimari ve Teknoloji Yığını
 
-- **Backend:** Python 3.11+, FastAPI, Pydantic, SQLAlchemy 2.0
-- **Veri & Analiz:** Pandas, NumPy, SciPy (Monte Carlo simülasyonları)
-- **Veri Tabanı:** SQLite / PostgreSQL (Event Sourcing yapısı)
-- **Frontend:** HTML5, TailwindCSS, Chart.js / Plotly.js, HTMX / Alpine.js
-- **Piyasa Veri Sağlayıcıları:** yfinance, TCMB EVDS API, TÜİK / ENAG serileri
+Projenin hedef mimarisi üç ana katmandan oluşur:
+- **Veritabanı & Kimlik Doğrulama:** [PocketBase v0.40.6](https://pocketbase.io/) (SQLite tabanlı, yerleşik auth, rule-based erişim denetimi ve migration desteği)
+- **Hesaplama Motoru & REST API:** Python 3.11+, FastAPI, Pydantic v2, Uvicorn
+- **Finansal Analiz & Simülasyon:** NumPy, Pandas, SciPy
+- **AI & Doğal Dil Yorumlama:** OpenRouter API (Fallback zinciri: Claude, GPT, Gemini vb.)
+- **Piyasa Verisi:** yfinance, ccxt, TCMB EVDS API, FRED API
+- **Web Arayüzü:** HTML5, TailwindCSS, Chart.js, Vanilla JS (DOM-safe, CSP uyumlu)
 
 ---
 
@@ -42,271 +44,130 @@ Piyasadaki uygulamalar yalnızca *"Şu an ne kadar paranız var?"* sorusuna yan�
 ### Gereksinimler
 
 - Python 3.11 veya üzeri
+- PocketBase v0.40.6
 - Git
 
-### Kurulum
+### Yerel Kurulum (Manuel)
 
 1. **Depoyu klonlayın:**
    ```bash
-   git clone https://github.com/ertugerata/futurewallet.git
-   cd futurewallet
+   git clone https://github.com/ertugerata/futureWallet_new.git
+   cd futureWallet_new
    ```
 
-2. **Sanal ortamı aktif edin:**
+2. **PocketBase'i kurun ve başlatın:**
+   PocketBase v0.40.6 binary'sini indirin ve ayrı bir terminalde çalıştırın:
+   ```bash
+   curl -sL -o pb.zip https://github.com/pocketbase/pocketbase/releases/download/v0.40.6/pocketbase_0.40.6_linux_amd64.zip && unzip pb.zip
+   ./pocketbase --dir ./pb_data superuser upsert admin@example.com 'GucluParola123!'
+   ./pocketbase serve --dir ./pb_data --http 127.0.0.1:8090
+   ```
+
+3. **Python sanal ortamı kurun ve bağımlılıkları yükleyin:**
    ```bash
    python -m venv venv
-   source venv/bin/activate  # Linux/macOS
-   # venv\Scripts\activate  # Windows
-   ```
-
-3. **Bağımlılıkları kurun:**
-   ```bash
+   source venv/bin/activate  # Windows: venv\Scripts\activate
    pip install -r requirements.txt
    ```
 
-4. **.env dosyasının yapılandırılması (opsiyonel):**
+4. **Çevre değişkenlerini ayarlayın:**
    ```bash
    cp .env.example .env
-   # .env dosyasını düzenleyerek API key'lerini girin
+   # .env dosyasını açıp POCKETBASE_URL, POCKETBASE_EMAIL, POCKETBASE_PASSWORD ve API_TOKEN girin
    ```
 
 5. **Uygulamayı başlatın:**
    ```bash
-   uvicorn api.app:app --host 0.0.0.0 --port 8000 --reload
+   uvicorn api.app:app --host 127.0.0.1 --port 8000 --reload
    ```
 
-6. **Tarayıcınızdan erişin:** [http://localhost:8000/web/](http://localhost:8000/web/)
+6. **Erişim:**
+   - Web Arayüzü: [http://127.0.0.1:8000/web/](http://127.0.0.1:8000/web/)
+   - API Dokümantasyonu (Swagger): [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)
+   - Sistem Sağlık Kontrolü: [http://127.0.0.1:8000/health](http://127.0.0.1:8000/health)
+
 ---
 
 ## 🔐 Yapılandırma (Environment Variables)
 
-Uygulama, `.env` dosyası veya Docker environment variable'ları ile yapılandırılır.
+Hassas anahtarlar ve ortam değişkenleri `.env` dosyası üzerinden yapılandırılır:
 
-### Gerekli Ortam Değişkenleri
+| Değişken | Açıklama | Varsayılan | Zorunlu mu? |
+|---|---|---|---|
+| `POCKETBASE_URL` | PocketBase sunucu URL'si | `http://127.0.0.1:8090` | Evet |
+| `POCKETBASE_EMAIL` | PocketBase yönetici/sistem e-postası | - | Evet (migration/admin işleri için) |
+| `POCKETBASE_PASSWORD` | PocketBase yönetici parolası | - | Evet |
+| `API_TOKEN` | FastAPI servis token'ı / fallback auth | - | Evet (fail-closed) |
+| `ALLOWED_ORIGINS` | CORS izinli origin listesi (virgüllü) | `""` (yalnızca same-origin) | Hayır |
+| `ALLOWED_HOSTS` | İzinli HTTP Host başlıkları | `localhost,127.0.0.1` | Hayır |
+| `OPENROUTER_API_KEY` | OpenRouter API anahtarı | `""` | AI özellikleri için |
+| `OPENROUTER_MODELS` | Model fallback zinciri (virgüllü) | `openai/gpt-4o-mini,...` | Hayır |
+| `TCMB_API_KEY` | TCMB EVDS API anahtarı | `""` | TÜFE benchmark için |
+| `FRED_API_KEY` | FRED API anahtarı | `""` | US CPI benchmark için |
+| `DEBUG` | Geliştirici modu (`true`/`false`) | `false` | Hayır |
 
-| Değişken | Açıklama | Varsayılan | Gerekli |
-|----------|----------|------------|---------|
-| `API_TOKEN` | API erişim token'ı (Bearer token auth) | `""` (boş) | **Evet** (production) |
-| `POCKETBASE_URL` | PocketBase instance URL'si | `http://localhost:8080` | Optional |
-| `ALLOWED_ORIGINS` | CORS'da izin verilen origin'ler (virgülle ayrılmış) | `""` (boş) | Optional |
-| `ALLOWED_HOSTS` | TrustedHostMiddleware için izin verilen Host değerleri | `localhost,127.0.0.1` | Optional |
+> **Fail-Closed Güvenlik Notu:** `DEBUG=false` iken gerekli token ve PocketBase yapılandırmaları eksikse FastAPI uygulaması başlamayı reddeder.
 
-### Opsiyonel Ortam Değişkenleri
+---
 
-| Değişken | Açıklama | Varsayılan |
-|----------|----------|-----------|
-| `DEBUG` | Debug modu (`true`/`false`) | `false` |
-| `GOOGLE_API_KEY` | Gemini/OpenRouter API anahtarı | `""` |
-| `GEMINI_MODEL` | LLM model adı | `google/gemini-2.0-flash` |
-| `TCMB_API_KEY` | TCMB EVDS API anahtarı | `""` |
-| `FRED_API_KEY` | US CPI verisi için FRED API anahtarı | `""` |
-| `APP_HOST` | FastAPI bind adresi | `127.0.0.1` |
-| `APP_PORT` | FastAPI portu | `8000` |
+## 🐳 Docker Compose ile Çalıştırma
 
-### .env Dosyası Örneği
+En kolay ve izole kurulum yolu Docker Compose kullanmaktır.
 
 ```bash
-# .env dosyasını oluşturun
+# 1. Ortam dosyasını oluşturun
 cp .env.example .env
 
-# Ardından düzenleyin:
-API_TOKEN=your-secure-api-token-here
-POCKETBASE_URL=http://localhost:8080
-ALLOWED_ORIGINS=http://localhost:3000,https://yourdomain.com
-DEBUG=false
-GOOGLE_API_KEY=your-google-api-key
+# 2. .env içinde şifre ve anahtarları düzenleyin
+# 3. Servisleri derleyin ve ayağa kaldırın
+docker compose up -d --build
 ```
 
-### Auth/Token Kullanımı
+### Konteyner Mimarisi
+- `pocketbase`: PocketBase v0.40.6 servisi (`127.0.0.1:8080:8090`). Veritabanı verisi `./pb_data` içinde kalıcı saklanır.
+- `futurewallet`: FastAPI hesaplama servisi (`127.0.0.1:8000:8000`). PocketBase ile iç Docker ağı üzerinden konuşur.
 
-API'ye erişim için `Authorization: Bearer <token>` header'ı kullanılır:
-
+Günlükleri takip etmek için:
 ```bash
-# Örnek: API'ye istek gönderimi
-curl -X GET "http://localhost:8000/api/decisions"   -H "Authorization: Bearer your-api-token"
+docker compose logs -f futurewallet
 ```
 
-> **Güvenlik Notu:** Production'da `API_TOKEN` mutlaka ayarlanmalıdır. 
-Daha fazla bilgi için [GitHub Actions CI](.github/workflows/ci.yml) dosyasını inceleyin.
-
-### CORS Yapılandırması
-
-`ALLOWED_ORIGINS` değişkeni, CORS middleware'sinde izin verilen origin'leri belirtir:
-
-- Boş bırakılırsa → yalnızca same-origin istekleri kabul edilir
-- Virgülle ayrılmış liste olarak belirtilir: `http://localhost:3000,https://app.example.com`
-- Her origin kendi başına trim işleminden geçirilir
-
+Kapatmak için:
 ```bash
-# Birden fazla origin izin ver
-export ALLOWED_ORIGINS="http://localhost:3000,https://yourdomain.com"
+docker compose down
 ```
 
 ---
- [http://localhost:8000/web/](http://localhost:8000/web/)
+
+## 🧪 Test ve Kalite Kontrolleri
+
+Proje kurallarına göre (`FUTUREWALLET_DUZELTME_PROMPTLARI.md` Prompt 0):
+- Kod değişiklikleri **gerçek PocketBase v0.40.6** instance'ına karşı doğrulanmalıdır.
+- MagicMock veya sahte in-memory SQLite veritabanı PocketBase entegrasyonu için kanıt sayılmaz.
+
+```bash
+# Statik kod analizi ve lint
+ruff check .
+
+# Tip denetimi
+mypy api services config.py
+
+# Testleri çalıştırma
+pytest -q
+```
 
 ---
 
-## 🐳 Docker ile Çalıştırma
-
-Uygulama, Docker ile de kolayca çalıştırılabilir. Aşağıdaki adımları takip edin.
-
-### Docker Kurulumu
-
-Sistemde Docker ve Docker Compose yüklü olmalıdır:
-
-- [Docker Desktop](https://www.docker.com/products/docker-desktop/) (macOS, Windows)
-- [Docker Engine](https://docs.docker.com/engine/install/) (Linux)
-
-Linux kullanıcıları için Docker kurulumu:
-
-```bash
-sudo apt update
-sudo apt install docker.io
-sudo systemctl enable --now docker
-sudo usermod -aG docker $USER
-# Oturumu yenileyin veya yeniden giriş yapın
-```
-
-### Docker Image Oluşturma
-
-Depo dizininde (bu dosyanın bulunduğu yerde) aşağıdaki komutu çalıştırın:
-
-```bash
-# FutureWallet Docker image'ı oluştur
-docker build -t futurewallet .
-```
-
-Bu komut iki aşamalı Dockerfile kullanarak:
-
-1. **Builder aşaması:** Python 3.11-slim üzerinde bağımlılıkları kurar
-2. **Runtime aşaması:** Sadece gerekli dosyaları ve bağımlılıkları içeren optimize edilmiş bir image oluşturur
-
-Başarılı bir build sonucunda `futurewallet:latest` imajı oluşur.
-
-### Docker ile Çalıştırma
-
-Uygulamayı başlatmak için aşağıdaki komutu çalıştırın:
-
-```bash
-docker run -p 8000:8000 futurewallet
-```
-
-Burada:
-
-- `-p 8000:8000` → Container içindeki port 8000, makinenizin port 8000'a eşlenir
-- `futurewallet` → Oluşturulan image'in adı
-
-Opsiyonel olarak, environment variable'ları ile yapılandırma:
-
-```bash
-docker run -p 8000:8000 \
-  -e GOOGLE_API_KEY="your-key" \
-  -e DEBUG="true" \
-  -e TCMB_API_KEY="your-tcmb-key" \
-  -e FRED_API_KEY="your-fred-key" \
-  futurewallet
-```
-
-Veya özelleştirilmiş bir `.env` dosyası ile:
-
-```bash
-# Kendi .env dosyanızı oluşturun
-cp .env.example .env
-# .env dosyasını düzenleyerek API key'lerini girin
-
-# Docker'a mount ederek çalıştırın
-docker run -p 8000:8000 -v $(pwd)/.env:/app/.env futurewallet
-```
-
-### Docker Compose ile Çalıştırma (Önerilen)
-
-Eğer Docker Compose kullanıyorsanız, `docker-compose.yml` dosyası oluşturun:
-
-```yaml
-version: '3.8'
-
-services:
-  futurewallet:
-    build: .
-    ports:
-      - "8000:8000"
-    environment:
-      - GOOGLE_API_KEY=${GOOGLE_API_KEY:-}
-      - DEBUG=${DEBUG:-false}
-      - TCMB_API_KEY=${TCMB_API_KEY:-}
-      - FRED_API_KEY=${FRED_API_KEY:-}
-    volumes:
-      - ./data:/app/data  # Veritabanı dosyasını kalıcı olarak saklamak için
-    restart: unless-stopped
-```
-
-Daha sonra:
-
-```bash
-# İlk kez kurulum ve başlatma
-docker-compose up -d
-
-# Güncellemeden ardından yeniden başlatma  
-docker-compose up -d --build
-
-# Çalışan container'ı durdurma
-docker-compose down
-```
-
-Çalışan container'ı izlemek için: `docker-compose logs -f`
-
-### Çevrimiçi Erişim
-
-İşlemin başarılı olduğunu doğrulamak için:
-
-- Tarayıcınızdan: [http://localhost:8000/web/](http://localhost:8000/web/)
-- API health check: [http://localhost:8000/health](http://localhost:8000/health)
-- API dokümantasyonu: [http://localhost:8000/docs](http://localhost:8000/docs) (FastAPI otomatik Swagger UI)
-
-### Veritabanı Yönetimi
-
-Docker ile çalıştırırken SQLite veritabanı (`futurewallet.db`) container içine kalıcı olmayan bir şekilde kaydedilir. Veritabanınızı kalıcı hale getirmek için volume mount kullanın:
-
-```bash
-docker run -p 8000:8000 -v $(pwd)/data:/app/data futurewallet
-```
-
-Bu durumda, `data/` dizini içinde `futurewallet.db` dosyası oluşur ve container kaldırıldığında bile korunur.
-
----
-
-## 🌐 Başvuru
-
-- API referansı ve interaktif test için: [http://localhost:8000/docs](http://localhost:8000/docs)
-- Web dashboard: [http://localhost:8000/web/](http://localhost:8000/web/)
-- Sağlık kontrolü: [http://localhost:8000/health](http://localhost:8000/health)
-
----
-
-
----
 ## ⚠️ Yasal Uyarı
 
-> **Bu ürün yatırım tavsiyesi değildir.**
+> **Bu platform ve yazılım yatırım tavsiyesi niteliğinde değildir.**
 
-FutureWallet, yatırımcıların karar süreçlerini takip etmeleri için bir **karar destek** platformudur. 
-Burada sunulan:
+FutureWallet, yalnızca bireysel yatırımcıların kendi karar süreçlerini ve portföy hareketlerini takip etmelerini kolaylaştırmak amacıyla tasarlanmış bir **karar destek** aracıdır.
 
-- Portföy değerlemeleri
-- Reel getiri hesaplamaları
-- Monte Carlo simülasyonları
-- AI destekli analizler ve öneriler
+Sistem tarafından sunulan:
+- Portföy snapshot'ları ve getiri hesaplamaları,
+- Enflasyondan arındırılmış reel değerlemeler,
+- Monte Carlo olasılık dağılımları ve stres testi simülasyonları,
+- AI destekli karar retrospektifleri ve piyasa risk anlatıları
 
-... türetilmiştir. Bu bilgiler:
-
-- Geçmiş verilere dayanır ve geleceği garanti etmez
-- Piyasa koşullarından etkilenebilir
-- Kavramaz yatırım kararları için temel oluşturulamaz
-
-Yatırım kararlarınızı vermeden önce lütfen kendi araştırmanızı yapın ve gerekirse profesyonel finansal danışmana başvurun.
-
----
-
-
----
+geçmiş verilere ve varsayımsal matematiksel modellere dayanır. Gelecekteki getirileri garanti etmez. Yatırım kararlarınızı vermeden önce lisanslı finansal danışmanlardan profesyonel destek alınız.
