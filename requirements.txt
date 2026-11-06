@@ -56,6 +56,8 @@ requests>=2.31.0
 # Güvenlik bağımlılıkları (transitive CVE'leri kapatmak için)
 # pyasn1: CVE-2026-119194, CVE-2026-119195, CVE-2026-119196, CVE-2026-119197
 pyasn1>=0.6.5
+# setuptools: PYSEC-2026-3447, GHSA-xmj3-9gf7-h52w
+setuptools>=84.1.0
 
 # Test / development (Prompt 0, 15)
 pytest>=8.0.0
