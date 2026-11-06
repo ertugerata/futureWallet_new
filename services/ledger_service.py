@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from datetime import date, timedelta
+from typing import Optional
 
 from services.multi_asset_manager import AssetManager
 from services.pocketbase import get_client
@@ -117,9 +118,7 @@ def _build_holdings_from_transactions(
 
         elif tx_type == "SELL":
             if sym in holdings:
-                holdings[sym]["quantity"] = max(
-                    0.0, holdings[sym]["quantity"] - quantity
-                )
+                holdings[sym]["quantity"] = max(0.0, holdings[sym]["quantity"] - quantity)
                 holdings[sym]["total_cost"] = (
                     holdings[sym]["quantity"] * holdings[sym]["average_cost"]
                 )
@@ -156,10 +155,7 @@ def _get_holdings_at_date(user_id: str, as_of: date) -> dict[str, AssetHolding]:
         transactions = client.collection("transactions")
         records = transactions.get_list(
             params=(
-                f"filter="
-                f"user='{user_id}'"
-                f" AND timestamp<='{as_of_end.isoformat()}'"
-                f"&per_page=1000"
+                f"filter=user='{user_id}' AND timestamp<='{as_of_end.isoformat()}'&per_page=1000"
             )
         )
     except Exception:
@@ -229,7 +225,9 @@ def get_portfolio_snapshot(
         "total_cost": total_cost,
         "average_cost": total_avg_cost,
         "unrealized_pnl": total_value - total_cost,
-        "unrealized_pnl_pct": ((total_value - total_cost) / total_cost * 100) if total_cost > 0 else 0.0,
+        "unrealized_pnl_pct": ((total_value - total_cost) / total_cost * 100)
+        if total_cost > 0
+        else 0.0,
         "as_of_date": as_of.isoformat(),
     }
 
@@ -273,7 +271,8 @@ def time_travel_portfolio(
     """
     # price_fn yoksa price_service kullan
     if price_fn is None:
-        from services.price_service import get_price_on, guess_asset_type as ps_guess
+        from services.price_service import get_price_on
+        from services.price_service import guess_asset_type as ps_guess
 
         def _default_price_fn(sym: str, atype: str, ref_date: date) -> Optional[float]:
             return get_price_on(sym, atype or ps_guess(sym), ref_date)
@@ -339,9 +338,7 @@ def add_transaction(
 
     tx_type_upper = tx_type.upper()
     if tx_type_upper not in {"BUY", "SELL", "DIVIDEND", "CASH_IN", "CASH_OUT"}:
-        raise ValueError(
-            f"tx_type: {tx_type!r} — allowed: BUY, SELL, DIVIDEND, CASH_IN, CASH_OUT"
-        )
+        raise ValueError(f"tx_type: {tx_type!r} — allowed: BUY, SELL, DIVIDEND, CASH_IN, CASH_OUT")
 
     asset_symbol_upper = asset_symbol.upper()
 
@@ -399,9 +396,7 @@ def get_transactions(
     if tx_type is not None:
         filter_parts.append(f'type = "{tx_type.upper()}"')
     filter_str = " AND ".join(filter_parts)
-    params = (
-        f"filter={filter_str}&sort=timestamp DESC&per_page={limit if limit else 100}"
-    )
+    params = f"filter={filter_str}&sort=timestamp DESC&per_page={limit if limit else 100}"
     records = transactions.get_list(params=params)
     return [
         {

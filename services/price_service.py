@@ -16,12 +16,11 @@ NOT: Bu service hala geliştirme aşamasında - tam integrate edilmedi.
 from __future__ import annotations
 
 from datetime import date, timedelta
-from typing import Any, Callable, Optional
+from typing import Optional
 
 import pandas as pd
 import yfinance as yf
 
-from config import POCKETBASE_URL
 from services.pocketbase import get_client
 
 # ---------------------------------------------------------------------------
@@ -47,10 +46,7 @@ def _get_price_from_pb(symbol: str, on_date: date) -> Optional[float]:
         client = get_client()
         ph = client.collection("price_history")
         records = ph.get_list(
-            params=(
-                f"filter=symbol='{symbol}' AND date='{on_date.isoformat()}'"
-                f"&per_page=1"
-            )
+            params=(f"filter=symbol='{symbol}' AND date='{on_date.isoformat()}'&per_page=1")
         )
         if records:
             return float(records[0].get("close", 0))

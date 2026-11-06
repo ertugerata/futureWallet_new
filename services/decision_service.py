@@ -422,9 +422,7 @@ def check_decision_target(
         mgr = AssetManager()
         price_fn = lambda sym: mgr.get_price(sym, _guess_asset_type(sym))
 
-    current_price = (
-        price_fn(decision["asset_symbol"]) if decision["asset_symbol"] else None
-    )
+    current_price = price_fn(decision["asset_symbol"]) if decision["asset_symbol"] else None
 
     target_hit: bool | None = None
     if decision["target_price"] is not None and current_price is not None:
@@ -449,9 +447,7 @@ def check_decision_target(
         "asset_symbol": decision["asset_symbol"],
         "action": decision["action"],
         "target_price": decision["target_price"],
-        "target_date": decision["target_date"].isoformat()
-        if decision["target_date"]
-        else None,
+        "target_date": decision["target_date"].isoformat() if decision["target_date"] else None,
         "current_price": current_price,
         "target_hit": target_hit,
         "target_date_passed": target_date_passed,
@@ -539,9 +535,7 @@ def generate_ai_retrospective(
         mgr = AssetManager()
         price_fn = lambda sym: mgr.get_price(sym, _guess_asset_type(sym))
 
-    current_price = (
-        price_fn(decision["asset_symbol"]) if decision["asset_symbol"] else None
-    )
+    current_price = price_fn(decision["asset_symbol"]) if decision["asset_symbol"] else None
 
     # market_data: decision tarihi ve vade tarihi fiyatlarını Prompt 7'a besle
     market_data = {"price_on_decision": current_price} if current_price else None

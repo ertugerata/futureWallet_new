@@ -75,9 +75,7 @@ class AssetManager:
             print(f"YFinance Error ({symbol}): {e}")
         return None
 
-    def get_historical_data(
-        self, symbol: str, asset_type: str, days: int = 365
-    ) -> pd.DataFrame:
+    def get_historical_data(self, symbol: str, asset_type: str, days: int = 365) -> pd.DataFrame:
         """
         Geçmiş fiyat verisini çeker
         """
@@ -94,9 +92,7 @@ class AssetManager:
             elif config["source"] == "ccxt":
                 # Try CCXT first
                 try:
-                    ohlcv = self.exchange.fetch_ohlcv(
-                        f"{symbol}/USDT", timeframe="1d", limit=days
-                    )
+                    ohlcv = self.exchange.fetch_ohlcv(f"{symbol}/USDT", timeframe="1d", limit=days)
                     df = pd.DataFrame(
                         ohlcv,
                         columns=["timestamp", "open", "high", "low", "close", "volume"],

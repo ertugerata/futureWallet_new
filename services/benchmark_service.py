@@ -490,9 +490,7 @@ def _upsert_to_pb(
         pb_date_str = d.isoformat()  # "YYYY-MM-DD" — PB DateTime olarak kabul eder
 
         try:
-            existing = collection.get_list(
-                params=f"filter=date='{pb_date_str}'&per_page=1"
-            )
+            existing = collection.get_list(params=f"filter=date='{pb_date_str}'&per_page=1")
         except Exception:
             existing = []
 
@@ -534,12 +532,7 @@ def get_cpi_for_date(
     col = "us_cpi" if cpi_type == "us" else "tr_cpi"
     try:
         records = macro.get_list(
-            params=(
-                f"filter=date<='{dt.isoformat()}'"
-                f" AND {col}!=''"
-                f"&sort=date DESC"
-                f"&per_page=1"
-            )
+            params=(f"filter=date<='{dt.isoformat()}' AND {col}!=''&sort=date DESC&per_page=1")
         )
     except Exception:
         return None
@@ -591,9 +584,7 @@ def compute_real_return(
 
     real_return: float | None = None
     if cpi_from and cpi_to and cpi_to > 0:
-        real_return = (portfolio_value_end / portfolio_value_start) * (
-            cpi_from / cpi_to
-        ) - 1.0
+        real_return = (portfolio_value_end / portfolio_value_start) * (cpi_from / cpi_to) - 1.0
 
     return {
         "nominal_return_pct": round(nominal_return, 6),
@@ -639,12 +630,7 @@ def compare_to_benchmark(
         macro = client.collection("macro_data")
         try:
             records = macro.get_list(
-                params=(
-                    f"filter=date<='{dt.isoformat()}'"
-                    f" AND {col}!=''"
-                    f"&sort=date DESC"
-                    f"&per_page=1"
-                )
+                params=(f"filter=date<='{dt.isoformat()}' AND {col}!=''&sort=date DESC&per_page=1")
             )
         except Exception:
             records = []

@@ -74,9 +74,7 @@ def predict_probability(symbol="BTC-USD", target_price=100000, days=10):
         df["Gelecek_Max"] = df["High"].rolling(window=indexer).max()
 
         # Mantık: Gelecekteki En Yüksek Fiyat >= (Şu anki Fiyat + Gereken Artış)
-        df["Target"] = (
-            df["Gelecek_Max"] >= df["Close"] * (1 + gereken_artis_orani)
-        ).astype(int)
+        df["Target"] = (df["Gelecek_Max"] >= df["Close"] * (1 + gereken_artis_orani)).astype(int)
 
         # NaN temizliği
         df.dropna(inplace=True)
@@ -99,9 +97,7 @@ def predict_probability(symbol="BTC-USD", target_price=100000, days=10):
             y_test = y.iloc[-test_size:]
         else:
             # Veri azsa standart split
-            X_train, X_test, y_train, y_test = train_test_split(
-                X, y, test_size=0.2, shuffle=False
-            )
+            X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, shuffle=False)
 
         model = XGBClassifier(
             n_estimators=200, learning_rate=0.02, max_depth=5, eval_metric="logloss"
@@ -119,9 +115,7 @@ def predict_probability(symbol="BTC-USD", target_price=100000, days=10):
         result["probability"] = float(olasilik)
 
         # Hangi veri daha etkili oldu?
-        imps = pd.Series(model.feature_importances_, index=features).sort_values(
-            ascending=False
-        )
+        imps = pd.Series(model.feature_importances_, index=features).sort_values(ascending=False)
         result["feature_importances"] = imps.to_dict()
 
         result["success"] = True

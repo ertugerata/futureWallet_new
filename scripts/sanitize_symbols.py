@@ -47,9 +47,7 @@ def scan(session) -> list[dict]:
     ]:
         rows = (
             session.execute(
-                select(getattr(model, sym_col)).where(
-                    getattr(model, sym_col).isnot(None)
-                )
+                select(getattr(model, sym_col)).where(getattr(model, sym_col).isnot(None))
             )
             .scalars()
             .all()
@@ -81,15 +79,11 @@ def fix(session, problems: list[dict]) -> int:
             )
             deleted += 1
         elif p["table"] == "decisions":
-            session.execute(
-                Decision.__table__.delete().where(Decision.asset_symbol == p["symbol"])
-            )
+            session.execute(Decision.__table__.delete().where(Decision.asset_symbol == p["symbol"]))
             deleted += 1
         elif p["table"] == "transactions":
             session.execute(
-                Transaction.__table__.delete().where(
-                    Transaction.asset_symbol == p["symbol"]
-                )
+                Transaction.__table__.delete().where(Transaction.asset_symbol == p["symbol"])
             )
             deleted += 1
     session.commit()
