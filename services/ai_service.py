@@ -120,9 +120,7 @@ def generate_decision_retrospective(
     model = model or config.GEMINI_MODEL
 
     if not api_key:
-        raise AIUnavailableError(
-            "Google API anahtarı yapılandırılmadı (GOOGLE_API_KEY)."
-        )
+        raise AIUnavailableError("Google API anahtarı yapılandırılmadı (GOOGLE_API_KEY).")
 
     user_prompt = _build_retrospective_prompt(decision, market_data)
     full_prompt = f"{_RETROSPECTIVE_SYSTEM_PROMPT}\n\nKullanıcı girişi:\n{user_prompt}"
@@ -175,9 +173,7 @@ def generate_risk_narrative(
     model = model or config.GEMINI_MODEL
 
     if not api_key:
-        raise AIUnavailableError(
-            "Google API anahtarı yapılandırılmadı (GOOGLE_API_KEY)."
-        )
+        raise AIUnavailableError("Google API anahtarı yapılandırılmadı (GOOGLE_API_KEY).")
 
     user_prompt = _build_risk_narrative_prompt(simulation_result, context)
     full_prompt = f"{_RISK_NARRATIVE_SYSTEM_PROMPT}\n\nKullanıcı girişi:\n{user_prompt}"

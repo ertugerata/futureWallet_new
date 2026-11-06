@@ -10,11 +10,9 @@ NOT: Production kodda bu modeller kullanılmıyor, sadece test 인프라 için.
 
 from __future__ import annotations
 
-from datetime import date, datetime
 from typing import Any
 
 from sqlalchemy import (
-    BigInteger,
     Boolean,
     Column,
     Date,
@@ -76,7 +74,9 @@ class Decision(Base):
     rationale: Any = Column(Text, nullable=True)
     target_price: Any = Column(Float, nullable=True)
     target_date: Any = Column(Date, nullable=True)
-    status: Any = Column(String(20), nullable=False, default="OPEN")  # OPEN, EXPIRED, REVIEWED, CLOSED
+    status: Any = Column(
+        String(20), nullable=False, default="OPEN"
+    )  # OPEN, EXPIRED, REVIEWED, CLOSED
     decision_date: Any = Column(Date, nullable=False, default=func.current_date())
     ai_retrospective: Any = Column(Text, nullable=True)
 

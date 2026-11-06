@@ -96,9 +96,7 @@ def _calculate_covariance_matrix(
     cov_matrix = np.zeros((n, n))
 
     available = [
-        sym
-        for sym in asset_symbols
-        if sym in returns_dict and returns_dict[sym] is not None
+        sym for sym in asset_symbols if sym in returns_dict and returns_dict[sym] is not None
     ]
     if not available:
         return cov_matrix
@@ -116,9 +114,7 @@ def _calculate_covariance_matrix(
     cov = df.cov().values
     for i, sym_i in enumerate(available):
         for j, sym_j in enumerate(available):
-            cov_matrix[asset_symbols.index(sym_i), asset_symbols.index(sym_j)] = cov[
-                i, j
-            ]
+            cov_matrix[asset_symbols.index(sym_i), asset_symbols.index(sym_j)] = cov[i, j]
 
     return cov_matrix
 
@@ -200,9 +196,7 @@ def _simulate_paths_multivariate(
 def _percentile_values(paths: np.ndarray, percentiles: list[int]) -> dict[str, float]:
     """Son gün değerlerinin percentillerini hesapla."""
     final_values = paths[:, -1]
-    return {
-        f"p{p}": round(float(np.percentile(final_values, p)), 2) for p in percentiles
-    }
+    return {f"p{p}": round(float(np.percentile(final_values, p)), 2) for p in percentiles}
 
 
 # ---------------------------------------------------------------------------
@@ -238,9 +232,10 @@ def monte_carlo_simulation(
         percentiles = [5, 50, 95]
 
     if n_simulations > 200_000:
-        raise ValueError(
-            f"n_simulations={n_simulations} → maksimum 200,000 (Prompt 3)."
-        )
+        raise ValueError(f"n_simulations={n_simulations} → maksimum 200,000 (Prompt 3).")
+
+    if asset_list is None:
+        asset_list = []
 
     asset_symbols = [a["symbol"] for a in asset_list]
 
@@ -476,9 +471,7 @@ def stress_test(
         vol_mult = scenario.get("vol_multiplier", 1.0)
         drift_shift = scenario.get("drift_shift", 0.0)
 
-        impacts = asset_impacts.get(
-            "default", {"price_shock_pct": -0.05, "vol_multiplier": 1.4}
-        )
+        impacts = asset_impacts.get("default", {"price_shock_pct": -0.05, "vol_multiplier": 1.4})
         price_shock = impacts.get("price_shock_pct", -0.05)
         vol_mult_actual = impacts.get("vol_multiplier", vol_mult)
 
@@ -487,9 +480,7 @@ def stress_test(
         stressed_mean = drift_shift
 
         if n_simulations > 200_000:
-            raise ValueError(
-                f"n_simulations={n_simulations} → maksimum 200,000 (Prompt 3)."
-            )
+            raise ValueError(f"n_simulations={n_simulations} → maksimum 200,000 (Prompt 3).")
 
         Z = rng.standard_normal((n_simulations, days - 1))
         drift = stressed_mean  # Prompt 10: varyans düzeltmesi yok

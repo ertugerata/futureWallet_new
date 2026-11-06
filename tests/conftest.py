@@ -113,9 +113,7 @@ def mock_gemini() -> Generator[MagicMock, None, None]:
     generate_content.side_effect = Exception(...) ile hata scenaroları testlenir.
     """
     mock_model_instance = MagicMock()
-    mock_model_instance.generate_content.return_value.text = (
-        "AI retrospective test çıktısı."
-    )
+    mock_model_instance.generate_content.return_value.text = "AI retrospective test çıktısı."
     mock_model = MagicMock()
     mock_model.GenerativeModel.return_value = mock_model_instance
 

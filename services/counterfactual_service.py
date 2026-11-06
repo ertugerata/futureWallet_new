@@ -256,9 +256,7 @@ def compare_real_vs_shadow(
     # Fırsat maliyeti: gerçek - gölge
     # Pozitif → gerçek daha iyi; Negatif → gölge daha iyi (gerçek seçim fırsat maliyeti yarattı)
     opportunity_cost = real_value - shadow_value
-    opportunity_cost_pct = (
-        (opportunity_cost / shadow_value) if shadow_value != 0 else 0.0
-    )
+    opportunity_cost_pct = (opportunity_cost / shadow_value) if shadow_value != 0 else 0.0
 
     return {
         "as_of": as_of.isoformat(),
@@ -329,9 +327,7 @@ def what_if_scenario(
             "rationale": dec["rationale"],
             "sentiment": dec["sentiment"],
             "target_price": dec["target_price"],
-            "target_date": dec["target_date"].isoformat()
-            if dec["target_date"]
-            else None,
+            "target_date": dec["target_date"].isoformat() if dec["target_date"] else None,
             "status": dec["status"],
         },
         "as_of": comp["as_of"],

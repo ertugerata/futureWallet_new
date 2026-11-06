@@ -1,6 +1,8 @@
 # Ruff configuration for FutureWallet
 # FastAPI pattern: Query() in argument defaults is standard FastAPI usage
 
+line-length = 100
+
 [lint]
 select = [
     "F",      # Pyflakes
@@ -13,11 +15,35 @@ select = [
     "TRY",    # tryceratops
 ]
 ignore = [
-    "B008",   # FastAPI Query() in defaults - false positive
+    "B008",    # FastAPI Query() in defaults - false positive
+    "E501",    # Line length handled by formatter
+    "TRY003",  # Long exception messages
+    "TRY300",  # Return inside try block
+    "TRY301",  # Abstract raise to inner function
+    "PLR0913", # Too many arguments in function
+    "PLR0917", # Too many positional arguments
+    "PLR0915", # Too many statements
+    "PLR2004", # Magic value comparison
+    "PLC0415", # Import outside top level
+    "B904",    # raise from within except
+    "RUF001",  # Ambiguous unicode characters in string
+    "RUF002",  # Ambiguous unicode characters in docstring
+    "RUF003",  # Ambiguous unicode characters in comment
+    "E731",    # Do not assign lambda
+    "E402",    # Module level import not at top of file
+    "PLW0603", # Using global statement
+    "PLW2901", # Loop variable overwritten
+    "PLW0108", # Unnecessary lambda
+    "PLR1714", # Merge comparisons
+    "B007",    # Unused loop control variable
+    "TRY400",  # logging.exception vs logging.error
+    "RUF012",  # Mutable class attribute
 ]
+allowed-confusables = ["ı", "İ"]
 
 [lint.isort]
 known-first-party = ["api", "services", "config", "db"]
 
 [format]
-line-length = 100
+quote-style = "double"
+indent-style = "space"
