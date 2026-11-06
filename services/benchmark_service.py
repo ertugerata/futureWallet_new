@@ -18,7 +18,7 @@ from __future__ import annotations
 from datetime import date, datetime, timedelta
 
 import pandas as pd
-import requests
+import requests  # type: ignore[import-untyped]
 import yfinance as yf
 
 from config import FRED_API_KEY, TCMB_API_KEY

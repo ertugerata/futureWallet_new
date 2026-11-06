@@ -145,9 +145,9 @@ def get_price_on(
 
 def get_prices_in_range(
     symbol: str,
-    asset_type: str = "crypto",
     start_date: date,
     end_date: date,
+    asset_type: str = "crypto",
 ) -> dict[str, float]:
     """Belirtilen aralıktaki tüm fiyatları döndürür.
 

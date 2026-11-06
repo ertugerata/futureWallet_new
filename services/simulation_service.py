@@ -242,6 +242,9 @@ def monte_carlo_simulation(
             f"n_simulations={n_simulations} → maksimum 200,000 (Prompt 3)."
         )
 
+    if asset_list is None:
+        asset_list = []
+
     asset_symbols = [a["symbol"] for a in asset_list]
 
     # Başlangıç değerleri (Prompt 10: use_ledger=True → miktarlar ledger'dan)
