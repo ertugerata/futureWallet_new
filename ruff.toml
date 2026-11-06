@@ -1,6 +1,8 @@
 # Ruff configuration for FutureWallet
 # FastAPI pattern: Query() in argument defaults is standard FastAPI usage
 
+line-length = 100
+
 [lint]
 select = [
     "F",      # Pyflakes
@@ -20,4 +22,5 @@ ignore = [
 known-first-party = ["api", "services", "config", "db"]
 
 [format]
-line-length = 100
+quote-style = "double"
+indent-style = "space"
