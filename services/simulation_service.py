@@ -434,25 +434,25 @@ DEFAULT_STRESS_SCENARIOS: dict[str, dict] = {
 
 
 def stress_test(
-    session,
     portfolio_value: float,
     shocks: dict[str, float] | None = None,
     days: int = 252,
     n_simulations: int = 1000,
     seed: int | None = None,
+    session: Any = None,
 ) -> StressTestResult:
-    """Makro şok senaryoları altında portföy değerlerini simüle et (Prompt 10).
+    """Makro şok senaryoları altında portföy değerlerini simüle et (Prompt 10, 12).
 
     Şoklar varlık sınıfı duyarlılık tablosuyla uygulanır. market_crash:
-    anlık şok + sonraki günlerde multiplicative yayılma.
+    anlık şok + sonraki tüm günlerde kalıcı kriz çarpanı.
 
     Args:
-        session: SQLAlchemy Session
         portfolio_value: Başlangıç portföy değeri
         shocks: Özel şoklar (opsiyonel; key=senaryo adı, value=şok büyüklüğü)
         days: Simülasyon süresi
         n_simulations: Kaç patika
         seed: RNG seed
+        session: Eski SQLAlchemy kalıntısı (opsiyonel)
 
     Returns:
         StressTestResult dict.
@@ -491,12 +491,10 @@ def stress_test(
         paths[:, 0] = portfolio_value
         paths[:, 1:] = portfolio_value * np.cumprod(increments, axis=1)
 
-        # Market crash: anlık şok + sonraki günlerde multiplicative yayılma (Prompt 10)
+        # Market crash: şok anı ve sonrasındaki tüm günlere kalıcı kriz etkisi (Prompt 12)
         if scenario_name == "market_crash" and price_shock != 0:
             crash_day = min(10, days // 3)
-            paths[:, crash_day] = paths[:, crash_day] * (1 + price_shock)
-            for t in range(crash_day + 1, days):
-                paths[:, t] = paths[:, t] * (1 + price_shock * 0.1)
+            paths[:, crash_day:] = paths[:, crash_day:] * (1 + price_shock)
         elif price_shock != 0 and scenario_name != "market_crash":
             paths = paths * (1 + price_shock)
 

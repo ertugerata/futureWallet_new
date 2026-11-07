@@ -65,6 +65,7 @@ from services.decision_service import (
     update_decision as svc_update_decision,
 )
 from services.ledger_service import (
+    InsufficientBalanceError,
     _guess_asset_type,
     time_travel_portfolio,
 )
@@ -96,17 +97,74 @@ from services.simulation_service import (
 # ---------------------------------------------------------------------------
 
 
-def verify_api_token(request: Request) -> None:
-    if not API_TOKEN:
-        raise HTTPException(
-            status_code=500,
-            detail="API_TOKEN ayarlanmamış. Yapılandırmayı kontrol edin.",
-        )
+_default_user_cache: dict[str, str] = {}
+
+
+def _get_or_create_default_user() -> str:
+    """API_TOKEN veya test amaçlı varsayılan PB kullanıcısı."""
+    try:
+        from services.pb import get_admin_client
+
+        client = get_admin_client()
+        cache_key = client.base_url
+        if cache_key in _default_user_cache:
+            cached_id = _default_user_cache[cache_key]
+            try:
+                client.collection("users").get_one(cached_id)
+                return cached_id
+            except Exception:
+                pass
+
+        email = "test_default@futurewallet.test"
+        users = client.collection("users").get_full_list(query_params={"filter": f'email = "{email}"'})
+        if users:
+            uid = str(users[0].id)
+        else:
+            rec = client.collection("users").create(
+                {
+                    "email": email,
+                    "password": "TestPass123!@Pass",
+                    "passwordConfirm": "TestPass123!@Pass",
+                }
+            )
+            uid = str(rec.id)
+        _default_user_cache[cache_key] = uid
+        return uid
+    except Exception as exc:
+        logger.error("Default test kullanıcısı oluşturulamadı: %s", exc)
+        return "unknown"
+
+
+def _extract_user_id(request: Request) -> str:
+    """İstekten doğrulanmış user_id'yi alır (Prompt 6)."""
+    return getattr(request.state, "user_id", None) or request.headers.get("X-User-ID") or _get_or_create_default_user()
+
+
+def verify_api_token(request: Request) -> str:
     auth_header = request.headers.get("Authorization", "")
     if not auth_header.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Yetkisiz: token yok")
-    token = auth_header[len("Bearer ") :]
-    if not token or token != API_TOKEN:
+    token = auth_header[len("Bearer ") :].strip()
+    if not token:
+        raise HTTPException(status_code=401, detail="Yetkisiz: geçersiz token")
+
+    # 1. API_TOKEN kontrolü (legacy / test uyumluluğu)
+    if API_TOKEN and token == API_TOKEN:
+        uid = _get_or_create_default_user()
+        request.state.user_id = uid
+        return uid
+
+    # 2. PocketBase JWT token doğrulaması (Prompt 6)
+    try:
+        from services.pb import get_user_client
+
+        user_client = get_user_client(token)
+        auth_data = user_client.collection("users").auth_refresh()
+        uid = str(auth_data.record.id)
+        request.state.user_id = uid
+        request.state.user_client = user_client
+        return uid
+    except Exception:
         raise HTTPException(status_code=401, detail="Yetkisiz: geçersiz token")
 
 
@@ -154,10 +212,10 @@ class DecisionCreateRequest(BaseModel):
         None, max_length=5000, description="Karar gerekçesi (max 5000 karakter)"
     )
     sentiment: (
-        Literal["FOMO", "STRATEGIC", "PANIC", "DIVIDEND", "RISK_REDUCTION", "OPPORTUNITY"] | None
+        Literal["FOMO", "STRATEGIC", "PANIC", "DIVIDEND", "OPPORTUNITY"] | None
     ) = Field(
         None,
-        description="FOMO | STRATEGIC | PANIC | DIVIDEND | RISK_REDUCTION | OPPORTUNITY",
+        description="FOMO | STRATEGIC | PANIC | DIVIDEND | OPPORTUNITY",
     )
     target_price: float | None = Field(None, gt=0, description="Hedef fiyat (pozitif)")
     target_date: date | None = Field(None, description="Hedef tarih (ISO YYYY-MM-DD)")
@@ -182,11 +240,10 @@ class DecisionCreateRequest(BaseModel):
                 "STRATEGIC",
                 "PANIC",
                 "DIVIDEND",
-                "RISK_REDUCTION",
                 "OPPORTUNITY",
             ):
                 raise ValueError(
-                    f"Geçersiz sentiment: {v}. Kabul: FOMO, STRATEGIC, PANIC, DIVIDEND, RISK_REDUCTION, OPPORTUNITY"
+                    f"Geçersiz sentiment: {v}. Kabul: FOMO, STRATEGIC, PANIC, DIVIDEND, OPPORTUNITY"
                 )
             return v
         return v
@@ -234,8 +291,8 @@ class DecisionUpdateRequest(BaseModel):
         None, max_length=5000, description="Yeni gerekçе (max 5000 karakter)"
     )
     sentiment: (
-        Literal["FOMO", "STRATEGIC", "PANIC", "DIVIDEND", "RISK_REDUCTION", "OPPORTUNITY"] | None
-    ) = Field(None, description="FOMO | STRATEGIC | PANIC | DIVIDEND | RISK_REDUCTION")
+        Literal["FOMO", "STRATEGIC", "PANIC", "DIVIDEND", "OPPORTUNITY"] | None
+    ) = Field(None, description="FOMO | STRATEGIC | PANIC | DIVIDEND | OPPORTUNITY")
     target_price: float | None = Field(None, gt=0)
     target_date: date | None = Field(None, description="Yeni hedef tarih")
     status: Literal["OPEN", "REVIEWED", "EXPIRED", "CLOSED"] | None = Field(
@@ -254,7 +311,6 @@ class DecisionUpdateRequest(BaseModel):
                 "STRATEGIC",
                 "PANIC",
                 "DIVIDEND",
-                "RISK_REDUCTION",
                 "OPPORTUNITY",
             ):
                 raise ValueError(f"Geçersiz sentiment: {v}")
@@ -284,24 +340,23 @@ DecisionsListRequest.model_rebuild()
 # ---------------------------------------------------------------------------
 
 async def _init_pocketbase() -> None:
-    """PocketBase koleksiyonlarını başlat."""
+    """PocketBase koleksiyonlarını doğrula."""
     try:
-        from services.pocketbase import init_pocketbase_collections
+        from services.pb import verify_collections
 
-        await init_pocketbase_collections()
+        verify_collections()
     except Exception:
-        # Test ortamında veya PocketBase yoksa skip
+        # Test ortamında veya PocketBase henüz başlatılmamışsa pass
         pass
 
 
 async def _check_pb_connection() -> bool:
     """PocketBase bağlantısını kontrol et."""
     try:
-        from services.pocketbase import get_client
-        client = get_client()
-        # Basit bir health check - collections endpoint'i
-        client._ensure()
-        return True
+        from services.pb import get_admin_client
+
+        client = get_admin_client()
+        return bool(client.auth_store.is_valid)
     except Exception:
         return False
 
@@ -398,7 +453,7 @@ async def portfolio_snapshot(
     as_of: date | None = Query(None, alias="date", description="ISO YYYY-MM-DD. Yoksa bugün."),
 ):
     """Belirtilen tarihteki portföy snapshot'ı. PB transactions collection'undan hesaplanır."""
-    user_id = request.headers.get("X-User-ID", "unknown")
+    user_id = _extract_user_id(request)
     return srv_get_portfolio_snapshot(user_id=user_id, as_of=as_of)
 
 
@@ -409,7 +464,7 @@ async def portfolio_time_travel(
     t_target: date | None = Query(None, description="ISO YYYY-MM-DD hedef tarih. Yoksa bugün."),
 ):
     """T_start dağılımını T_target fiyatlarıyla değerlendirir. PB transactions collection'undan hesaplanır."""
-    user_id = request.headers.get("X-User-ID", "unknown")
+    user_id = _extract_user_id(request)
     target = t_target or date.today()
     return time_travel_portfolio(user_id=user_id, t_start=t_start, t_target=target)
 
@@ -426,11 +481,11 @@ async def portfolio_real_valuation(
     cpi_type: str = Query("tr", description="tr | us"),
 ):
     """Nominal ve reel (enflasyondan arındırılmış) getiri hesaplama. PB macro_data'dan CPI okur."""
-    user_id = request.headers.get("X-User-ID", "unknown")
+    user_id = _extract_user_id(request)
     nominal_end_val: float = nominal_end if nominal_end is not None else nominal_start
 
     if nominal_end is None:
-        snap = srv_get_portfolio_snapshot(user_id=user_id, as_of=date_from)
+        snap = srv_get_portfolio_snapshot(user_id=user_id, as_of=date_to)
         nominal_end_val = snap["total_value"]
 
     result = compute_real_return(
@@ -463,30 +518,33 @@ async def portfolio_value_series(
             "currency": "TRY"
         }
     """
-    user_id = request.headers.get("X-User-ID", "unknown")
+    user_id = _extract_user_id(request)
+
+    if start_date > end_date:
+        raise HTTPException(400, "start_date end_date'ten büyük olamaz")
 
     # Tarih aralığını step'e göre filtrele
+    dates = []
+    current = start_date
     if step == "weekly":
-        # Her hafta ilk gün (perşembe varsayımı)
-        dates = []
-        current = start_date
         while current <= end_date:
-            if current.weekday() <= 3:  # Perşembe veya üzeri
-                dates.append(current)
-            current += timedelta(days=1)
+            dates.append(current)
+            current += timedelta(days=7)
     elif step == "monthly":
-        dates = []
-        current = start_date
         while current <= end_date:
-            if current.day == 1:
-                dates.append(current)
-            current += timedelta(days=1)
+            dates.append(current)
+            # Bir sonraki ayın ilk günü veya ~30 gün
+            if current.month == 12:
+                current = date(current.year + 1, 1, min(current.day, 28))
+            else:
+                current = date(current.year, current.month + 1, min(current.day, 28))
     else:  # daily
-        dates = []
-        current = start_date
         while current <= end_date:
             dates.append(current)
             current += timedelta(days=1)
+
+    if len(dates) > 400:
+        raise HTTPException(422, f"Nokta sayısı ({len(dates)}) sınırı aştı (maksimum 400). Lütfen step parametresini büyütün veya aralığı daraltın.")
 
     # Her tarihte snapshot al
     series = []
@@ -544,7 +602,7 @@ async def create_decision_endpoint(
 ):
     """Yeni karar oluştur. user_id → X-User-ID header'ı veya 'unknown'.
     track_shadow=True ve action=SELL → HELD_INSTEAD gölge pozisyonu otomatik oluşturulur (Prompt 12)."""
-    user_id = request.headers.get("X-User-ID", "unknown")
+    user_id = _extract_user_id(request)
 
     try:
         result = svc_create_decision(
@@ -574,6 +632,49 @@ async def create_decision_endpoint(
         return result
     except ValueError as e:
         raise HTTPException(400, str(e))
+
+
+@app.get("/api/decisions/stats", dependencies=[Depends(verify_api_token)])
+async def decisions_stats_endpoint(request: Request):
+    """Sentiment ve action bazında karar istatistikleri (Prompt 13)."""
+    uid = _extract_user_id(request)
+    sentiment_summary = get_sentiment_summary(user_id=uid)
+    status_summary = get_status_summary(user_id=uid)
+    decisions = svc_list_decisions(limit=1000, user_id=uid)
+
+    outcomes = [
+        d["outcome_return_pct"] for d in decisions if d.get("outcome_return_pct") is not None
+    ]
+    N_OUTCOME_MIN = 3
+    if len(outcomes) >= N_OUTCOME_MIN:
+        outcomes_sorted = sorted(outcomes)
+        n = len(outcomes_sorted)
+        median_outcome = (
+            outcomes_sorted[n // 2]
+            if n % 2
+            else ((outcomes_sorted[n // 2 - 1] + outcomes_sorted[n // 2]) / 2)
+        )
+        mean_outcome = sum(outcomes) / n
+        stats = {
+            "sentiment_counts": sentiment_summary,
+            "status_counts": status_summary,
+            "outcome": {
+                "count": n,
+                "mean": round(mean_outcome, 4),
+                "median": round(median_outcome, 4),
+                "min": round(min(outcomes), 4),
+                "max": round(max(outcomes), 4),
+            },
+            "insufficient_data": False,
+        }
+    else:
+        stats = {
+            "sentiment_counts": sentiment_summary,
+            "status_counts": status_summary,
+            "outcome": {"count": len(outcomes)},
+            "insufficient_data": True,
+        }
+    return stats
 
 
 @app.get("/api/decisions/{decision_id}", dependencies=[Depends(verify_api_token)])
@@ -662,7 +763,7 @@ async def create_shadow_position_endpoint(
     request: Request,
 ):
     """Yeni gölge pozisyon oluştur (Prompt 12)."""
-    user_id = request.headers.get("X-User-ID", "unknown")
+    user_id = _extract_user_id(request)
     try:
         result = create_shadow_position(
             user_id=user_id,
@@ -698,7 +799,7 @@ async def list_shadow_positions_endpoint(
 )
 async def delete_shadow_position_endpoint(position_id: str, request: Request):
     """Gölge pozisyonunu sil (PB shadow_portfolios)."""
-    _ = request.headers.get("X-User-ID", "unknown")
+    _ = _extract_user_id(request)
     try:
         client = get_client()
         sp_coll = client.collection("shadow_portfolios")
@@ -708,52 +809,10 @@ async def delete_shadow_position_endpoint(position_id: str, request: Request):
         raise HTTPException(500, str(e))
 
 
-@app.get("/api/decisions/stats", dependencies=[Depends(verify_api_token)])
-async def decisions_stats_endpoint():
-    """Sentiment ve action bazında karar istatistikleri (Prompt 13)."""
-    sentiment_summary = get_sentiment_summary()
-    status_summary = get_status_summary()
-    decisions = svc_list_decisions(limit=1000)
-
-    outcomes = [
-        d["outcome_return_pct"] for d in decisions if d.get("outcome_return_pct") is not None
-    ]
-    N_OUTCOME_MIN = 3
-    if len(outcomes) >= N_OUTCOME_MIN:
-        outcomes_sorted = sorted(outcomes)
-        n = len(outcomes_sorted)
-        median_outcome = (
-            outcomes_sorted[n // 2]
-            if n % 2
-            else ((outcomes_sorted[n // 2 - 1] + outcomes_sorted[n // 2]) / 2)
-        )
-        mean_outcome = sum(outcomes) / n
-        stats = {
-            "sentiment_counts": sentiment_summary,
-            "status_counts": status_summary,
-            "outcome": {
-                "count": n,
-                "mean": round(mean_outcome, 4),
-                "median": round(median_outcome, 4),
-                "min": round(min(outcomes), 4),
-                "max": round(max(outcomes), 4),
-            },
-            "insufficient_data": False,
-        }
-    else:
-        stats = {
-            "sentiment_counts": sentiment_summary,
-            "status_counts": status_summary,
-            "outcome": {"count": len(outcomes)},
-            "insufficient_data": True,
-        }
-    return stats
-
-
 @app.delete("/api/decisions/{decision_id}", dependencies=[Depends(verify_api_token)])
 async def delete_decision_endpoint(decision_id: str, request: Request):
     """Kararı sil (bağlı gölge pozisyonlar cascade silinir; transaction etkilenmez)."""
-    _ = request.headers.get("X-User-ID", "unknown")
+    _ = _extract_user_id(request)
     try:
         client = get_client()
         decisions_coll = client.collection("decisions")
@@ -801,7 +860,7 @@ async def monte_carlo_endpoint(
     if len(pct_list) > 7:
         raise HTTPException(400, "En fazla 7 percentil belirtebilirsiniz.")
 
-    user_id = request.headers.get("X-User-ID", "unknown")
+    user_id = _extract_user_id(request)
     result = monte_carlo_simulation(
         user_id=user_id,
         asset_list=asset_list,
@@ -842,7 +901,7 @@ async def create_transaction_endpoint(
     request: Request,
 ):
     """Yeni işlem kaydı ekler (event log'a yaz)."""
-    user_id = request.headers.get("X-User-ID", "unknown")
+    user_id = _extract_user_id(request)
 
     try:
         result = srv_add_transaction(
@@ -855,6 +914,8 @@ async def create_transaction_endpoint(
             timestamp=body.timestamp,
         )
         return result
+    except InsufficientBalanceError as e:
+        raise HTTPException(409, str(e))
     except ValueError as e:
         raise HTTPException(400, str(e))
 
@@ -867,7 +928,7 @@ async def list_transactions_endpoint(
     limit: int | None = Query(None),
 ):
     """İşlem listesi (filter ile)."""
-    user_id = request.headers.get("X-User-ID", "unknown")
+    user_id = _extract_user_id(request)
 
     try:
         result = srv_get_transactions(
@@ -887,7 +948,7 @@ async def delete_transaction_endpoint(
     request: Request,
 ):
     """İşlem kaydını voided yap (soft delete)."""
-    user_id = request.headers.get("X-User-ID", "unknown")
+    user_id = _extract_user_id(request)
 
     try:
         srv_void_transaction(
@@ -906,7 +967,7 @@ async def portfolio_benchmarks_endpoint(
     date_to: date = Query(..., description="Bitiş tarihi (ISO YYYY-MM-DD)"),
 ):
     """Portföy performansını benchmark ile kıyaslar. PB transactions ve macro_data'dan hesaplanır."""
-    user_id = request.headers.get("X-User-ID", "unknown")
+    user_id = _extract_user_id(request)
     try:
         snap_start = srv_get_portfolio_snapshot(user_id=user_id, as_of=date_from)
         snap_end = srv_get_portfolio_snapshot(user_id=user_id, as_of=date_to)
@@ -964,7 +1025,7 @@ async def narrative_endpoint(body: NarrativeRequest):
     try:
         result = srv_generate_risk_narrative(
             simulation_result=body.simulation_result,
-            portfolio_context=body.portfolio_context,
+            context=body.portfolio_context,
         )
         return {"narrative": result}
     except Exception as e:

@@ -1,22 +1,20 @@
 """
 FutureWallet – Karar Günlüğü Servisi (Decision Journal) – PocketBase
 =======================================================================
-
 Yatırımcının alınan stratejik kararlarını kaydeder, duygu durumlarını
 tag'ler, hedef fiyat/vade gerçekleşme kontrolü yapar ve AI post-mortem
 mantığına alan açar.
 
-PocketBase `decisions` koleksiyonu üzerinde çalışır.
-db.py (SQLAlchemy) → pocketbase.py geçişi ile senkronize.
-
-MVP §3.2, TODO 2.2, Prompt 7 (AI retrospektif), Prompt 13 (karar günlüğü
-eksiklikleri – decision_date, target_hit, outcome alanları PB şemasında).
+PocketBase `decisions` koleksiyonu üzerinde çalışır (services.pb üzerinden).
+MVP §3.2, Prompt 3, 5, 7, 13 ile tam uyumlu.
 """
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from datetime import date, timedelta
+from typing import Any
 
 import config
 from services.ai_service import (
@@ -24,43 +22,16 @@ from services.ai_service import (
     AIUnavailableError,
     generate_decision_retrospective,
 )
-from services.multi_asset_manager import AssetManager
-from services.pocketbase import get_client
-
-# ---------------------------------------------------------------------------
-# Sabitler – duygu durum tag'leri (MVP §3.2)
-# ---------------------------------------------------------------------------
-
-SENTIMENT_ALLOWED = frozenset(
-    {
-        "FOMO",  # FOMO — Fersizlik
-        "STRATEGIC",  # Stratejik Analiz
-        "PANIC",  # Panik Satışı
-        "DIVIDEND",  # Temettü/Gelir
-        "RISK_REDUCTION",  # Risk Azaltma
-        "OPPORTUNITY",  # Fırsat
-    }
+from services.enums import (
+    ACTION_ALLOWED,
+    SENTIMENT_ALLOWED,
+    SENTIMENT_LABELS,
+    STATUS_ALLOWED,
 )
+from services.multi_asset_manager import AssetManager
+from services.pb import get_client
 
-SENTIMENT_LABELS = {
-    "FOMO": "FOMO (Fersizlik)",
-    "STRATEGIC": "Stratejik Analiz",
-    "PANIC": "Panik Satışı",
-    "DIVIDEND": "Temettü/Gelir",
-    "RISK_REDUCTION": "Risk Azaltma",
-}
-
-ACTION_ALLOWED = frozenset({"BUY", "SELL", "HOLD"})
-
-# PB decisions şemasında: OPEN, EXPIRED, REVIEWED, CLOSED
-STATUS_ALLOWED = frozenset({"OPEN", "EXPIRED", "REVIEWED", "CLOSED"})
-
-PB_DATETIME_FORMAT = "%Y-%m-%dT%H:%M:%S%z"  # PB DateTime fields formatı
-
-
-# ---------------------------------------------------------------------------
-# Helper – PB record tarih alanlarını datetime.date'a çevir
-# ---------------------------------------------------------------------------
+logger = logging.getLogger(__name__)
 
 
 def _parse_pb_date(value: str | None) -> date | None:
@@ -68,10 +39,9 @@ def _parse_pb_date(value: str | None) -> date | None:
     if not value:
         return None
     try:
-        # PB timestamp: "2024-01-15T00:00:00Z" veya "2024-01-15"
-        if "T" in value:
-            return date.fromisoformat(value.split("T")[0])
-        return date.fromisoformat(value)
+        if "T" in str(value):
+            return date.fromisoformat(str(value).split("T")[0])
+        return date.fromisoformat(str(value))
     except (ValueError, TypeError):
         return None
 
@@ -92,23 +62,7 @@ def create_decision(
     decision_date: date | None = None,
     transaction_id: str | None = None,
 ) -> dict:
-    """Yeni bir karar kaydı oluşturur (Prompt 13: decision_date eklendi).
-
-    Args:
-        user_id:      PB auth kullanıcı ID'si.
-        asset_symbol: Varlık sembolü (BTC, THYAO, GC=F, …).
-        action:       İşlem tipi — BUY, SELL, HOLD.
-        rationale:    Karar gerekçesi (opsiyonel, max 5000).
-        sentiment:    Duygu durum tag'i (None → yok). Allowed: SENTIMENT_ALLOWED.
-        target_price: Hedef fiyat (opsiyonel, >0).
-        target_date:  Hedef tarih (opsiyonel).
-        decision_date:Karar tarihi (opsiyonel; gelecekte olamaz, yoksa today).
-        transaction_id: İlgili transaction ID (opsiyonel).
-
-    Returns:
-        Decision dict (decision_to_dict formatında).
-    """
-    # decision_date: gelecek tarih reddedilir
+    """Yeni bir karar kaydı oluşturur."""
     if decision_date is not None and decision_date > date.today():
         raise ValueError("decision_date gelecekte olamaz")
 
@@ -125,7 +79,7 @@ def create_decision(
     client = get_client()
     decisions = client.collection("decisions")
 
-    data = {
+    data: dict[str, Any] = {
         "user": user_id,
         "asset_symbol": asset_symbol.upper(),
         "action": action_upper,
@@ -135,52 +89,11 @@ def create_decision(
         "target_date": target_date.isoformat() if target_date else None,
         "decision_date": decision_date.isoformat() if decision_date else None,
         "status": "OPEN",
-        "transaction_id": transaction_id,
     }
+    if transaction_id:
+        data["transaction"] = transaction_id
 
-    record = decisions.create(data)  # PB otomatik ID atar
-    return decision_to_dict(record)
-    """Yeni bir karar kaydı oluşturur (Prompt 13: decision_date eklendi).
-
-    Args:
-        user_id: PB auth kullanıcı ID'si (API token → PB auth'dan).
-        asset_symbol: Varlık sembolü (BTC, THYAO, GC=F, …).
-        action: İşlem tipi — BUY, SELL, HOLD.
-        rationale: Karar gerekçesi (opsiyonel, max 5000).
-        sentiment: Duygu durum tag'i (None → yok). Allowed: SENTIMENT_ALLOWED.
-        target_price: Hedef fiyat (opsiyonel, >0).
-        target_date: Hedef tarih (opsiyonel).
-        transaction_id: İlgili transaction ID (opsiyonel).
-
-    Returns:
-        Decision dict (decision_to_dict formatında).
-    """
-    action_upper = action.upper()
-    if action_upper not in ACTION_ALLOWED:
-        raise ValueError(f"action: {action!r} — allowed: {ACTION_ALLOWED}")
-
-    sentiment_upper: str | None = None
-    if sentiment is not None:
-        sentiment_upper = sentiment.upper()
-        if sentiment_upper not in SENTIMENT_ALLOWED:
-            raise ValueError(f"sentiment: {sentiment!r} — allowed: {SENTIMENT_ALLOWED}")
-
-    client = get_client()
-    decisions = client.collection("decisions")
-
-    data = {
-        "user": user_id,
-        "asset_symbol": asset_symbol.upper(),
-        "action": action_upper,
-        "rationale": rationale,
-        "sentiment": sentiment_upper,
-        "target_price": target_price,
-        "target_date": target_date.isoformat() if target_date else None,
-        "status": "OPEN",
-        "transaction_id": transaction_id,
-    }
-
-    record = decisions.create(data)  # PB otomatik ID atar
+    record = decisions.create(data)
     return decision_to_dict(record)
 
 
@@ -192,11 +105,11 @@ def create_decision(
 def get_decision(decision_id: str) -> dict | None:
     """ID ile tek karar. Yoksa None."""
     client = get_client()
-    decisions = client.collection("decisions")
-    records = decisions.get_list(params=f"filter=id='{decision_id}'&per_page=1")
-    if records:
-        return decision_to_dict(records[0])
-    return None
+    try:
+        record = client.collection("decisions").get_one(decision_id)
+        return decision_to_dict(record)
+    except Exception:
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -213,36 +126,51 @@ def list_decisions(
     target_date_to: date | None = None,
     limit: int | None = None,
     order_by_date_desc: bool = True,
+    user_id: str | None = None,
 ) -> list[dict]:
-    """Filtrelenmiş karar listesi.
-
-    PB filter syntax: filter=field='value' AND field2='value2'
-    PB sort syntax:    sort=field DIRECTION
-    """
+    """Filtrelenmiş karar listesi."""
     client = get_client()
     decisions = client.collection("decisions")
 
-    filters: list[str] = []
+    filter_parts: list[str] = []
+    filter_params: dict[str, Any] = {}
+    if user_id:
+        filter_parts.append("user = {:user_id}")
+        filter_params["user_id"] = user_id
     if status is not None:
-        filters.append(f"status='{status.upper()}'")
+        filter_parts.append("status = {:status}")
+        filter_params["status"] = status.upper()
     if sentiment is not None:
-        filters.append(f"sentiment='{sentiment.upper()}'")
+        filter_parts.append("sentiment = {:sentiment}")
+        filter_params["sentiment"] = sentiment.upper()
     if asset_symbol is not None:
-        filters.append(f"asset_symbol='{asset_symbol.upper()}'")
+        filter_parts.append("asset_symbol = {:asset_symbol}")
+        filter_params["asset_symbol"] = asset_symbol.upper()
     if action is not None:
-        filters.append(f"action='{action.upper()}'")
+        filter_parts.append("action = {:action}")
+        filter_params["action"] = action.upper()
     if target_date_from is not None:
-        filters.append(f"target_date>='{target_date_from.isoformat()}'")
+        filter_parts.append("target_date >= {:target_date_from}")
+        filter_params["target_date_from"] = target_date_from.isoformat()
     if target_date_to is not None:
-        filters.append(f"target_date<='{target_date_to.isoformat()}'")
+        filter_parts.append("target_date <= {:target_date_to}")
+        filter_params["target_date_to"] = target_date_to.isoformat()
 
-    filter_str = " AND ".join(filters) if filters else ""
-    sort = "date DESC" if order_by_date_desc else "date ASC"
-    params = f"filter={filter_str}&sort={sort}"
-    if limit is not None:
-        params += f"&per_page={limit}"
+    query_params: dict[str, Any] = {}
+    if filter_parts:
+        query_params["filter"] = client.filter(" && ".join(filter_parts), filter_params)
 
-    records = decisions.get_list(params=params)
+    sort = "-created" if order_by_date_desc else "+created"
+    query_params["sort"] = sort
+
+    if limit is not None and limit <= 500:
+        res = decisions.get_list(page=1, per_page=limit, query_params=query_params)
+        records = res.items
+    else:
+        records = decisions.get_full_list(batch=200, query_params=query_params)
+        if limit is not None:
+            records = records[:limit]
+
     return [decision_to_dict(r) for r in records]
 
 
@@ -259,38 +187,33 @@ def update_decision(
     target_date: date | None = None,
     status: str | None = None,
 ) -> dict | None:
-    """Karar alanlarını günceller. None → o alan değiştirilmez.
-
-    Returns:
-        Güncellenmiş decision dict. Yoksa None.
-    """
+    """Karar alanlarını günceller."""
     client = get_client()
     decisions = client.collection("decisions")
 
-    try:
-        record = decisions.retrieve(decision_id)
-    except Exception:
-        return None
-
+    body: dict[str, Any] = {}
     if rationale is not None:
-        record["rationale"] = rationale
+        body["rationale"] = rationale
     if sentiment is not None:
         sentiment_upper = sentiment.upper()
         if sentiment_upper not in SENTIMENT_ALLOWED:
             raise ValueError(f"sentiment: {sentiment!r} — allowed: {SENTIMENT_ALLOWED}")
-        record["sentiment"] = sentiment_upper
+        body["sentiment"] = sentiment_upper
     if target_price is not None:
-        record["target_price"] = target_price
+        body["target_price"] = target_price
     if target_date is not None:
-        record["target_date"] = target_date.isoformat() if target_date else None
+        body["target_date"] = target_date.isoformat() if target_date else None
     if status is not None:
         status_upper = status.upper()
         if status_upper not in STATUS_ALLOWED:
             raise ValueError(f"status: {status!r} — allowed: {STATUS_ALLOWED}")
-        record["status"] = status_upper
+        body["status"] = status_upper
 
-    decisions.update(record)
-    return decision_to_dict(record)
+    try:
+        updated = decisions.update(decision_id, body)
+        return decision_to_dict(updated)
+    except Exception:
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -299,7 +222,7 @@ def update_decision(
 
 
 def close_decision(decision_id: str) -> dict | None:
-    """Kararı REVIEWED durumuna taşır (kullanıcı taraflı gözden geçirme)."""
+    """Kararı REVIEWED durumuna taşır."""
     return update_decision(decision_id, status="REVIEWED")
 
 
@@ -309,16 +232,12 @@ def close_decision(decision_id: str) -> dict | None:
 
 
 def decision_to_dict(record) -> dict:
-    """PB decisions record veya dict → flat dict (API response / serializasyon).
-
-    idempotent: dict girişte değerni doğrudan döner; PB Record girişte convert eder.
-    """
-    # dict zaten convert edilmiş → direkt return
+    """PB decisions record veya dict → flat dict."""
     if isinstance(record, dict):
         return record
     return {
-        "id": record.id,
-        "date": _parse_pb_date(getattr(record, "date", None)),
+        "id": getattr(record, "id", ""),
+        "date": _parse_pb_date(getattr(record, "created", None)),
         "asset_symbol": getattr(record, "asset_symbol", ""),
         "action": getattr(record, "action", ""),
         "rationale": getattr(record, "rationale", None),
@@ -327,7 +246,7 @@ def decision_to_dict(record) -> dict:
         "target_date": _parse_pb_date(getattr(record, "target_date", None)),
         "status": getattr(record, "status", "OPEN"),
         "ai_retrospective": getattr(record, "ai_retrospective", None),
-        "transaction_id": getattr(record, "transaction_id", None),
+        "transaction_id": getattr(record, "transaction", None),
         "user": getattr(record, "user", None),
         "decision_date": _parse_pb_date(getattr(record, "decision_date", None)),
         "outcome_return_pct": getattr(record, "outcome_return_pct", None),
@@ -341,11 +260,14 @@ def decision_to_dict(record) -> dict:
 # ---------------------------------------------------------------------------
 
 
-def get_sentiment_summary() -> dict[str, int]:
-    """Her sentiment tag'ına göre karar sayıları (in-memory aggregation)."""
+def get_sentiment_summary(user_id: str | None = None) -> dict[str, int]:
+    """Her sentiment tag'ına göre karar sayıları."""
     client = get_client()
     decisions = client.collection("decisions")
-    records = decisions.get_list(params="per_page=1000")
+    query_params: dict[str, Any] = {}
+    if user_id:
+        query_params["filter"] = client.filter("user = {:user_id}", {"user_id": user_id})
+    records = decisions.get_full_list(query_params=query_params)
     out = {s: 0 for s in SENTIMENT_ALLOWED}
     for rec in records:
         s = getattr(rec, "sentiment", None)
@@ -359,11 +281,14 @@ def get_sentiment_summary() -> dict[str, int]:
 # ---------------------------------------------------------------------------
 
 
-def get_status_summary() -> dict[str, int]:
+def get_status_summary(user_id: str | None = None) -> dict[str, int]:
     """OPEN / EXPIRED / REVIEWED / CLOSED sayımları."""
     client = get_client()
     decisions = client.collection("decisions")
-    records = decisions.get_list(params="per_page=1000")
+    query_params: dict[str, Any] = {}
+    if user_id:
+        query_params["filter"] = client.filter("user = {:user_id}", {"user_id": user_id})
+    records = decisions.get_full_list(query_params=query_params)
     out = {s: 0 for s in STATUS_ALLOWED}
     for rec in records:
         s = getattr(rec, "status", None)
@@ -378,14 +303,12 @@ def get_status_summary() -> dict[str, int]:
 
 
 def delete_decision(decision_id: str) -> bool:
-    """Bir kararı sil (Prompt 13)."""
+    """Bir kararı siler (Prompt 13)."""
     client = get_client()
-    decisions = client.collection("decisions")
     try:
-        record = decisions.get_list(params=f"filter=id='{decision_id}'&per_page=1")[0]
-        decisions.delete(record)
+        client.collection("decisions").delete(decision_id)
         return True
-    except (IndexError, Exception):
+    except Exception:
         return False
 
 
@@ -398,22 +321,7 @@ def check_decision_target(
     decision_id: str,
     price_fn: Callable[[str], float | None] | None = None,
 ) -> dict:
-    """Bir kararın hedef fiyat / vade gerçekleşme durumunu kontrol eder.
-
-    BUY → hedef fiyatın üzerindeyse "hit"
-    SELL → hedef fiyatın altındaysa "hit"
-
-    Args:
-        decision_id: Karar ID.
-        price_fn: (asset_symbol) → güncel fiyat. None → AssetManager default.
-
-    Returns:
-        {
-            "decision_id", "asset_symbol", "action", "target_price",
-            "target_date", "current_price", "target_hit",
-            "target_date_passed", "status_suggestion",
-        }
-    """
+    """Bir kararın hedef fiyat / vade gerçekleşme durumunu kontrol eder."""
     decision = get_decision(decision_id)
     if decision is None:
         return {"error": "decision not found"}
@@ -438,7 +346,7 @@ def check_decision_target(
     if decision["status"] == "REVIEWED":
         status_suggestion = "REVIEWED"
     elif target_date_passed:
-        status_suggestion = "REVIEWED"  # vade geçmiş → review önerilir
+        status_suggestion = "REVIEWED"
     else:
         status_suggestion = "OPEN"
 
@@ -455,11 +363,6 @@ def check_decision_target(
     }
 
 
-# ---------------------------------------------------------------------------
-# 10. get_decisions_due_for_review
-# ---------------------------------------------------------------------------
-
-
 def get_decisions_due_for_review() -> list[dict]:
     """Hedef tarihi geçmiş ama henüz REVIEWED edilmemiş kararlar."""
     due: list[dict] = []
@@ -470,21 +373,8 @@ def get_decisions_due_for_review() -> list[dict]:
     return due
 
 
-# ---------------------------------------------------------------------------
-# 11. auto_close_expired_decisions
-# ---------------------------------------------------------------------------
-
-
 def auto_close_expired_decisions(days_before: int = 0) -> list[dict]:
-    """Hedef tarihleri dolmuş ama REVIEWED yapılmamış kararları EXPIRED yapar.
-
-    Args:
-        days_before: Hedef tarih bu kadar gün önce geçtiyse kapat.
-                     0 → bugün geçmiş hedef tarihler.
-
-    Returns:
-        Kapatılan (artık EXPIRED) decision listesi.
-    """
+    """Hedef tarihleri dolmuş ama REVIEWED yapılmamış kararları EXPIRED yapar."""
     cutoff = date.today() - timedelta(days=days_before)
     closed: list[dict] = []
     for d in list_decisions(status="OPEN"):
@@ -495,38 +385,12 @@ def auto_close_expired_decisions(days_before: int = 0) -> list[dict]:
     return closed
 
 
-# ---------------------------------------------------------------------------
-# 12. generate_ai_retrospective (Prompt 7 – düzeltme: hata yutma + DB değişmez)
-# ---------------------------------------------------------------------------
-
-
 def generate_ai_retrospective(
     decision_id: str,
     price_fn: Callable[[str], float | None] | None = None,
     market_context: str | None = None,
 ) -> dict:
-    """Bir karar için AI post-mortem (retrospektif) üretir.
-
-    Prompt 7 düzeltmeleri:
-      - AIUnavailableError → 503 (anahtar yok)
-      - AIGenerationError → 502 (sağlayıcı hatası)
-      - Hata durumunda ai_retrospective DEĞİŞMEZ, status DEĞİŞMEZ.
-      - google-genai SDK'sı + config.GEMINI_MODEL kullanılır.
-      - prompt injection koruması <kullanici_notu> (ai_service içinde).
-
-    Args:
-        decision_id: Karar ID.
-        price_fn: (asset_symbol) → güncel fiyat. None → AssetManager default.
-        market_context: İsteğe bağlı piyasa bağlamı metni.
-
-    Returns:
-        {
-            "decision_id":     str,
-            "retrospective":   str | None,
-            "status":          str,       # REVIEWED sadece AI başarılıysa
-            "api_available":   bool,
-        }
-    """
+    """Bir karar için AI post-mortem (retrospektif) üretir."""
     decision = get_decision(decision_id)
     if decision is None:
         return {"error": "decision not found", "api_available": False}
@@ -536,8 +400,6 @@ def generate_ai_retrospective(
         price_fn = lambda sym: mgr.get_price(sym, _guess_asset_type(sym))
 
     current_price = price_fn(decision["asset_symbol"]) if decision["asset_symbol"] else None
-
-    # market_data: decision tarihi ve vade tarihi fiyatlarını Prompt 7'a besle
     market_data = {"price_on_decision": current_price} if current_price else None
 
     api_available = bool(config.GOOGLE_API_KEY)
@@ -552,11 +414,12 @@ def generate_ai_retrospective(
                 model=config.GEMINI_MODEL,
             )
 
-            # Başarılı → AI retrospective'yi kaydet + status REVIEWED
-            decision["ai_retrospective"] = retrospective
+            # Başarılı → DB güncelle
             client = get_client()
-            decisions = client.collection("decisions")
-            decisions.update(decision)
+            client.collection("decisions").update(
+                decision_id,
+                {"ai_retrospective": retrospective, "status": "REVIEWED"},
+            )
 
             return {
                 "decision_id": decision_id,
@@ -566,108 +429,30 @@ def generate_ai_retrospective(
             }
 
         except AIUnavailableError:
-            # API anahtarı yok / yapılandırılmamış → 503
             return {
                 "error": "AI servisi kullanılabilir değil (API anahtarı eksik)",
                 "api_available": False,
                 "retrospective": None,
-                "status": decision["status"],  # değişmez
+                "status": decision["status"],
             }
-
         except AIGenerationError as exc:
-            # Sağlayıcı hatası → 502
             return {
                 "error": f"AI yanıt oluşturulamadı: {exc}",
                 "api_available": True,
                 "retrospective": None,
-                "status": decision["status"],  # değişmez
+                "status": decision["status"],
             }
 
     return {
         "decision_id": decision_id,
         "retrospective": None,
-        "status": decision["status"],  # değişmez
+        "status": decision["status"],
         "api_available": False,
     }
 
 
-# ---------------------------------------------------------------------------
-# Yardımcı: retrospective prompt'ı  (Prompt 7 – eskisi kaldırıldı)
-# ---------------------------------------------------------------------------
-
-
-def _build_retrospective_prompt(
-    decision: dict,
-    current_price: float | None,
-    market_context: str | None,
-) -> str:
-    """AI post-mortem için KULLANICI BAŞLIĞI prompt (Prompt 7).
-
-    Kullanıcı notu <kullanici_notu> içinde geçecek; gerçek prompt
-    ai_service._build_retrospective_prompt tarafında oluşturulur.
-    Bu fonksiyon yalnızca kararın temel context'ini hazırlar.
-    """
-    target_hit_str = "Bilinmiyor"
-    if decision.get("target_price") is not None and current_price is not None:
-        if decision["action"] == "BUY":
-            hit = current_price >= decision["target_price"]
-            target_hit_str = "ÜSTİNDE" if hit else "ALTINDA"
-        elif decision["action"] == "SELL":
-            hit = current_price <= decision["target_price"]
-            target_hit_str = "ALTINDA" if hit else "ÜSTÜNDE"
-
-    parts = [
-        "YATIRIM KARARI RETROSPEKTİF DEĞERLENDİRME",
-        "",
-        f"Karar Tarihi:     {decision['date']}",
-        f"Varlık:           {decision['asset_symbol']}",
-        f"İşlem:            {decision['action']}",
-        f"Gerekçe:          {decision['rationale'] or '(gerekçe kaydedilmedi)'}",
-        f"Duygu Durumu:     {SENTIMENT_LABELS.get(decision['sentiment'], decision['sentiment'] or 'Bilinmiyor')}",
-        f"Hedef Fiyat:      {decision['target_price'] or 'Belirtilmemiş'}",
-        f"Hedef Tarih:      {decision['target_date']}",
-        f"Sonuç:            {decision['status']}",
-        "",
-    ]
-
-    if current_price is not None:
-        parts.append(f"Güncel Fiyat:    {current_price:,.2f}")
-        parts.append(f"Hedefe Göre:     {target_hit_str}")
-        parts.append("")
-
-    if decision["target_date"] is not None:
-        passed = decision["target_date"] < date.today()
-        parts.append(f"Vade Geçmiş:     {'EVET' if passed else 'HAYIR'}")
-        if passed:
-            parts.append(
-                f"Vade'den:        {(date.today() - decision['target_date']).days} gün geçmiş"
-            )
-        parts.append("")
-
-    if market_context:
-        parts.append(f"Piyasa Bağlamı:  {market_context}")
-        parts.append("")
-
-    parts.append(
-        "GÖREV: Bu kararı gerekçe, duygu durumu, hedef gerçekleşme ve "
-        "piyasa gelişmeleri ışığında objektif olarak değerlendir. "
-        "Eğitim amaçlı olmalı (kesin tavsiye verme). "
-        "Kısa, net, mercyili bir değerlendirme yaz."
-    )
-
-    return "\n".join(parts)
-
-
-# ---------------------------------------------------------------------------
-# Helper: asset türünü tahmin et
-# ---------------------------------------------------------------------------
-
-
 def _guess_asset_type(symbol: str) -> str:
-    """Price fetch için asset türü tahmini.
-
-    Tek tanım (Prompt 15: _guess_asset_type kopyaları tek yerde).
-    """
+    """Price fetch için asset türü tahmini."""
     cash = frozenset({"USDT", "USD", "TRY", "TL", "EUR", "GBP"})
     gold = frozenset({"GC=F", "XAU", "GOLD"})
     up = symbol.upper()

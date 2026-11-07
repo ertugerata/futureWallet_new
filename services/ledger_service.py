@@ -1,62 +1,54 @@
 """
-FutureWallet – Ledger Servisi (PocketBase)
-===========================================
-Event-sourced işlem defteri ve portföy snapshot motoru.
-PB `transactions` koleksiyonu üzerinde çalışır.
-db.py (SQLAlchemy) → pocketbase.py geçişi ile senkronize.
+FutureWallet – Event-Sourcing İşlem ve Snapshot Motoru (PocketBase)
+====================================================================
+Kullanıcının tüm alım, satım, temettü ve nakit akışı işlemlerini PocketBase
+`transactions` koleksiyonunda saklar ve tarihsel portföy snapshot'larını
+hesaplar.
 
-MVP §3.1, TODO 1.3, Prompt 4 (snapshot date), Prompt 8 (ledger düzeltmeleri),
-Prompt 9 (time-travel fiyat düzeltmesi).
+Prompt 5, 7, 9 ile uyumlu hale getirilmiştir.
 """
 
 from __future__ import annotations
 
+import logging
+import threading
+from collections import defaultdict
 from collections.abc import Callable
-from datetime import date, timedelta
-from typing import Optional
+from datetime import date, datetime, timedelta
+from typing import Any
 
+from services.enums import TransactionType
 from services.multi_asset_manager import AssetManager
-from services.pocketbase import get_client
+from services.pb import get_client
+
+logger = logging.getLogger(__name__)
+
+# Kullanıcı bazlı concurrency kilidi
+_user_locks: dict[str, threading.Lock] = defaultdict(threading.Lock)
+
+
+class InsufficientBalanceError(Exception):
+    """Yetersiz bakiye veya stok hatası (HTTP 409 Conflict)."""
+
 
 # ---------------------------------------------------------------------------
 # Tip tanımları
 # ---------------------------------------------------------------------------
 
-AssetHolding = dict  # {'asset_symbol': str, 'quantity': float, 'type': str,
-#  'average_cost': float, 'total_cost': float, 'value': float}
-
-PortfolioSnapshot = (
-    dict  # {'holdings': List[AssetHolding], 'total_value': float, 'as_of_date': str}
-)
-
-TimeTravelResult = dict  # {'holdings': List[AssetHolding], 'value_at_start': float,
-#  'value_at_target': float, 'pnl': float, 'pnl_pct': float}
+AssetHolding = dict  # {'asset_symbol': str, 'quantity': float, 'type': str, 'average_cost': float}
+PortfolioSnapshot = dict  # {'as_of': str, 'holdings': List[Dict], 'total_value': float, 'total_cost': float, 'pnl': float, 'pnl_pct': float}
+TimeTravelResult = dict  # {'t_start': str, 't_target': str, 'holdings': List[Dict], 'value_at_start': float, 'value_at_target': float, 'pnl': float, 'pnl_pct': float}
 
 
-# ---------------------------------------------------------------------------
-# Yardımcı: PB timestamp string → date
-# ---------------------------------------------------------------------------
-
-
-def _parse_pb_date(value: str | None) -> date | None:
-    """PB DateTime string → datetime.date."""
-    if not value:
-        return None
-    try:
-        if "T" in value:
-            return date.fromisoformat(value.split("T")[0])
-        return date.fromisoformat(value)
-    except (ValueError, TypeError):
-        return None
-
-
-# ---------------------------------------------------------------------------
-# Yardımcı: asset türü tahmini (tek tanım – Prompt 15)
-# ---------------------------------------------------------------------------
+def _tx_get(tx: Any, key: str, default: Any = None) -> Any:
+    """PB Record veya dict nesnesinden alan okur."""
+    if isinstance(tx, dict):
+        return tx.get(key, default)
+    return getattr(tx, key, default)
 
 
 def _guess_asset_type(symbol: str) -> str:
-    """Price fetch için asset türü tahmini."""
+    """Sembol adına göre varlık türü tahmini."""
     cash = frozenset({"USDT", "USD", "TRY", "TL", "EUR", "GBP"})
     gold = frozenset({"GC=F", "XAU", "GOLD"})
     up = symbol.upper()
@@ -73,32 +65,21 @@ def _guess_asset_type(symbol: str) -> str:
     return "crypto"
 
 
-# ---------------------------------------------------------------------------
-# Yardımcı: Transaction listesinden net pozisyonları hesapla
-# ---------------------------------------------------------------------------
-
-
 def _build_holdings_from_transactions(
-    transactions: list[dict],
+    transactions: list[Any],
 ) -> dict[str, AssetHolding]:
-    """PB transactions kayıtları → net pozisyonlar.
-
-    - BUY: quantity × price + fee → average_cost Güncelleme
-    - SELL: quantity azaltılır (stok sıfırını aşamaz, aksi takdirde clipped)
-    - DIVIDEND: quantity artar (cash received)
-    - voided işlemler hariç tutulur.
-    """
+    """PB transactions kayıtları → net pozisyonlar."""
     holdings: dict[str, AssetHolding] = {}
 
     for tx in transactions:
-        if tx.get("voided", False):
+        if _tx_get(tx, "voided", False):
             continue
 
-        sym = tx.get("asset_symbol", "").upper()
-        tx_type = tx.get("type", "BUY").upper()
-        quantity = float(tx.get("quantity", 0))
-        price = float(tx.get("price", 0))
-        fee = float(tx.get("fee", 0))
+        sym = str(_tx_get(tx, "asset_symbol", "")).upper()
+        tx_type = str(_tx_get(tx, "type", "BUY")).upper()
+        quantity = float(_tx_get(tx, "quantity", 0) or 0)
+        price = float(_tx_get(tx, "price", 0) or 0)
+        fee = float(_tx_get(tx, "fee", 0) or 0)
 
         if tx_type == "BUY":
             if sym not in holdings:
@@ -110,8 +91,8 @@ def _build_holdings_from_transactions(
                     "total_cost": 0.0,
                 }
             h = holdings[sym]
-            total_cost = quantity * price + fee
-            h["total_cost"] += total_cost
+            cost_basis = quantity * price + fee
+            h["total_cost"] += cost_basis
             h["quantity"] += quantity
             if h["quantity"] > 0:
                 h["average_cost"] = h["total_cost"] / h["quantity"]
@@ -124,48 +105,52 @@ def _build_holdings_from_transactions(
                 )
 
         elif tx_type == "DIVIDEND":
+            # Temettü: nakit akışı veya gelir
             if sym not in holdings:
                 holdings[sym] = {
                     "asset_symbol": sym,
                     "quantity": 0.0,
                     "type": "cash",
                     "total_cost": 0.0,
+                    "average_cost": 0.0,
                 }
             holdings[sym]["quantity"] += quantity
-
-        # CASH_IN / CASH_OUT → portfolio tutarını etkiler ama holding yapısı ayrı
 
     return holdings
 
 
-# ---------------------------------------------------------------------------
-# Yardımcı: belirtilen tarihteki holdings'leri PB transactions'dan hesapla
-# ---------------------------------------------------------------------------
-
-
 def _get_holdings_at_date(user_id: str, as_of: date) -> dict[str, AssetHolding]:
-    """Belirtilen tarihteki holdings'leri PB transactions collection'undan hesapla.
-
-    as_of + 1 gün (00:00) → o günün işlemleri dahil (Prompt 8 düzeltmesi).
-    """
+    """Belirtilen tarihteki holdings'leri PB transactions collection'undan hesapla."""
     as_of_end = as_of + timedelta(days=1)
+    as_of_str = as_of_end.isoformat() + " 00:00:00.000Z"
 
     client = get_client()
+    transactions = client.collection("transactions")
+    filter_expr = f'user = "{user_id}" && timestamp <= "{as_of_str}" && voided = false'
+
     try:
-        transactions = client.collection("transactions")
-        records = transactions.get_list(
-            params=(
-                f"filter=user='{user_id}' AND timestamp<='{as_of_end.isoformat()}'&per_page=1000"
-            )
-        )
-    except Exception:
-        records = []
+        records = transactions.get_full_list(query_params={"filter": filter_expr})
+    except Exception as exc:
+        logger.warning("Transactions okunurken hata (filtre: %s): %s", filter_expr, exc)
+        # Eğer datetime formatı uyuşmazsa yedek sorgu
+        records = transactions.get_full_list(query_params={"filter": f'user = "{user_id}" && voided = false'})
+        # Python tarafında tarih filtresi uygula
+        filtered = []
+        for r in records:
+            ts_str = str(getattr(r, "timestamp", ""))
+            try:
+                ts_date = date.fromisoformat(ts_str.split("T")[0].split(" ")[0])
+                if ts_date <= as_of:
+                    filtered.append(r)
+            except Exception:
+                pass
+        records = filtered
 
     return _build_holdings_from_transactions(records)
 
 
 # ---------------------------------------------------------------------------
-# 1. get_portfolio_snapshot (Prompt 4, 8)
+# 1. get_portfolio_snapshot
 # ---------------------------------------------------------------------------
 
 
@@ -174,16 +159,7 @@ def get_portfolio_snapshot(
     as_of: date | None = None,
     price_fn: Callable[[str, str], float | None] | None = None,
 ) -> PortfolioSnapshot:
-    """Kullanıcının portföy snapshot'ı.
-
-    as_of: snapshot tarihi. None → bugün.
-    price_fn: (symbol, asset_type) → Optional[float]. None → AssetManager default.
-
-    Snapshot mantığı:
-      - timestamp < as_of + 1 gün → o günün işlemleri dahil (Prompt 8).
-      - voided işlemler hariç.
-      - DIVIDEND → cash_received olarak görünür ( holdings['quantity'] ).
-    """
+    """Kullanıcının portföy snapshot'ı."""
     if as_of is None:
         as_of = date.today()
 
@@ -195,45 +171,50 @@ def get_portfolio_snapshot(
 
     total_value = 0.0
     total_cost = 0.0
-    for sym, h in holdings.items():
-        atype = h.get("type", _guess_asset_type(sym))
-        p = price_fn(sym, atype)
-        if p is not None:
-            h["value"] = h["quantity"] * p
-            total_value += h["value"]
-            # Unrealized P/L hesapla
-            if h.get("average_cost", 0) > 0 and h["quantity"] > 0:
-                h["unrealized_pnl"] = (p - h["average_cost"]) * h["quantity"]
-                h["unrealized_pnl_pct"] = ((p - h["average_cost"]) / h["average_cost"]) * 100
-            else:
-                h["unrealized_pnl"] = 0.0
-                h["unrealized_pnl_pct"] = 0.0
-        else:
-            h["value"] = 0.0
-            h["unrealized_pnl"] = 0.0
-            h["unrealized_pnl_pct"] = 0.0
-        h.setdefault("average_cost", 0.0)
-        h.setdefault("total_cost", 0.0)
-        total_cost += h.get("total_cost", 0.0)
+    holdings_list = []
 
-    # Toplam average cost
-    total_avg_cost = total_cost / total_value if total_value > 0 else 0.0
+    for sym, h in holdings.items():
+        qty = h["quantity"]
+        if qty <= 0:
+            continue
+        atype = h.get("type", _guess_asset_type(sym))
+        current_price = price_fn(sym, atype) or 0.0
+        val = qty * current_price
+        cost = h.get("total_cost", 0.0)
+        unrealized_pnl = val - cost
+        unrealized_pnl_pct = (unrealized_pnl / cost * 100.0) if cost > 0 else 0.0
+
+        total_value += val
+        total_cost += cost
+        holdings_list.append(
+            {
+                "asset_symbol": sym,
+                "quantity": qty,
+                "current_price": current_price,
+                "current_value": val,
+                "average_cost": h.get("average_cost", 0.0),
+                "total_cost": cost,
+                "unrealized_pnl": unrealized_pnl,
+                "unrealized_pnl_pct": unrealized_pnl_pct,
+                "type": atype,
+            }
+        )
+
+    pnl = total_value - total_cost
+    pnl_pct = (pnl / total_cost * 100.0) if total_cost > 0 else 0.0
 
     return {
-        "holdings": list(holdings.values()),
+        "as_of": as_of.isoformat(),
+        "holdings": holdings_list,
         "total_value": total_value,
         "total_cost": total_cost,
-        "average_cost": total_avg_cost,
-        "unrealized_pnl": total_value - total_cost,
-        "unrealized_pnl_pct": ((total_value - total_cost) / total_cost * 100)
-        if total_cost > 0
-        else 0.0,
-        "as_of_date": as_of.isoformat(),
+        "pnl": pnl,
+        "pnl_pct": pnl_pct,
     }
 
 
 # ---------------------------------------------------------------------------
-# 2. time_travel_portfolio (Prompt 9 – düzeltme: T_start ve T_target fiyat farkı)
+# 2. time_travel_portfolio
 # ---------------------------------------------------------------------------
 
 
@@ -241,81 +222,62 @@ def time_travel_portfolio(
     user_id: str,
     t_start: date,
     t_target: date,
-    price_fn: Callable[[str, str, date], Optional[float]] | None = None,
+    price_fn: Callable[[str, str, date], float | None] | None = None,
 ) -> TimeTravelResult:
-    """T_start dağılımını T_target fiyatlarıyla değerlendirir.
-
-    Sabit dağılım ("satmasaydım" mantığı):
-      - start_holdings = snapshot(t_start) miktarları
-      - value_at_start = start_holdings × fiyat(t_start)  ← GARİŞİK fiyat
-      - value_at_target = AYNI start_holdings × fiyat(t_target)  ← GARİŞİK fiyat
-      - actual_value_at_target = snapshot(t_target) (işlemler dahil)
-
-    Args:
-        user_id: Kullanıcı ID
-        t_start: Başlangıç tarihi
-        t_target: Hedef tarih
-        price_fn: (symbol, asset_type, date) -> Optional[float].
-                  None ise price_service.get_price_on kullanılır.
-
-    Returns:
-        {
-            "holdings": [...],
-            "value_at_start": float,
-            "value_at_target": float,
-            "value_at_actual": float,
-            "pnl": float,
-            "pnl_pct": float,
-            "missing_prices": [str,...],  # fiyat bulunamayan semboller
-        }
-    """
-    # price_fn yoksa price_service kullan
-    if price_fn is None:
-        from services.price_service import get_price_on
-        from services.price_service import guess_asset_type as ps_guess
-
-        def _default_price_fn(sym: str, atype: str, ref_date: date) -> Optional[float]:
-            return get_price_on(sym, atype or ps_guess(sym), ref_date)
-
-        price_fn = _default_price_fn
-
+    """T_start pozisyonlarını T_target fiyatlarıyla değerler."""
     start_holdings = _get_holdings_at_date(user_id, t_start)
 
-    missing_prices: list[str] = []
+    if price_fn is None:
+        from services.price_service import get_price_on
+        price_fn = lambda sym, atype, dt: get_price_on(sym, atype, dt)
 
-    def _value_at(holdings: dict[str, AssetHolding], ref_date: date) -> float:
-        total = 0.0
-        for sym, h in holdings.items():
-            atype = h.get("type", _guess_asset_type(sym))
-            p = price_fn(sym, atype, ref_date)
-            if p is not None:
-                total += h["quantity"] * p
-            else:
-                missing_prices.append(sym)
-        return total
+    value_at_start = 0.0
+    value_at_target = 0.0
+    result_holdings = []
 
-    value_at_start = _value_at(start_holdings, t_start)
-    value_at_target = _value_at(start_holdings, t_target)
+    for sym, h in start_holdings.items():
+        qty = h["quantity"]
+        if qty <= 0:
+            continue
+        atype = h.get("type", _guess_asset_type(sym))
+        p_start = price_fn(sym, atype, t_start) or 0.0
+        p_target = price_fn(sym, atype, t_target) or 0.0
 
-    # actual: t_target anındaki gerçek snapshot (işlemler dahil)
-    actual_holdings = _get_holdings_at_date(user_id, t_target)
-    actual_value = _value_at(actual_holdings, t_target)
+        v_start = qty * p_start
+        v_target = qty * p_target
+
+        value_at_start += v_start
+        value_at_target += v_target
+
+        result_holdings.append(
+            {
+                "asset_symbol": sym,
+                "quantity": qty,
+                "price_at_start": p_start,
+                "price_at_target": p_target,
+                "value_at_start": v_start,
+                "value_at_target": v_target,
+                "pnl": v_target - v_start,
+                "pnl_pct": ((v_target - v_start) / v_start * 100.0) if v_start > 0 else 0.0,
+            }
+        )
 
     pnl = value_at_target - value_at_start
-    pnl_pct = (pnl / value_at_start * 100) if value_at_start > 0 else 0
+    pnl_pct = (pnl / value_at_start * 100.0) if value_at_start > 0 else 0.0
 
     return {
-        "holdings": list(start_holdings.values()),
+        "t_start": t_start.isoformat(),
+        "t_target": t_target.isoformat(),
+        "holdings": result_holdings,
         "value_at_start": value_at_start,
         "value_at_target": value_at_target,
-        "actual_value_at_target": actual_value,
         "pnl": pnl,
         "pnl_pct": pnl_pct,
     }
 
 
 # ---------------------------------------------------------------------------
-# 3. add_transaction (Prompt 8 – event log kaydı)
+# 3. add_transaction (Yetersiz bakiye & Stok kilit kontrolü, Prompt 7)
 # ---------------------------------------------------------------------------
 
 
@@ -328,53 +290,60 @@ def add_transaction(
     fee: float = 0.0,
     timestamp: date | None = None,
 ) -> dict:
-    """Yeni bir işlem kaydı ekler (event log'a yaz).
-
-    Returns:
-        Yeni transaction dict.
-    """
+    """Yeni bir işlem kaydı ekler (event log). SELL işleminde stok kontrolü yapar."""
     if timestamp is None:
         timestamp = date.today()
 
     tx_type_upper = tx_type.upper()
-    if tx_type_upper not in {"BUY", "SELL", "DIVIDEND", "CASH_IN", "CASH_OUT"}:
-        raise ValueError(f"tx_type: {tx_type!r} — allowed: BUY, SELL, DIVIDEND, CASH_IN, CASH_OUT")
+    allowed = {t.value for t in TransactionType}
+    if tx_type_upper not in allowed:
+        raise ValueError(f"tx_type: {tx_type!r} — allowed: {allowed}")
 
     asset_symbol_upper = asset_symbol.upper()
 
-    client = get_client()
-    transactions = client.collection("transactions")
+    with _user_locks[user_id]:
+        if tx_type_upper == "SELL":
+            current_holdings = _get_holdings_at_date(user_id, timestamp)
+            current_qty = current_holdings.get(asset_symbol_upper, {}).get("quantity", 0.0)
+            if quantity > current_qty:
+                raise InsufficientBalanceError(
+                    f"Yetersiz stok: {asset_symbol_upper} eldeki miktar={current_qty}, satılmak istenen={quantity}"
+                )
 
-    data = {
-        "user": user_id,
-        "asset_symbol": asset_symbol_upper,
-        "type": tx_type_upper,
-        "quantity": quantity,
-        "price": price,
-        "fee": fee,
-        "timestamp": timestamp.isoformat(),
-        "voided": False,
-    }
+        client = get_client()
+        transactions = client.collection("transactions")
 
-    record = transactions.create(data)
+        # ISO format tarih
+        ts_str = f"{timestamp.isoformat()} 00:00:00.000Z"
 
-    return {
-        "id": record.id,
-        "user": user_id,
-        "asset_symbol": asset_symbol_upper,
-        "type": tx_type_upper,
-        "quantity": quantity,
-        "price": price,
-        "fee": fee,
-        "timestamp": timestamp.isoformat(),
-        "voided": False,
-    }
+        data = {
+            "user": user_id,
+            "asset_symbol": asset_symbol_upper,
+            "type": tx_type_upper,
+            "quantity": quantity,
+            "price": price,
+            "fee": fee,
+            "timestamp": ts_str,
+            "voided": False,
+        }
+
+        record = transactions.create(data)
+
+        return {
+            "id": record.id,
+            "user": user_id,
+            "asset_symbol": asset_symbol_upper,
+            "type": tx_type_upper,
+            "quantity": quantity,
+            "price": price,
+            "fee": fee,
+            "timestamp": ts_str,
+            "voided": False,
+        }
 
 
-#
-#
 # ---------------------------------------------------------------------------
-# 4. get_transactions (Prompt 8 – filtreli işlem listesi)
+# 4. get_transactions
 # ---------------------------------------------------------------------------
 
 
@@ -384,49 +353,60 @@ def get_transactions(
     tx_type: str | None = None,
     limit: int | None = None,
 ) -> list[dict]:
-    """Kullanıcının işlem listesi (filtrelenmiş).
-
-    PB transactions collection'undan okur; voided işlemler DÃ¡HIL'dÄ±r.
-    """
+    """Kullanıcının işlem listesi (filtrelenmiş)."""
     client = get_client()
     transactions = client.collection("transactions")
+
     filter_parts = [f'user = "{user_id}"']
     if asset_symbol is not None:
         filter_parts.append(f'asset_symbol = "{asset_symbol.upper()}"')
     if tx_type is not None:
         filter_parts.append(f'type = "{tx_type.upper()}"')
-    filter_str = " AND ".join(filter_parts)
-    params = f"filter={filter_str}&sort=timestamp DESC&per_page={limit if limit else 100}"
-    records = transactions.get_list(params=params)
+
+    filter_str = " && ".join(filter_parts)
+    query_params: dict[str, Any] = {"filter": filter_str, "sort": "-timestamp"}
+
+    if limit is not None:
+        records = transactions.get_list(page=1, per_page=limit, query_params=query_params).items
+    else:
+        records = transactions.get_full_list(query_params=query_params)
+
     return [
         {
             "id": r.id,
-            "user": r.user,
-            "asset_symbol": r.asset_symbol,
-            "type": r.type,
-            "quantity": r.quantity,
-            "price": r.price,
-            "fee": r.fee,
-            "timestamp": r.timestamp,
-            "voided": r.voided,
+            "user": getattr(r, "user", user_id),
+            "asset_symbol": getattr(r, "asset_symbol", ""),
+            "type": getattr(r, "type", ""),
+            "quantity": getattr(r, "quantity", 0),
+            "price": getattr(r, "price", 0),
+            "fee": getattr(r, "fee", 0),
+            "timestamp": getattr(r, "timestamp", ""),
+            "voided": getattr(r, "voided", False),
         }
         for r in records
     ]
+
+
+# ---------------------------------------------------------------------------
+# 5. void_transaction
+# ---------------------------------------------------------------------------
 
 
 def void_transaction(
     user_id: str,
     transaction_id: str,
 ) -> dict:
-    """İşlem kaydını voided yap (soft delete).
-
-    Sadece kendi kullanıcısının işlemini void edebilir.
-    """
+    """İşlem kaydını voided yap (soft delete)."""
     client = get_client()
     transactions = client.collection("transactions")
-    record = transactions.get(transaction_id)
-    if record.user != user_id:
-        raise ValueError("Yetkisiz: bu işlem pasaportunuzda değil")
-    record.voided = True
-    transactions.update(record)
+
+    try:
+        record = transactions.get_one(transaction_id)
+    except Exception:
+        raise ValueError("İşlem bulunamadı")
+
+    if getattr(record, "user", None) != user_id:
+        raise PermissionError("Yetkisiz: bu işlem size ait değil")
+
+    transactions.update(transaction_id, {"voided": True})
     return {"status": "voided", "transaction_id": transaction_id}

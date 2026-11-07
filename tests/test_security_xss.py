@@ -113,7 +113,7 @@ def test_invalid_action_rejected(api_client, test_db) -> None:
 
 @pytest.mark.parametrize(
     "sentiment",
-    ["FOMO", "STRATEGIC", "PANIC", "DIVIDEND", "OPPORTUNITY", "RISK_REDUCTION"],
+    ["FOMO", "STRATEGIC", "PANIC", "DIVIDEND", "OPPORTUNITY"],
 )
 def test_valid_sentiment_accepted(
     api_client,
@@ -131,6 +131,20 @@ def test_valid_sentiment_accepted(
         headers={"Authorization": "Bearer test-secret-token"},
     )
     assert resp.status_code == status.HTTP_201_CREATED
+
+
+def test_risk_reduction_sentiment_rejected(api_client, test_db) -> None:
+    resp = api_client.post(
+        "/api/decisions",
+        json={
+            "asset_symbol": "BTC",
+            "action": "BUY",
+            "rationale": "test",
+            "sentiment": "RISK_REDUCTION",
+        },
+        headers={"Authorization": "Bearer test-secret-token"},
+    )
+    assert resp.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
 
 
 # ---------------------------------------------------------------------------

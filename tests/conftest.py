@@ -1,80 +1,244 @@
 """
-FutureWallet pytest fixture'ları.
+FutureWallet pytest fixture'ları (Prompt 2).
 
-Her test için bağımsız bir in-memory SQLite veritabanı ve
-mock edilmiş dış servisler (yfinance, ccxt, EVDS, Gemini) sağlar.
+Gerçek PocketBase (v0.40.6) binary'si ile test altyapısı sağlar.
+SQLite / SQLAlchemy bağımlılıkları kaldırılmıştır.
 """
 
 from __future__ import annotations
 
-import os as _os
-
-# Proje kökünü sys.path'te olmak zorunda (api/app.py zaten yapıyor ama
-# pytest salt tests/ dizininden çalışırken db/service importları için gerekli).
+import hashlib
+import os
+import shutil
+import socket
+import subprocess
 import sys
+import tempfile
+import time
+import urllib.request
+import zipfile
 from collections.abc import Generator
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
-from sqlalchemy.orm import Session, sessionmaker
+from pocketbase import PocketBase
 
-_PROJECT_ROOT = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), ".."))
+# Proje kökünü sys.path'e ekle
+_PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if _PROJECT_ROOT not in sys.path:
     sys.path.insert(0, _PROJECT_ROOT)
 
+PB_VERSION = "0.40.6"
+PB_SHA256 = "0e1f609158ed945f809f8a02ae012aa0427129c66ebb63c1aee76f2c0309373f"
+PB_DOWNLOAD_URL = (
+    f"https://github.com/pocketbase/pocketbase/releases/download/"
+    f"v{PB_VERSION}/pocketbase_{PB_VERSION}_linux_amd64.zip"
+)
+
+
+def _get_free_port() -> int:
+    """Boş bir yerel TCP portu bulur."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("127.0.0.1", 0))
+        return int(s.getsockname()[1])
+
+
+def _ensure_pb_binary() -> str:
+    """PocketBase v0.40.6 binary'sini indirir, checksum doğrular ve yolunu döner."""
+    cache_dir = os.path.join(_PROJECT_ROOT, ".pb_cache")
+    os.makedirs(cache_dir, exist_ok=True)
+    bin_path = os.path.join(cache_dir, "pocketbase")
+
+    if os.path.exists(bin_path) and os.access(bin_path, os.X_OK):
+        return bin_path
+
+    zip_path = os.path.join(cache_dir, f"pocketbase_{PB_VERSION}.zip")
+    if not os.path.exists(zip_path):
+        urllib.request.urlretrieve(PB_DOWNLOAD_URL, zip_path)
+
+    # Checksum doğrula
+    sha256 = hashlib.sha256()
+    with open(zip_path, "rb") as f:
+        for chunk in iter(lambda: f.read(65536), b""):
+            sha256.update(chunk)
+    actual_hash = sha256.hexdigest()
+    if actual_hash != PB_SHA256:
+        os.remove(zip_path)
+        raise RuntimeError(
+            f"PocketBase binary checksum uyuşmazlığı! Beklenen: {PB_SHA256}, Alınan: {actual_hash}"
+        )
+
+    with zipfile.ZipFile(zip_path, "r") as z:
+        z.extract("pocketbase", cache_dir)
+
+    os.chmod(bin_path, 0o755)
+    return bin_path
+
 
 # ---------------------------------------------------------------------------
-# In-memory SQLite engine (her test fonksiyonu için sıfır oluyor)
+# Gerçek PocketBase Server Fixture (Session Scope)
 # ---------------------------------------------------------------------------
 
-TEST_DB_URL = "sqlite:///:memory:"
 
-
-def _make_test_engine() -> object:
-    engine = create_engine(
-        TEST_DB_URL,
-        connect_args={"check_same_thread": False},
-        pool_pre_ping=False,
-    )
-    # SQLite için PRAGMA'lar — gerçek bağlantıda her session başı uygulanır
-    # ama in-memory testlerde engine başlangıcında tek sefer yeterli.
-    with engine.connect() as conn:
-        conn.exec_driver_sql("PRAGMA foreign_keys = ON")
-        conn.exec_driver_sql("PRAGMA journal_mode = WAL")
-    return engine
-
-
-@pytest.fixture(scope="function")
-def test_engine() -> Generator[object, None, None]:
-    eng = _make_test_engine()
-    yield eng
-    eng.dispose()
-
-
-@pytest.fixture(scope="function")
-def test_db(test_engine) -> Generator[Session, None, None]:
-    """Bakım içi session: test başı yeni, test sonu rollback/close."""
-    from db import Base
-
-    Base.metadata.create_all(test_engine)
-    TestSession = sessionmaker(bind=test_engine)
-    session = TestSession()
+@pytest.fixture(scope="session")
+def pb_server() -> Generator[dict[str, str], None, None]:
+    """
+    Test session süresince çalışan gerçek PocketBase v0.40.6 sunucusu.
+    """
     try:
-        yield session
+        bin_path = _ensure_pb_binary()
+    except Exception as exc:
+        pytest.skip(f"PocketBase v0.40.6 temin edilemedi ({exc}). PB testleri atlandı.")
+
+    pb_dir = tempfile.mkdtemp(prefix="pb_test_server_")
+    port = _get_free_port()
+    migrations_dir = os.path.join(_PROJECT_ROOT, "pb_migrations")
+
+    admin_email = "test_admin@futurewallet.test"
+    admin_password = "Passw0rd!Passw0rd"
+
+    # Superuser oluştur
+    subprocess.run(
+        [
+            bin_path,
+            "superuser",
+            "upsert",
+            admin_email,
+            admin_password,
+            "--dir",
+            pb_dir,
+        ],
+        check=True,
+        capture_output=True,
+    )
+
+    # Sunucuyu başlat
+    cmd = [
+        bin_path,
+        "serve",
+        "--dir",
+        pb_dir,
+        "--migrationsDir",
+        migrations_dir,
+        "--http",
+        f"127.0.0.1:{port}",
+    ]
+    proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+    base_url = f"http://127.0.0.1:{port}"
+
+    # /api/health hazır olana kadar bekle (max 15 sn)
+    start_time = time.time()
+    ready = False
+    while time.time() - start_time < 15:
+        try:
+            with urllib.request.urlopen(f"{base_url}/api/health", timeout=1) as resp:
+                if resp.status == 200:
+                    ready = True
+                    break
+        except Exception:
+            time.sleep(0.1)
+
+    if not ready:
+        proc.terminate()
+        proc.wait()
+        shutil.rmtree(pb_dir, ignore_errors=True)
+        pytest.fail("PocketBase test sunucusu 15 saniye içinde hazır olamadı.")
+
+    server_info = {
+        "url": base_url,
+        "admin_email": admin_email,
+        "admin_password": admin_password,
+        "dir": pb_dir,
+    }
+
+    try:
+        yield server_info
     finally:
-        session.close()
+        proc.terminate()
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+        shutil.rmtree(pb_dir, ignore_errors=True)
+
+
+@pytest.fixture(scope="function")
+def pb_admin(pb_server: dict[str, str]) -> PocketBase:
+    """Superuser yetkilerine sahip PocketBase istemcisi."""
+    pb = PocketBase(pb_server["url"])
+    pb.collection("_superusers").auth_with_password(
+        pb_server["admin_email"], pb_server["admin_password"]
+    )
+    return pb
+
+
+@pytest.fixture(scope="function")
+def pb_clean(pb_admin: PocketBase) -> Generator[None, None, None]:
+    """Her test öncesi/sonrası kullanıcı koleksiyonlarını temizler."""
+
+    def _clean() -> None:
+        for col_name in ["shadow_portfolios", "decisions", "transactions", "macro_data", "price_history"]:
+            try:
+                records = pb_admin.collection(col_name).get_full_list()
+                for r in records:
+                    pb_admin.collection(col_name).delete(r.id)
+            except Exception:
+                pass
+
+        # Normal test kullanıcılarını temizle (default test kullanıcısı hariç)
+        try:
+            users = pb_admin.collection("users").get_full_list()
+            for u in users:
+                if getattr(u, "email", "") != "test_default@futurewallet.test":
+                    pb_admin.collection("users").delete(u.id)
+        except Exception:
+            pass
+
+    _clean()
+    yield
+    _clean()
+
+
+@pytest.fixture(scope="function")
+def make_user(pb_admin: PocketBase, pb_server: dict[str, str]):
+    """Test kullanıcısı oluşturan ve (user_id, token, user_client) dönen fabrika."""
+
+    def _factory(email: str = "user@test.local", password: str = "TestPass123!"):
+        user_record = pb_admin.collection("users").create(
+            {
+                "email": email,
+                "password": password,
+                "passwordConfirm": password,
+            }
+        )
+        user_client = PocketBase(pb_server["url"])
+        auth_data = user_client.collection("users").auth_with_password(email, password)
+        return user_record.id, auth_data.token, user_client
+
+    return _factory
 
 
 # ---------------------------------------------------------------------------
-# Uygulama fixture'ı — TestClient + mock'lar
+# Geriye Dönük Uyumluluk için Dummy DB Fixture
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(scope="function")
+def test_db():
+    """Eski testlerdeki test_db argümanını karşılamak için dummy fixture."""
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Dış Servis Mock'ları
 # ---------------------------------------------------------------------------
 
 
 @pytest.fixture(scope="function")
 def mock_yfinance() -> Generator[MagicMock, None, None]:
-    """yfinance.Ticker().history() → boş DataFrame döndürür (test hızlı olsun)."""
     mock = MagicMock()
     mock.Ticker = MagicMock()
     mock.Ticker.return_value.history.return_value = MagicMock(
@@ -107,18 +271,11 @@ def mock_ccxt() -> Generator[MagicMock, None, None]:
 
 @pytest.fixture(scope="function")
 def mock_gemini() -> Generator[MagicMock, None, None]:
-    """
-    google-genai / google.generativeai mock'ı.
-    Varsayılan: basit metin dönüyor. Testlerde patch.setattr ile
-    generate_content.side_effect = Exception(...) ile hata scenaroları testlenir.
-    """
     mock_model_instance = MagicMock()
     mock_model_instance.generate_content.return_value.text = "AI retrospective test çıktısı."
     mock_model = MagicMock()
     mock_model.GenerativeModel.return_value = mock_model_instance
 
-    # google.generativeai (eski SDK) ile google.genai (yeni SDK) ikisini de
-    # mock'la — kod hangisini kullanırsa kullansin çalışır.
     gm = MagicMock()
     gm.configure = MagicMock()
     gm.list_models = MagicMock(return_value=[])
@@ -131,86 +288,59 @@ def mock_gemini() -> Generator[MagicMock, None, None]:
 
 @pytest.fixture(scope="function")
 def mock_evds_failure() -> Generator[MagicMock, None, None]:
-    """EVDS API'si her istekte HTTP 403/boş döner (test anahtarsız çalışsın)."""
     mock = MagicMock()
     mock.get = MagicMock(return_value=MagicMock(status_code=403, text=""))
     with patch("services.benchmark_service.requests", mock, create=True):
         yield mock
 
 
-@pytest.fixture(scope="function")
-def mock_pocketbase() -> Generator[MagicMock, None, None]:
-    """
-    PocketBase client mock — testlerde gerçek PB sunucusuna bağlanmak zorunda kalmaz.
-    get_client() → MagicMock(collection(...).create/get_list/retrieve/update/delete).
-    """
-    mock_client = MagicMock()
-
-    def _make_collection(name: str) -> MagicMock:
-        col = MagicMock()
-        col.create.return_value = {
-            "id": "mock-id",
-            "create_time": "2024-01-01T00:00:00Z",
-        }
-        col.get_list.return_value = []
-        col.retrieve.return_value = None
-        col.update.return_value = {"id": "mock-id"}
-        col.delete.return_value = True
-        return col
-
-    mock_client.collection.side_effect = _make_collection
-    mock_client.collection_exists.return_value = True
-
-    with patch("services.pocketbase.get_client", return_value=mock_client, create=True):
-        with patch(
-            "services.pocketbase.PocketBaseClient",
-            return_value=mock_client,
-            create=True,
-        ):
-            yield mock_client
-
-
+# ---------------------------------------------------------------------------
+# FastAPI TestClient Fixture (Gerçek PocketBase ile Entegre)
 # ---------------------------------------------------------------------------
 
 
 @pytest.fixture(scope="function")
 def api_client(
-    test_db,
+    pb_server: dict[str, str],
     mock_yfinance,
     mock_ccxt,
     mock_gemini,
-    mock_pocketbase,
 ) -> Generator[TestClient, None, None]:
-    """
-    Tam test istemcisi: in-memory DB + tüm dış servisler mock'lanmış.
-    search_params'da mock'ların scope'ı test fonksiyonu boyutunda (function)
-    olduğu için her test yeni mock başlangıcı alır.
-    """
-    # API_TOKEN varsayılan içinde mock token ayarla — testlerde
-    # gerçek token beklenmez; auth tests'i kendi fixture'larıyla mock'lar.
-
-    # Config'u test token ile geçici olarak aş
+    """Gerçek PocketBase sunucusuna bağlı FastAPI TestClient."""
     import config as config_mod
 
-    _orig_token = config_mod.API_TOKEN
-    _orig_origins = config_mod.ALLOWED_ORIGINS
-    _orig_hosts = config_mod.ALLOWED_HOSTS
-    _orig_db_url = config_mod.DATABASE_URL
+    orig_pb_url = config_mod.POCKETBASE_URL
+    orig_pb_email = config_mod.POCKETBASE_EMAIL
+    orig_pb_pass = config_mod.POCKETBASE_PASSWORD
+    orig_token = config_mod.API_TOKEN
+    orig_origins = config_mod.ALLOWED_ORIGINS
+    orig_hosts = config_mod.ALLOWED_HOSTS
 
+    config_mod.POCKETBASE_URL = pb_server["url"]
+    config_mod.POCKETBASE_EMAIL = pb_server["admin_email"]
+    config_mod.POCKETBASE_PASSWORD = pb_server["admin_password"]
     config_mod.API_TOKEN = "test-secret-token"
     config_mod.ALLOWED_ORIGINS = "http://localhost:8000"
     config_mod.ALLOWED_HOSTS = "localhost,127.0.0.1,testserver"
-    config_mod.DATABASE_URL = "sqlite:///:memory:"
+
+    # services.pb'deki singleton'ı sıfırla
+    import services.pb as pb_mod
+    pb_mod._admin_client = None
+
     from api.app import app
 
     with TestClient(app) as client:
         yield client
 
-    # Config'u geri yükle
-    config_mod.API_TOKEN = _orig_token
-    config_mod.ALLOWED_ORIGINS = _orig_origins
-    config_mod.ALLOWED_HOSTS = _orig_hosts
-    # Rate limit state'ini temizle (testler arasında kalıcık önle)
+    config_mod.POCKETBASE_URL = orig_pb_url
+    config_mod.POCKETBASE_EMAIL = orig_pb_email
+    config_mod.POCKETBASE_PASSWORD = orig_pb_pass
+    config_mod.API_TOKEN = orig_token
+    config_mod.ALLOWED_ORIGINS = orig_origins
+    config_mod.ALLOWED_HOSTS = orig_hosts
+
+    pb_mod._admin_client = None
+
     from api.app import _RETRO_RATE_LIMITS
 
     _RETRO_RATE_LIMITS.clear()

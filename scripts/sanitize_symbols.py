@@ -90,7 +90,7 @@ def fix(session, problems: list[dict]) -> int:
     return deleted
 
 
-def main() -> None:
+def main() -> int:
     parser = argparse.ArgumentParser(description="FutureWallet sembol temizleme aracı")
     parser.add_argument(
         "--fix",
