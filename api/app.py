@@ -26,7 +26,6 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from config import ALLOWED_HOSTS, ALLOWED_ORIGINS, API_TOKEN, DEBUG
-from db import get_session  # sadece testler için, production'da kullanılmayacak
 from services.benchmark_service import (
     compare_to_benchmark as srv_compare_to_benchmark,
 )
@@ -40,12 +39,6 @@ from services.counterfactual_service import (
     what_if_scenario,
 )
 from services.decision_service import (
-    _guess_asset_type,
-    decision_to_dict,
-    get_sentiment_summary,
-    get_status_summary,
-)
-from services.decision_service import (
     check_decision_target as svc_check_decision_target,
 )
 from services.decision_service import (
@@ -53,6 +46,11 @@ from services.decision_service import (
 )
 from services.decision_service import (
     create_decision as svc_create_decision,
+)
+from services.decision_service import (
+    decision_to_dict,
+    get_sentiment_summary,
+    get_status_summary,
 )
 from services.decision_service import (
     generate_ai_retrospective as svc_generate_ai_retrospective,
@@ -67,6 +65,10 @@ from services.decision_service import (
     update_decision as svc_update_decision,
 )
 from services.ledger_service import (
+    _guess_asset_type,
+    time_travel_portfolio,
+)
+from services.ledger_service import (
     add_transaction as srv_add_transaction,
 )
 from services.ledger_service import (
@@ -74,9 +76,6 @@ from services.ledger_service import (
 )
 from services.ledger_service import (
     get_transactions as srv_get_transactions,
-)
-from services.ledger_service import (
-    time_travel_portfolio,
 )
 from services.ledger_service import (
     void_transaction as srv_void_transaction,
@@ -284,7 +283,6 @@ DecisionsListRequest.model_rebuild()
 # App
 # ---------------------------------------------------------------------------
 
-
 async def _init_pocketbase() -> None:
     """PocketBase koleksiyonlarını başlat."""
     try:
@@ -296,12 +294,28 @@ async def _init_pocketbase() -> None:
         pass
 
 
+async def _check_pb_connection() -> bool:
+    """PocketBase bağlantısını kontrol et."""
+    try:
+        from services.pocketbase import get_client
+        client = get_client()
+        # Basit bir health check - collections endpoint'i
+        client._ensure()
+        return True
+    except Exception:
+        return False
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Fail-closed: API_TOKEN kontrolü
+    if not API_TOKEN and not DEBUG:
+        raise RuntimeError(
+            "API_TOKEN boş ve DEBUG=false — fail-closed. Lütfen API_TOKEN ayarlayın."
+        )
     # PocketBase koleksiyonlarını başlat
     await _init_pocketbase()
     yield
-
 
 app = FastAPI(
     title="FutureWallet API",
@@ -309,16 +323,6 @@ app = FastAPI(
     version="0.1.0",
     lifespan=lifespan,
 )
-
-
-@app.on_event("startup")
-async def _check_api_token_on_startup():
-    """Fail-closed: API_TOKEN boşsa ve DEBUG kapalıysa uygulamayı durdur (Prompt 1)."""
-    if not API_TOKEN and not DEBUG:
-        raise RuntimeError(
-            "API_TOKEN boş ve DEBUG=false — fail-closed. Lütfen API_TOKEN ayarlayın."
-        )
-
 
 async def _add_security_headers(request: Request, call_next):
     """Tüm yanıtlara güvenlik başlıkları ekle (Prompt 2)."""
@@ -360,8 +364,8 @@ app.add_middleware(
 
 @app.get("/health")
 async def health():
-    return {"status": "ok"}
-
+    pb_ok = await _check_pb_connection()
+    return {"status": "ok", "pb": "ok" if pb_ok else "down"}
 
 @app.get("/")
 async def root():
@@ -381,24 +385,6 @@ mount_web(app)
 # ---------------------------------------------------------------------------
 
 
-def with_session(func):
-    """
-    Wrapper: session aç → func(session) → commit / rollback / close.
-    """
-
-    def wrapper(*args, **kwargs):
-        session = get_session()
-        try:
-            result = func(session, *args, **kwargs)
-            session.commit()
-            return result
-        except Exception:
-            session.rollback()
-            raise
-        finally:
-            session.close()
-
-    return wrapper
 
 
 # ---------------------------------------------------------------------------
