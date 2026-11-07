@@ -7,8 +7,6 @@ Tüm PB işlemleri services.pb üzerinden yapılır.
 
 from __future__ import annotations
 
-from typing import Any
-
 from services.pb import (
     create_record,
     delete_record,

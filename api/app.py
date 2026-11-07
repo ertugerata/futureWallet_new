@@ -14,6 +14,7 @@ Endpoint'ler:
 TODO.md 4.1.
 """
 
+import logging
 from contextlib import asynccontextmanager
 from datetime import date, timedelta
 from typing import Any, Literal
@@ -25,9 +26,8 @@ from pydantic import BaseModel, Field, field_validator
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
-import logging
 logger = logging.getLogger("futurewallet")
-
+from config import ALLOWED_HOSTS, ALLOWED_ORIGINS, API_TOKEN, DEBUG
 from services.benchmark_service import (
     compare_to_benchmark as srv_compare_to_benchmark,
 )
@@ -353,7 +353,8 @@ async def _init_pocketbase() -> None:
             verify_collections(client)
         except Exception:
             # Run migrations via PocketBase binary.
-            import subprocess, os, sys
+            import os
+            import subprocess
             # Resolve binary path relative to project root.
             pb_bin = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "pb_bin", "pocketbase"))
             if not os.path.isfile(pb_bin):

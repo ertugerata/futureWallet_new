@@ -6,7 +6,7 @@ calls are omitted for brevity.
 """
 
 from datetime import date
-from typing import Any, List, Optional
+from typing import List, Optional
 
 # NOTE: In a full implementation this would import the PocketBase client and
 # external price providers. Here we provide a lightweight stub that returns None

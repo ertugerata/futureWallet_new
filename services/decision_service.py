@@ -25,7 +25,6 @@ from services.ai_service import (
 from services.enums import (
     ACTION_ALLOWED,
     SENTIMENT_ALLOWED,
-    SENTIMENT_LABELS,
     STATUS_ALLOWED,
 )
 from services.multi_asset_manager import AssetManager

@@ -39,6 +39,45 @@ def get_admin_client() -> PocketBase:
     """Superuser istemcisi (thread-safe singleton, otomatik token yenileme)."""
     global _admin_client
     with _admin_lock:
+        # Initialize client if needed
+        if _admin_client is None or _admin_client.base_url != config.POCKETBASE_URL:
+            _admin_client = PocketBase(config.POCKETBASE_URL)
+        # Ensure admin is authenticated; if not, try to login or create superuser
+        if not _admin_client.auth_store.is_valid:
+            try:
+                _admin_client.collection("_superusers").auth_with_password(
+                    config.POCKETBASE_EMAIL, config.POCKETBASE_PASSWORD
+                )
+            except Exception as exc:
+                logger.warning("Admin login failed, attempting superuser creation: %s", exc)
+                # Attempt to create the superuser if it does not exist
+            try:
+                _admin_client.admins.create({
+                    "email": config.POCKETBASE_EMAIL,
+                    "password": config.POCKETBASE_PASSWORD,
+                    "passwordConfirm": config.POCKETBASE_PASSWORD,
+                })
+                # Now authenticate again
+                _admin_client.admins.auth_with_password(
+                    config.POCKETBASE_EMAIL, config.POCKETBASE_PASSWORD
+                )
+            except Exception as exc2:
+                logger.error("PocketBase superuser creation/auth failed: %s", exc2)
+                raise
+                try:
+                    _admin_client.collection("_superusers").create({
+                        "email": config.POCKETBASE_EMAIL,
+                        "password": config.POCKETBASE_PASSWORD,
+                        "passwordConfirm": config.POCKETBASE_PASSWORD,
+                    })
+                    # Now authenticate again
+                    _admin_client.collection("_superusers").auth_with_password(
+                        config.POCKETBASE_EMAIL, config.POCKETBASE_PASSWORD
+                    )
+                except Exception as exc2:
+                    logger.error("PocketBase superuser creation/auth failed: %s", exc2)
+                    raise
+        return _admin_client
         if _admin_client is None or _admin_client.base_url != config.POCKETBASE_URL:
             _admin_client = PocketBase(config.POCKETBASE_URL)
 

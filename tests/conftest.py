@@ -4,7 +4,6 @@ The fixtures start a PocketBase binary (downloaded if missing), provide
 clean‑up of collections, create test users, and expose a FastAPI TestClient.
 """
 
-import os
 import subprocess
 import sys
 import time
@@ -41,9 +40,9 @@ def _download_pocketbase() -> None:
         raise RuntimeError(f"Unsupported platform: {platform}")
 
     url = POCKETBASE_URL.format(platform=plat, arch=arch)
+    import io
     import urllib.request
     import zipfile
-    import io
 
     zip_bytes = urllib.request.urlopen(url).read()
     with zipfile.ZipFile(io.BytesIO(zip_bytes)) as z:
@@ -95,7 +94,7 @@ def pb_server() -> Generator[None, None, None]:
         proc.terminate()
         proc.wait()
 
-from services.pb import get_admin_client, get_user_client, list_all, delete_record
+from services.pb import delete_record, get_admin_client, list_all
 
 REQUIRED_COLLECTIONS = (
     "transactions",

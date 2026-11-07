@@ -14,7 +14,7 @@ import logging
 import threading
 from collections import defaultdict
 from collections.abc import Callable
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 from typing import Any
 
 from services.enums import TransactionType
@@ -139,7 +139,7 @@ def _get_holdings_at_date(user_id: str, as_of: date) -> dict[str, AssetHolding]:
         for r in records:
             ts_str = str(getattr(r, "timestamp", ""))
             try:
-                ts_date = date.fromisoformat(ts_str.split("T")[0].split(" ")[0])
+                ts_date = date.fromisoformat(ts_str.split("T", maxsplit=1)[0].split(" ", maxsplit=1)[0])
                 if ts_date <= as_of:
                     filtered.append(r)
             except Exception:
