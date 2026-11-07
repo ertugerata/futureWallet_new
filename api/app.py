@@ -25,7 +25,9 @@ from pydantic import BaseModel, Field, field_validator
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
-from config import ALLOWED_HOSTS, ALLOWED_ORIGINS, API_TOKEN, DEBUG
+import logging
+logger = logging.getLogger("futurewallet")
+
 from services.benchmark_service import (
     compare_to_benchmark as srv_compare_to_benchmark,
 )
@@ -340,14 +342,30 @@ DecisionsListRequest.model_rebuild()
 # ---------------------------------------------------------------------------
 
 async def _init_pocketbase() -> None:
-    """PocketBase koleksiyonlarını doğrula."""
+    """PocketBase collections validation and migration runner.
+    Uses the admin client to verify required collections exist and, if missing,
+    runs the migration scripts located in ``pb_migrations``.
+    """
     try:
-        from services.pb import verify_collections
-
-        verify_collections()
-    except Exception:
-        # Test ortamında veya PocketBase henüz başlatılmamışsa pass
-        pass
+        from services.pb import get_admin_client, verify_collections
+        client = get_admin_client()
+        try:
+            verify_collections(client)
+        except Exception:
+            # Run migrations via PocketBase binary.
+            import subprocess, os, sys
+            # Resolve binary path relative to project root.
+            pb_bin = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "pb_bin", "pocketbase"))
+            if not os.path.isfile(pb_bin):
+                raise RuntimeError("PocketBase binary not found for migrations")
+            # Ensure PocketBase server is running (checked later in lifecycle).
+            # Execute migration command.
+            subprocess.run([pb_bin, "migrate"], check=True)
+            # Re‑verify after migration.
+            verify_collections(client)
+    except Exception as exc:
+        logger.error("PocketBase initialization failed: %s", exc)
+        raise
 
 
 async def _check_pb_connection() -> bool:

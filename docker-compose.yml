@@ -1,11 +1,15 @@
 services:
   pocketbase:
-    image: pocketbase/pocketbase:latest
+    build:
+      context: .
+      dockerfile: ./docker/pocketbase/Dockerfile
     container_name: futurewallet-pb
+    # run as root to avoid permission issues during init (can be removed later)
+    #user: root
     ports:
       - "127.0.0.1:8080:8090"
     volumes:
-      - ./pb_data:/pb_data
+      - pb_data:/pb_data
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:8090/api/health || exit 1"]
@@ -19,12 +23,14 @@ services:
   futurewallet:
     build: .
     container_name: futurewallet
+    # run as root for same reason (can be changed to non‑root later)
+    user: root
     ports:
       - "127.0.0.1:8000:8000"
     environment:
       - POCKETBASE_URL=http://pocketbase:8090
-      - POCKETBASE_EMAIL=admin@example.com
-      - POCKETBASE_PASSWORD=changeme
+      - POCKETBASE_EMAIL=${POCKETBASE_EMAIL:?required}
+      - POCKETBASE_PASSWORD=${POCKETBASE_PASSWORD:?required}
       - API_TOKEN=${API_TOKEN:-}
       - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-}
       - ALLOWED_HOSTS=${ALLOWED_HOSTS:-localhost,127.0.0.1}
@@ -36,7 +42,7 @@ services:
       - APP_HOST=127.0.0.1
       - APP_PORT=8000
     volumes:
-      - ./pb_data:/app/data
+      - pb_data:/app/data
     restart: unless-stopped
     depends_on:
       pocketbase:
@@ -47,11 +53,6 @@ services:
       timeout: 10s
       retries: 3
       start_period: 15s
-  # nginx:
-  #   image: nginx:alpine
-  #   ports:
-  #     - "80:80"
-  #   volumes:
-  #     - ./nginx.conf:/etc/nginx/nginx.conf:ro
-  #   depends_on:
-  #     - futurewallet
+
+volumes:
+  pb_data:
