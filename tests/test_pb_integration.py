@@ -7,6 +7,7 @@ Gerçek PocketBase (v0.40.6) sunucusuna karşı çalışır.
 from __future__ import annotations
 
 import pytest
+from pocketbase.errors import ClientResponseError
 
 
 @pytest.mark.pb
@@ -36,8 +37,8 @@ def test_transaction_crud_and_user_isolation(make_user, pb_clean) -> None:
     Kullanıcı izolasyonu:
     Kullanıcı A'nın oluşturduğu işlemi Kullanıcı B göremez veya değiştiremez.
     """
-    user_a_id, token_a, client_a = make_user("user_a@test.local", "Pass12345!")
-    user_b_id, token_b, client_b = make_user("user_b@test.local", "Pass12345!")
+    user_a_id, _token_a, client_a = make_user("user_a@test.local", "Pass12345!")
+    _user_b_id, _token_b, client_b = make_user("user_b@test.local", "Pass12345!")
 
     # User A işlem oluşturur
     tx_data = {
@@ -64,7 +65,7 @@ def test_transaction_crud_and_user_isolation(make_user, pb_clean) -> None:
     assert len(txs_b) == 0
 
     # User B, User A'nın ID'si ile get_one denerse -> 404 / ClientResponseError
-    with pytest.raises(Exception):
+    with pytest.raises(ClientResponseError):
         client_b.collection("transactions").get_one(created_tx.id)
 
 
@@ -74,7 +75,7 @@ def test_decision_and_shadow_portfolio_cascade(make_user, pb_clean) -> None:
     Karar ve gölge portföy ilişkisi:
     Karar silindiğinde bağlı gölge pozisyon cascade olarak silinmeli.
     """
-    user_id, token, client = make_user("dec_user@test.local", "Pass12345!")
+    user_id, _token, client = make_user("dec_user@test.local", "Pass12345!")
 
     # Karar oluştur
     dec_record = client.collection("decisions").create(

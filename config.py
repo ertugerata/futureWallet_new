@@ -43,12 +43,15 @@ POCKETBASE_URL: str = environ.get("POCKETBASE_URL", "http://localhost:8080")
 
 # POCKETBASE_EMAIL / POCKETBASE_PASSWORD: PB admin credential'ı (kollek. yönetim).
 # PB admin credentials – must be provided via environment (no defaults).
-POCKETBASE_EMAIL: str = environ.get("POCKETBASE_EMAIL")
-if not POCKETBASE_EMAIL:
+_raw_email = environ.get("POCKETBASE_EMAIL")
+if not _raw_email:
     raise RuntimeError("POCKETBASE_EMAIL environment variable is required")
-POCKETBASE_PASSWORD: str = environ.get("POCKETBASE_PASSWORD")
-if not POCKETBASE_PASSWORD:
+POCKETBASE_EMAIL: str = _raw_email
+
+_raw_password = environ.get("POCKETBASE_PASSWORD")
+if not _raw_password:
     raise RuntimeError("POCKETBASE_PASSWORD environment variable is required")
+POCKETBASE_PASSWORD: str = _raw_password
 
 
 # ---------------------------------------------------------------------------

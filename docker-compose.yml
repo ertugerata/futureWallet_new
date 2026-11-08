@@ -4,21 +4,21 @@ services:
       context: .
       dockerfile: ./docker/pocketbase/Dockerfile
     container_name: futurewallet-pb
-    # run as root to avoid permission issues during init (can be removed later)
-    #user: root
     ports:
       - "127.0.0.1:8080:8090"
     volumes:
       - pb_data:/pb_data
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8090/api/health || exit 1"]
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8090/api/health || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 30s
     environment:
       - PB_REMOTE_ADDR=0.0.0.0:8090
+      - POCKETBASE_EMAIL=${POCKETBASE_EMAIL:?required}
+      - POCKETBASE_PASSWORD=${POCKETBASE_PASSWORD:?required}
 
   futurewallet:
     build: .
@@ -41,8 +41,6 @@ services:
       - DEBUG=${DEBUG:-false}
       - APP_HOST=127.0.0.1
       - APP_PORT=8000
-    volumes:
-      - pb_data:/app/data
     restart: unless-stopped
     depends_on:
       pocketbase:

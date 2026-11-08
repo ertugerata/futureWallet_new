@@ -85,3 +85,6 @@ graphify-out/*
 
 #pb-cache
 .pb_cache/*
+pb_bin/
+pb_data/
+pb_test_data*/

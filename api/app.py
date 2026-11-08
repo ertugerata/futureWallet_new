@@ -118,7 +118,9 @@ def _get_or_create_default_user() -> str:
                 pass
 
         email = "test_default@futurewallet.test"
-        users = client.collection("users").get_full_list(query_params={"filter": f'email = "{email}"'})
+        users = client.collection("users").get_full_list(
+            query_params={"filter": f'email = "{email}"'}
+        )
         if users:
             uid = str(users[0].id)
         else:
@@ -139,7 +141,11 @@ def _get_or_create_default_user() -> str:
 
 def _extract_user_id(request: Request) -> str:
     """İstekten doğrulanmış user_id'yi alır (Prompt 6)."""
-    return getattr(request.state, "user_id", None) or request.headers.get("X-User-ID") or _get_or_create_default_user()
+    return (
+        getattr(request.state, "user_id", None)
+        or request.headers.get("X-User-ID")
+        or _get_or_create_default_user()
+    )
 
 
 def verify_api_token(request: Request) -> str:
@@ -213,9 +219,7 @@ class DecisionCreateRequest(BaseModel):
     rationale: str | None = Field(
         None, max_length=5000, description="Karar gerekçesi (max 5000 karakter)"
     )
-    sentiment: (
-        Literal["FOMO", "STRATEGIC", "PANIC", "DIVIDEND", "OPPORTUNITY"] | None
-    ) = Field(
+    sentiment: Literal["FOMO", "STRATEGIC", "PANIC", "DIVIDEND", "OPPORTUNITY"] | None = Field(
         None,
         description="FOMO | STRATEGIC | PANIC | DIVIDEND | OPPORTUNITY",
     )
@@ -292,9 +296,9 @@ class DecisionUpdateRequest(BaseModel):
     rationale: str | None = Field(
         None, max_length=5000, description="Yeni gerekçе (max 5000 karakter)"
     )
-    sentiment: (
-        Literal["FOMO", "STRATEGIC", "PANIC", "DIVIDEND", "OPPORTUNITY"] | None
-    ) = Field(None, description="FOMO | STRATEGIC | PANIC | DIVIDEND | OPPORTUNITY")
+    sentiment: Literal["FOMO", "STRATEGIC", "PANIC", "DIVIDEND", "OPPORTUNITY"] | None = Field(
+        None, description="FOMO | STRATEGIC | PANIC | DIVIDEND | OPPORTUNITY"
+    )
     target_price: float | None = Field(None, gt=0)
     target_date: date | None = Field(None, description="Yeni hedef tarih")
     status: Literal["OPEN", "REVIEWED", "EXPIRED", "CLOSED"] | None = Field(
@@ -341,6 +345,7 @@ DecisionsListRequest.model_rebuild()
 # App
 # ---------------------------------------------------------------------------
 
+
 async def _init_pocketbase() -> None:
     """PocketBase collections validation and migration runner.
     Uses the admin client to verify required collections exist and, if missing,
@@ -348,22 +353,25 @@ async def _init_pocketbase() -> None:
     """
     try:
         from services.pb import get_admin_client, verify_collections
+
         client = get_admin_client()
         try:
             verify_collections(client)
         except Exception:
-            # Run migrations via PocketBase binary.
+            # Run migrations via PocketBase binary if available locally.
             import os
             import subprocess
+
             # Resolve binary path relative to project root.
-            pb_bin = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "pb_bin", "pocketbase"))
-            if not os.path.isfile(pb_bin):
-                raise RuntimeError("PocketBase binary not found for migrations")
-            # Ensure PocketBase server is running (checked later in lifecycle).
-            # Execute migration command.
-            subprocess.run([pb_bin, "migrate"], check=True)
-            # Re‑verify after migration.
-            verify_collections(client)
+            pb_bin = os.path.abspath(
+                os.path.join(os.path.dirname(__file__), "..", "pb_bin", "pocketbase")
+            )
+            if os.path.isfile(pb_bin):
+                subprocess.run([pb_bin, "migrate"], check=True)
+                # Re‑verify after migration.
+                verify_collections(client)
+            else:
+                raise
     except Exception as exc:
         logger.error("PocketBase initialization failed: %s", exc)
         raise
@@ -391,12 +399,14 @@ async def lifespan(app: FastAPI):
     await _init_pocketbase()
     yield
 
+
 app = FastAPI(
     title="FutureWallet API",
     description="Event-Sourcing portföy, karar günlüğü ve makro simülasyon API'si",
     version="0.1.0",
     lifespan=lifespan,
 )
+
 
 async def _add_security_headers(request: Request, call_next):
     """Tüm yanıtlara güvenlik başlıkları ekle (Prompt 2)."""
@@ -441,6 +451,7 @@ async def health():
     pb_ok = await _check_pb_connection()
     return {"status": "ok", "pb": "ok" if pb_ok else "down"}
 
+
 @app.get("/")
 async def root():
     return {
@@ -457,8 +468,6 @@ mount_web(app)
 # ---------------------------------------------------------------------------
 # Helper: session lifecycle (try/commit/except/rollback/finally/close)
 # ---------------------------------------------------------------------------
-
-
 
 
 # ---------------------------------------------------------------------------
@@ -563,7 +572,10 @@ async def portfolio_value_series(
             current += timedelta(days=1)
 
     if len(dates) > 400:
-        raise HTTPException(422, f"Nokta sayısı ({len(dates)}) sınırı aştı (maksimum 400). Lütfen step parametresini büyütün veya aralığı daraltın.")
+        raise HTTPException(
+            422,
+            f"Nokta sayısı ({len(dates)}) sınırı aştı (maksimum 400). Lütfen step parametresini büyütün veya aralığı daraltın.",
+        )
 
     # Her tarihte snapshot al
     series = []
