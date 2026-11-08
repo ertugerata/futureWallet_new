@@ -133,13 +133,17 @@ def _get_holdings_at_date(user_id: str, as_of: date) -> dict[str, AssetHolding]:
     except Exception as exc:
         logger.warning("Transactions okunurken hata (filtre: %s): %s", filter_expr, exc)
         # Eğer datetime formatı uyuşmazsa yedek sorgu
-        records = transactions.get_full_list(query_params={"filter": f'user = "{user_id}" && voided = false'})
+        records = transactions.get_full_list(
+            query_params={"filter": f'user = "{user_id}" && voided = false'}
+        )
         # Python tarafında tarih filtresi uygula
         filtered = []
         for r in records:
             ts_str = str(getattr(r, "timestamp", ""))
             try:
-                ts_date = date.fromisoformat(ts_str.split("T", maxsplit=1)[0].split(" ", maxsplit=1)[0])
+                ts_date = date.fromisoformat(
+                    ts_str.split("T", maxsplit=1)[0].split(" ", maxsplit=1)[0]
+                )
                 if ts_date <= as_of:
                     filtered.append(r)
             except Exception:
@@ -229,6 +233,7 @@ def time_travel_portfolio(
 
     if price_fn is None:
         from services.price_service import get_price_on
+
         price_fn = lambda sym, atype, dt: get_price_on(sym, atype, dt)
 
     value_at_start = 0.0

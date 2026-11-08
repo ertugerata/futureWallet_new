@@ -25,8 +25,12 @@ RUN set -eux; \
     chmod +x pocketbase && \
     rm pocketbase.zip
 
-# Copy migration scripts (if any) into the container
+# Copy migration scripts into the container
 COPY pb_migrations ./pb_migrations
+
+# Copy entrypoint script
+COPY docker/pocketbase/entrypoint.sh ./entrypoint.sh
+RUN chmod +x ./entrypoint.sh && chown pbuser:pbgroup ./entrypoint.sh
 
 # Expose PocketBase HTTP port (default 8090)
 EXPOSE 8090
@@ -38,5 +42,5 @@ USER pbuser
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s \
   CMD wget -qO- http://localhost:8090/api/health || exit 1
 
-# Default command runs PocketBase server
-ENTRYPOINT ["./pocketbase", "serve", "--http=0.0.0.0:8090"]
+# Default command runs PocketBase via entrypoint
+ENTRYPOINT ["./entrypoint.sh"]

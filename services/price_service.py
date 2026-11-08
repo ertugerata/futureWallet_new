@@ -12,6 +12,7 @@ from typing import List, Optional
 # external price providers. Here we provide a lightweight stub that returns None
 # for missing data so that the application can start without runtime errors.
 
+
 def _load_from_cache(symbol: str, asset_type: str, on_date: date) -> Optional[float]:
     """Attempt to read a cached price from PocketBase.
     Returns ``None`` if the cache entry does not exist.
@@ -19,15 +20,16 @@ def _load_from_cache(symbol: str, asset_type: str, on_date: date) -> Optional[fl
     # Placeholder: real implementation would query the ``price_history`` collection.
     return None
 
+
 def _fetch_from_yfinance(symbol: str, asset_type: str, on_date: date) -> Optional[float]:
-    """Fetch price from yfinance. Stub returns ``None``.
-    """
+    """Fetch price from yfinance. Stub returns ``None``."""
     return None
 
+
 def _fetch_from_ccxt(symbol: str, asset_type: str, on_date: date) -> Optional[float]:
-    """Fetch price from ccxt. Stub returns ``None``.
-    """
+    """Fetch price from ccxt. Stub returns ``None``."""
     return None
+
 
 def get_price_on(symbol: str, asset_type: str, on_date: date) -> Optional[float]:
     """Get the price for ``symbol`` on ``on_date``.
@@ -46,7 +48,10 @@ def get_price_on(symbol: str, asset_type: str, on_date: date) -> Optional[float]
     price = _fetch_from_ccxt(symbol, asset_type, on_date)
     return price
 
-def get_prices_in_range(symbol: str, asset_type: str, start_date: date, end_date: date) -> List[tuple[date, Optional[float]]]:
+
+def get_prices_in_range(
+    symbol: str, asset_type: str, start_date: date, end_date: date
+) -> List[tuple[date, Optional[float]]]:
     """Return a list of ``(date, price)`` tuples for the inclusive date range.
     This stub iterates day by day and calls :func:`get_price_on`.
     """
