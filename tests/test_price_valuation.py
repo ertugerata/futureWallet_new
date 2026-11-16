@@ -5,10 +5,9 @@ FutureWallet - Portföy Değerleme & Price Service Testleri (Prompt 9).
 
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date
 from unittest.mock import patch
 
-import pytest
 from fastapi import status
 
 from services.price_service import get_price_on

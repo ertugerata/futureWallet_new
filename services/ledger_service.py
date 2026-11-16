@@ -17,7 +17,7 @@ from collections.abc import Callable
 from datetime import date, timedelta
 from typing import Any
 
-from services.asset_types import guess_asset_type, _guess_asset_type
+from services.asset_types import _guess_asset_type
 from services.enums import TransactionType
 from services.multi_asset_manager import AssetManager
 from services.pb import get_client
@@ -46,7 +46,6 @@ def _tx_get(tx: Any, key: str, default: Any = None) -> Any:
     if isinstance(tx, dict):
         return tx.get(key, default)
     return getattr(tx, key, default)
-
 
 
 def _build_holdings_from_transactions(
@@ -110,7 +109,10 @@ def _get_holdings_at_date(user_id: str, as_of: date) -> dict[str, AssetHolding]:
 
     client = get_client()
     transactions = client.collection("transactions")
-    filter_expr = f'user = "{user_id}" && timestamp <= "{as_of_str}" && voided = false'
+    filter_expr = client.filter(
+        "user = {:user_id} && timestamp <= {:as_of} && voided = false",
+        {"user_id": user_id, "as_of": as_of_str},
+    )
 
     try:
         records = transactions.get_full_list(query_params={"filter": filter_expr})
@@ -118,7 +120,9 @@ def _get_holdings_at_date(user_id: str, as_of: date) -> dict[str, AssetHolding]:
         logger.warning("Transactions okunurken hata (filtre: %s): %s", filter_expr, exc)
         # Eğer datetime formatı uyuşmazsa yedek sorgu
         records = transactions.get_full_list(
-            query_params={"filter": f'user = "{user_id}" && voided = false'}
+            query_params={
+                "filter": client.filter("user = {:user_id} && voided = false", {"user_id": user_id})
+            }
         )
         # Python tarafında tarih filtresi uygula
         filtered = []
@@ -159,6 +163,7 @@ def get_portfolio_snapshot(
 
     total_value = 0.0
     total_cost = 0.0
+    cash_received = 0.0
     holdings_list = []
 
     for sym, h in holdings.items():
@@ -166,7 +171,12 @@ def get_portfolio_snapshot(
         if qty <= 0:
             continue
         atype = h.get("type", _guess_asset_type(sym))
-        current_price = price_fn(sym, atype) or 0.0
+        if atype == "cash":
+            # DIVIDEND birikimi nominal nakit; fiyat araması yapılmaz (Prompt 7)
+            cash_received += qty
+            current_price = 1.0
+        else:
+            current_price = price_fn(sym, atype) or 0.0
         val = qty * current_price
         cost = h.get("total_cost", 0.0)
         unrealized_pnl = val - cost
@@ -196,6 +206,7 @@ def get_portfolio_snapshot(
         "holdings": holdings_list,
         "total_value": total_value,
         "total_cost": total_cost,
+        "cash_received": cash_received,
         "pnl": pnl,
         "pnl_pct": pnl_pct,
     }
@@ -346,13 +357,16 @@ def get_transactions(
     client = get_client()
     transactions = client.collection("transactions")
 
-    filter_parts = [f'user = "{user_id}"']
+    filter_parts = ["user = {:user_id}"]
+    filter_params: dict[str, Any] = {"user_id": user_id}
     if asset_symbol is not None:
-        filter_parts.append(f'asset_symbol = "{asset_symbol.upper()}"')
+        filter_parts.append("asset_symbol = {:asset_symbol}")
+        filter_params["asset_symbol"] = asset_symbol.upper()
     if tx_type is not None:
-        filter_parts.append(f'type = "{tx_type.upper()}"')
+        filter_parts.append("type = {:tx_type}")
+        filter_params["tx_type"] = tx_type.upper()
 
-    filter_str = " && ".join(filter_parts)
+    filter_str = client.filter(" && ".join(filter_parts), filter_params)
     query_params: dict[str, Any] = {"filter": filter_str, "sort": "-timestamp"}
 
     if limit is not None:

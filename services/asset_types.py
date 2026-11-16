@@ -12,20 +12,19 @@ _GOLD_SYMBOLS = frozenset({"GC=F", "XAU", "GOLD"})
 
 def guess_asset_type(symbol: str) -> str:
     """Sembol adına göre varlık türü tahmini."""
-    if not symbol:
-        return "crypto"
-    up = symbol.upper()
+    up = symbol.upper() if symbol else ""
+    kind = "crypto"
     if up in _CASH_SYMBOLS:
-        return "cash"
-    if up in _GOLD_SYMBOLS or "GOLD" in up or "ALTIN" in up:
-        return "commodity"
-    if ".IS" in up or up in ("THYAO", "GARAN", "ASELS", "TUPRS", "SISE"):
-        return "stock_tr"
-    if "^GSPC" in up:
-        return "stock_us"
-    if up.endswith("=X") or up.endswith("USD=X"):
-        return "forex"
-    return "crypto"
+        kind = "cash"
+    elif up in _GOLD_SYMBOLS or "GOLD" in up or "ALTIN" in up:
+        kind = "commodity"
+    elif ".IS" in up or up in ("THYAO", "GARAN", "ASELS", "TUPRS", "SISE"):
+        kind = "stock_tr"
+    elif "^GSPC" in up:
+        kind = "stock_us"
+    elif up.endswith("=X"):
+        kind = "forex"
+    return kind
 
 
 # Geriye dönük uyumluluk alias'ı

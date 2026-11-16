@@ -7,13 +7,12 @@ Kabul kriterleri:
 - Doğru token → 200.
 - Origin: https://evil.example ile preflight → Access-Control-Allow-Origin DÖNDÜRMEZ.
 - Host: evil.example → 400.
-- API_TOKEN boş ve DEBUG=false → uygulama başlangıcı hata verir.
-- Retrospective en fazla 5/dp dakikada, 60 sn içinde tekrar → 429.
+- Kimlik doğrulama yalnızca PB JWT iledir; statik API_TOKEN kaldırıldı.
+- Aynı karar için retrospective 60 sn içinde tekrar → 429.
 """
 
 from __future__ import annotations
 
-import pytest
 from fastapi import status
 
 # ---------------------------------------------------------------------------
@@ -48,7 +47,7 @@ def test_wrong_token_returns_401(api_client) -> None:
     assert resp.status_code == status.HTTP_401_UNAUTHORIZED
 
 
-def test_valid_token_returns_200_or_201(api_client, test_db) -> None:
+def test_valid_token_returns_200_or_201(api_client, test_db, auth_headers) -> None:
     resp = api_client.post(
         "/api/decisions",
         json={
@@ -57,7 +56,7 @@ def test_valid_token_returns_200_or_201(api_client, test_db) -> None:
             "rationale": "test gerekçe",
             "sentiment": "STRATEGIC",
         },
-        headers={"Authorization": "Bearer test-secret-token"},
+        headers=auth_headers,
     )
     assert resp.status_code in (status.HTTP_200_OK, status.HTTP_201_CREATED)
 
@@ -126,82 +125,61 @@ def test_trusted_host_evil_rejected(api_client) -> None:
 
 
 # ---------------------------------------------------------------------------
-# 5. Retrospective ratelimit
+# 5. Retrospective hız sınırı (kullanıcı + karar başına 60 sn'de 1)
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("n_calls", [1, 2, 3, 4, 5])
-def test_retrospective_under_rate_limit(
-    api_client,
-    test_db,
-    n_calls: int,
+def _make_decision(api_client, headers) -> str:
+    resp = api_client.post(
+        "/api/decisions",
+        json={
+            "asset_symbol": "BTC",
+            "action": "BUY",
+            "rationale": "retro limit testi",
+            "sentiment": "STRATEGIC",
+        },
+        headers=headers,
+    )
+    assert resp.status_code == status.HTTP_201_CREATED
+    return resp.json()["id"]
+
+
+def test_retrospective_second_call_within_60s_returns_429(api_client, test_db, make_user) -> None:
+    _, token, _ = make_user("retro_rl@test.local")
+    headers = {"Authorization": f"Bearer {token}"}
+    decision_id = _make_decision(api_client, headers)
+
+    first = api_client.post(f"/api/decisions/{decision_id}/retrospective", headers=headers)
+    # OPENROUTER_API_KEY yoksa 503 olabilir; limit bunu sayar
+    assert first.status_code in (
+        status.HTTP_200_OK,
+        status.HTTP_201_CREATED,
+        status.HTTP_503_SERVICE_UNAVAILABLE,
+    ), f"1. çağrı {first.status_code}: {first.text}"
+
+    second = api_client.post(f"/api/decisions/{decision_id}/retrospective", headers=headers)
+    assert second.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+
+
+def test_retrospective_rate_limit_isolated_per_decision_and_user(
+    api_client, test_db, make_user
 ) -> None:
-    """
-    Önce bir karar oluştur, ardından n_calls adet retrospective isteği at.
-    5'erçe fazlası 429 dönmeli ama ilk 5'i 200/201/202/404/503 olabilir
-    (mock Gemini kullanılıyor, AI_available=True).
-    """
-    # Karar oluştur (token ile)
-    dec_resp = api_client.post(
-        "/api/decisions",
-        json={
-            "asset_symbol": "BTC",
-            "action": "BUY",
-            "rationale": "test",
-            "sentiment": "STRATEGIC",
-        },
-        headers={"Authorization": "Bearer test-secret-token"},
-    )
-    assert dec_resp.status_code in (status.HTTP_200_OK, status.HTTP_201_CREATED)
-    decision_id = dec_resp.json()["id"]
+    _, token_a, _ = make_user("retro_iso_a@test.local")
+    _, token_b, _ = make_user("retro_iso_b@test.local")
+    ha = {"Authorization": f"Bearer {token_a}"}
+    hb = {"Authorization": f"Bearer {token_b}"}
 
-    for i in range(n_calls):
-        resp = api_client.post(
-            f"/api/decisions/{decision_id}/retrospective",
-            headers={"Authorization": "Bearer test-secret-token"},
-        )
-        # Mock Gemini her şeyi kabul ettiği için 200 beklenir
-        if i < 5:
-            assert resp.status_code in (
-                status.HTTP_200_OK,
-                status.HTTP_201_CREATED,
-                status.HTTP_503_SERVICE_UNAVAILABLE,
-            ), f"{i + 1}. çağrı {resp.status_code} döndü: {resp.text}"
+    dec1 = _make_decision(api_client, ha)
+    dec2 = _make_decision(api_client, ha)
 
+    api_client.post(f"/api/decisions/{dec1}/retrospective", headers=ha)
+    # Farklı karar: A'nın sayacı ondan bağımsız → limit dışı
+    other = api_client.post(f"/api/decisions/{dec2}/retrospective", headers=ha)
+    assert other.status_code != status.HTTP_429_TOO_MANY_REQUESTS
 
-def test_retrospective_rate_limit_429(api_client, test_db) -> None:
-    """
-    Aynı karar için dakikada 6. çağrı → 429.
-    (Bu test, hız sınırı kont rolü yapar; fixture'taki hız sınırını
-    test eder. 6 çağrı atıp 6.'un 429 gelmesini bekler.)
-    """
-    # Karar oluştur
-    dec_resp = api_client.post(
-        "/api/decisions",
-        json={
-            "asset_symbol": "BTC",
-            "action": "BUY",
-            "rationale": "test rate limit",
-            "sentiment": "STRATEGIC",
-        },
-        headers={"Authorization": "Bearer test-secret-token"},
-    )
-    assert dec_resp.status_code in (status.HTTP_200_OK, status.HTTP_201_CREATED)
-    decision_id = dec_resp.json()["id"]
-
-    # 6 çağrı at — 6. unten 429 dönmeli
-    statuses = []
-    for _ in range(6):
-        resp = api_client.post(
-            f"/api/decisions/{decision_id}/retrospective",
-            headers={"Authorization": "Bearer test-secret-token"},
-        )
-        statuses.append(resp.status_code)
-
-    # En az bir 429 bekleniyor (6. çağrı)
-    assert status.HTTP_429_TOO_MANY_REQUESTS in statuses, (
-        f"6. çağrı 429 dönmeliydi. Alınan kodlar: {statuses}"
-    )
+    # Aynı karar, kullanıcı B: B'nin sayacı kendi; sahiplik yok → 404 (429 değil)
+    foreign = api_client.post(f"/api/decisions/{dec1}/retrospective", headers=hb)
+    assert foreign.status_code == status.HTTP_404_NOT_FOUND
 
 
 # ---------------------------------------------------------------------------
@@ -209,21 +187,21 @@ def test_retrospective_rate_limit_429(api_client, test_db) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_payload_too_large_returns_413(api_client) -> None:
+def test_payload_too_large_returns_413(api_client, auth_headers) -> None:
     """64 KB üzeri istek gövdesi 413 Payload Too Large dönmeli."""
     large_payload = {"data": "x" * (65 * 1024)}
     resp = api_client.post(
         "/api/decisions",
         json=large_payload,
-        headers={"Authorization": "Bearer test-secret-token"},
+        headers=auth_headers,
     )
     assert resp.status_code == status.HTTP_413_REQUEST_ENTITY_TOO_LARGE
 
 
 def test_cross_user_decision_delete_returns_404(api_client, make_user, pb_clean) -> None:
     """Kullanıcı B, Kullanıcı A'ya ait kararı silememeli (404)."""
-    user_a_id, token_a, _ = make_user("usera_del@test.local", "Pass12345!")
-    user_b_id, token_b, _ = make_user("userb_del@test.local", "Pass12345!")
+    _user_a_id, token_a, _ = make_user("usera_del@test.local", "Pass12345!")
+    _user_b_id, token_b, _ = make_user("userb_del@test.local", "Pass12345!")
 
     # User A karar oluşturur
     create_resp = api_client.post(
@@ -245,4 +223,3 @@ def test_cross_user_decision_delete_returns_404(api_client, make_user, pb_clean)
         headers={"Authorization": f"Bearer {token_b}"},
     )
     assert del_resp.status_code == status.HTTP_404_NOT_FOUND
-

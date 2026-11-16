@@ -10,9 +10,6 @@ from fastapi import status
 
 from services.counterfactual_service import (
     compare_real_vs_shadow,
-    create_shadow_position,
-    get_shadow_positions,
-    what_if_scenario,
 )
 
 
@@ -59,13 +56,18 @@ def test_shadow_position_opportunity_cost():
 
 def test_shadow_position_user_isolation(api_client, make_user, pb_clean):
     """Kullanıcı B, Kullanıcı A'nın gölge pozisyonlarını göremez veya silemez."""
-    user_a_id, token_a, _ = make_user("user_a_cf@test.local", "Pass12345!")
-    user_b_id, token_b, _ = make_user("user_b_cf@test.local", "Pass12345!")
+    _user_a_id, token_a, _ = make_user("user_a_cf@test.local", "Pass12345!")
+    _user_b_id, token_b, _ = make_user("user_b_cf@test.local", "Pass12345!")
 
     # User A karar ve gölge pozisyon oluşturur
     dec_resp = api_client.post(
         "/api/decisions",
-        json={"asset_symbol": "ETH", "action": "SELL", "rationale": "Kar satışı", "sentiment": "STRATEGIC"},
+        json={
+            "asset_symbol": "ETH",
+            "action": "SELL",
+            "rationale": "Kar satışı",
+            "sentiment": "STRATEGIC",
+        },
         headers={"Authorization": f"Bearer {token_a}"},
     )
     dec_id = dec_resp.json()["id"]

@@ -40,6 +40,7 @@ from fastapi import status
 def test_asset_symbol_validation(
     api_client,
     test_db,
+    auth_headers,
     symbol: str,
     should_pass: bool,
 ) -> None:
@@ -52,7 +53,7 @@ def test_asset_symbol_validation(
             "rationale": "test gerekçe",
             "sentiment": "STRATEGIC",
         },
-        headers={"Authorization": "Bearer test-secret-token"},
+        headers=auth_headers,
     )
 
     if should_pass:
@@ -77,6 +78,7 @@ def test_asset_symbol_validation(
 def test_valid_action_accepted(
     api_client,
     test_db,
+    auth_headers,
     action: str,
 ) -> None:
     resp = api_client.post(
@@ -87,12 +89,12 @@ def test_valid_action_accepted(
             "rationale": "test",
             "sentiment": "STRATEGIC",
         },
-        headers={"Authorization": "Bearer test-secret-token"},
+        headers=auth_headers,
     )
     assert resp.status_code == status.HTTP_201_CREATED
 
 
-def test_invalid_action_rejected(api_client, test_db) -> None:
+def test_invalid_action_rejected(api_client, test_db, auth_headers) -> None:
     resp = api_client.post(
         "/api/decisions",
         json={
@@ -101,7 +103,7 @@ def test_invalid_action_rejected(api_client, test_db) -> None:
             "rationale": "test",
             "sentiment": "STRATEGIC",
         },
-        headers={"Authorization": "Bearer test-secret-token"},
+        headers=auth_headers,
     )
     assert resp.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
 
@@ -118,6 +120,7 @@ def test_invalid_action_rejected(api_client, test_db) -> None:
 def test_valid_sentiment_accepted(
     api_client,
     test_db,
+    auth_headers,
     sentiment: str,
 ) -> None:
     resp = api_client.post(
@@ -128,12 +131,12 @@ def test_valid_sentiment_accepted(
             "rationale": "test",
             "sentiment": sentiment,
         },
-        headers={"Authorization": "Bearer test-secret-token"},
+        headers=auth_headers,
     )
     assert resp.status_code == status.HTTP_201_CREATED
 
 
-def test_risk_reduction_sentiment_rejected(api_client, test_db) -> None:
+def test_risk_reduction_sentiment_rejected(api_client, test_db, auth_headers) -> None:
     resp = api_client.post(
         "/api/decisions",
         json={
@@ -142,7 +145,7 @@ def test_risk_reduction_sentiment_rejected(api_client, test_db) -> None:
             "rationale": "test",
             "sentiment": "RISK_REDUCTION",
         },
-        headers={"Authorization": "Bearer test-secret-token"},
+        headers=auth_headers,
     )
     assert resp.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
 
@@ -152,7 +155,7 @@ def test_risk_reduction_sentiment_rejected(api_client, test_db) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_rationale_too_long_rejected(api_client, test_db) -> None:
+def test_rationale_too_long_rejected(api_client, test_db, auth_headers) -> None:
     resp = api_client.post(
         "/api/decisions",
         json={
@@ -161,12 +164,12 @@ def test_rationale_too_long_rejected(api_client, test_db) -> None:
             "rationale": "x" * 5001,
             "sentiment": "STRATEGIC",
         },
-        headers={"Authorization": "Bearer test-secret-token"},
+        headers=auth_headers,
     )
     assert resp.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
 
 
-def test_rationale_exactly_5000_accepted(api_client, test_db) -> None:
+def test_rationale_exactly_5000_accepted(api_client, test_db, auth_headers) -> None:
     resp = api_client.post(
         "/api/decisions",
         json={
@@ -175,7 +178,7 @@ def test_rationale_exactly_5000_accepted(api_client, test_db) -> None:
             "rationale": "x" * 5000,
             "sentiment": "STRATEGIC",
         },
-        headers={"Authorization": "Bearer test-secret-token"},
+        headers=auth_headers,
     )
     assert resp.status_code == status.HTTP_201_CREATED
 
@@ -185,7 +188,7 @@ def test_rationale_exactly_5000_accepted(api_client, test_db) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_target_price_negative_rejected(api_client, test_db) -> None:
+def test_target_price_negative_rejected(api_client, test_db, auth_headers) -> None:
     resp = api_client.post(
         "/api/decisions",
         json={
@@ -195,12 +198,12 @@ def test_target_price_negative_rejected(api_client, test_db) -> None:
             "sentiment": "STRATEGIC",
             "target_price": -5.0,
         },
-        headers={"Authorization": "Bearer test-secret-token"},
+        headers=auth_headers,
     )
     assert resp.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
 
 
-def test_target_price_zero_ok(api_client, test_db) -> None:
+def test_target_price_zero_ok(api_client, test_db, auth_headers) -> None:
     """gt=0 olduğu için 0 kabul edilmemeli. Ama business constraint: 0 olabilir?
     Prompt 2'de gt=0 → 0 reddedilmeli."""
     resp = api_client.post(
@@ -212,7 +215,7 @@ def test_target_price_zero_ok(api_client, test_db) -> None:
             "sentiment": "STRATEGIC",
             "target_price": 0.0,
         },
-        headers={"Authorization": "Bearer test-secret-token"},
+        headers=auth_headers,
     )
     assert resp.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
 
@@ -222,7 +225,7 @@ def test_target_price_zero_ok(api_client, test_db) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_valid_target_date_accepted(api_client, test_db) -> None:
+def test_valid_target_date_accepted(api_client, test_db, auth_headers) -> None:
     resp = api_client.post(
         "/api/decisions",
         json={
@@ -232,12 +235,28 @@ def test_valid_target_date_accepted(api_client, test_db) -> None:
             "sentiment": "STRATEGIC",
             "target_date": "2026-12-31",
         },
-        headers={"Authorization": "Bearer test-secret-token"},
+        headers=auth_headers,
     )
     assert resp.status_code == status.HTTP_201_CREATED
 
 
-def test_invalid_target_date_rejected(api_client, test_db) -> None:
+def test_future_decision_date_rejected_422(api_client, test_db, auth_headers) -> None:
+    """decision_date gelecekte olamaz (Prompt 7 kabulü: 422)."""
+    resp = api_client.post(
+        "/api/decisions",
+        json={
+            "asset_symbol": "BTC",
+            "action": "BUY",
+            "rationale": "test",
+            "sentiment": "STRATEGIC",
+            "decision_date": "2099-01-01",
+        },
+        headers=auth_headers,
+    )
+    assert resp.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+
+
+def test_invalid_target_date_rejected(api_client, test_db, auth_headers) -> None:
     resp = api_client.post(
         "/api/decisions",
         json={
@@ -247,7 +266,7 @@ def test_invalid_target_date_rejected(api_client, test_db) -> None:
             "sentiment": "STRATEGIC",
             "target_date": "not-a-date",
         },
-        headers={"Authorization": "Bearer test-secret-token"},
+        headers=auth_headers,
     )
     assert resp.status_code in (
         status.HTTP_400_BAD_REQUEST,

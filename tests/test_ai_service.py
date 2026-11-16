@@ -13,14 +13,11 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-import config
 from services.ai_service import (
     AIGenerationError,
     AIUnavailableError,
     _call_openrouter_with_fallback,
     _sanitize_user_input,
-    generate_decision_retrospective,
-    generate_risk_narrative,
 )
 
 
@@ -64,9 +61,7 @@ def test_openrouter_fallback_success(monkeypatch):
         else:
             mock_resp.status_code = 200
             mock_resp.json.return_value = {
-                "choices": [
-                    {"message": {"content": "Başarılı analiz metni."}}
-                ]
+                "choices": [{"message": {"content": "Başarılı analiz metni."}}]
             }
         return mock_resp
 
@@ -85,6 +80,7 @@ def test_openrouter_fallback_success(monkeypatch):
 
 def test_openrouter_all_models_fail(monkeypatch):
     """Tüm modeller hata verince AIGenerationError (502) fırlatılması."""
+
     def mock_post(url, headers=None, json=None):
         mock_resp = MagicMock()
         mock_resp.status_code = 503

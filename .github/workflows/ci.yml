@@ -53,7 +53,7 @@ jobs:
           pip install mypy
 
       - name: Run mypy (gevşek - ignore missing imports)
-        run: mypy --ignore-missing-imports --follow-imports=skip api/ services/ db.py config.py
+        run: mypy --ignore-missing-imports --follow-imports=skip api/ services/ config.py
 
   test:
     name: Pytest
@@ -71,8 +71,17 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      - name: Cache PocketBase binary
+        uses: actions/cache@v4
+        with:
+          path: pb_bin
+          key: pb-bin-${{ hashFiles('tests/conftest.py') }}
+
       - name: Run pytest
         run: pytest --tb=short -v
+
+      - name: Run PB integration tests
+        run: pytest -m pb --tb=short -v
 
   security:
     name: Pip Audit

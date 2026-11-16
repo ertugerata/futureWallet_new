@@ -1,237 +1,196 @@
-# FutureWallet – TODO & Sprint Takip Listesi (v3 Uyumlu)
+# FutureWallet – TODO & Sprint Takip Listesi (v4 – 2026-11-16 doğrulanmış durum)
 
-> **Kaynak & Dayanak:** `FUTUREWALLET_DUZELTME_PROMPTLARI.md` (v3).
-> **Temel İlke (Prompt 0):** Yalnızca gerçek PocketBase entegrasyon testinden geçen maddeler `[x]` yapılabilir. Kodda yazılmış olsa bile derleme/import hatası veren veya gerçek PB'de 500/TypeError üreten maddeler `[ ]` (AÇIK) olarak işaretlenmiştir.
+> **Kaynak & Dayanak:** `FUTUREWALLET_DUZELTME_PROMPTLARI.md` (v3); durum tespiti Graphify bilgi grafiği (`graphify-out/`, commit `45b1fcbe` + working tree) ve gerçek PocketBase (v0.40.6) test koşusu ile yapıldı.
+> **Temel İlke (Prompt 0):** Yalnızca gerçek PocketBase entegrasyon testinden geçen maddeler `[x]` yapılabilir.
+> **Doğrulama kanıtı:** `pytest tests` → **62/62 geçti** (tek oturum, gerçek PB sunucusu ile); `ruff check .` ve `ruff format --check .` temiz; `mypy api services config.py` (gevşek mod) hatasız; `python -c "import api.app"` başarılı; `pytest -m pb` 9 PB testini seçiyor.
 
 ---
 
-## 📊 Genel Durum Özeti (FUTUREWALLET_DUZELTME_PROMPTLARI.md Bölüm B)
+## 📊 Genel Durum Özeti
 
 | Alan / Konu | Gerçek Durum | TODO Durumu |
 |---|---|---|
-| `price_service.py` | Yazıldı ama **SyntaxError** içeriyor (`start_date` varsayılanlı parametreden sonra) | [ ] AÇIK |
-| Yeni endpoint'ler (`value-series`, `benchmarks`, `stress-test`, `narrative`, shadow-positions, `stats`, `DELETE decision`) | Eklendi; ancak çağrıldığında çoğu **500 Internal Server Error** veriyor | [ ] AÇIK |
-| PB Okuma Yolları | **Tamamı kırık** (`get_list(params=...)` TypeError, `transactions.get(id)` AttributeError, `update(record)` TypeError) | [ ] AÇIK |
-| Auth & Kimlik Doğrulama | `X-User-ID` başlığı ve statik `API_TOKEN` kullanılıyor; kullanıcı izolasyonu yok, PB auth entegrasyonu yok | [ ] AÇIK |
-| Şema & Erişim Kuralları | PB koleksiyonları HTTP 400 hatasıyla oluşturulamıyor (`ensure_collections` kırık); kurallar güvensiz/açık | [ ] AÇIK |
-| Uygulama İçe Aktarımı & Testler | `api.app` import edilemiyor (`TransactionCreateRequest` sıra hatası); pytest 45 toplama hatası | [ ] AÇIK |
-| Rate Limit Mantığı | Zaman penceresi sayacı düzeldi; ancak anahtar hâlâ (IP, token), kullanıcıya bağlı değil | [ ] Kısmen |
-| GBM Drift | Düzeldi (mean log, varyans düzeltmesi yok) | [x] Tamamlandı |
-| Monte Carlo Histogram | Eklendi (40 kutu) | [x] Tamamlandı |
-| Temizlik & Bağımlılıklar | `futurewallet.db` git'te duruyor, `db.py` ve SQLAlchemy bağımlılıkları temizlenmedi | [ ] AÇIK |
+| Uygulama import / derleme | `api.app` sorunsuz import ediliyor; Pydantic model sırası düzeltildi | [x] Tamamlandı |
+| `price_service.py` | SyntaxError giderildi; `get_price_on` PB→yfinance→ccxt zinciri çalışıyor | [x] Tamamlandı |
+| PB Okuma Yolları | `services/pb.py` sarmalayıcıları (`get_full_list`/`get_one`/`update(id, body)`); tüm filtreler `client.filter(raw, params)` parametreli | [x] Tamamlandı |
+| Auth & Kimlik Doğrulama | `X-User-ID` ve statik `API_TOKEN` tamamen kaldırıldı; `get_current_user` PB JWT doğrulaması + sahiplik kontrolleri canlı | [x] Tamamlandı |
+| Şema & Erişim Kuralları | `pb_migrations/` 6 koleksiyon, RLS kuralları, benzersiz indeksler (`price_history(symbol,date)`, `macro_data(date)`), kullanıcı izolasyonu test edildi | [x] Tamamlandı |
+| Test Altyapısı | Gerçek PB binary fixture'ları; PB'yi taklit eden MagicMock yok (yalnızca dış AI/HTTP mock'ları) | [x] Tamamlandı |
+| Ledger | 409 yetersiz stok, kullanıcı bazlı kilit, ortalama maliyet, unrealized PnL, `cash_received` (DIVIDEND) | [x] Tamamlandı |
+| AI Servisi | OpenRouter fallback zinciri + 502/503 semantiği + prompt injection etiketi | [x] Tamamlandı |
+| Zamanlayıcı | APScheduler lifespan'a entegre, `ENABLE_SCHEDULER` ile kapatılabilir, EXPIRED otomatik job'ı | [x] Tamamlandı |
+| Benchmark | `_upsert_to_pb` ve `_get_pb_price` düzeltildi (bozuk `get_list(params=)` kalıntısı temizlendi); alpha/gold birim testi YOK | [ ] Kısmen |
+| Monte Carlo / Stres | Endpoint'ler ve limitler (20k simülasyon, 15 varlık) var; kabul kriteri senaryoları doğrulanmadı | [ ] Kısmen |
+| Web Arayüzü | PB login akışı yok; `innerHTML` kullanımı ve inline style (CSP) duruyor | [ ] AÇIK |
+| Temizlik & Bağımlılıklar | `futurewallet.db`, `db.py`, `sanitize_symbols.py`, `future_price.py` silindi; `google-genai` + `schedule` hâlâ requirements'ta; değişiklikler commit edilmedi | [ ] Kısmen |
 
 ---
 
-## 🏃 Uygulama Sırası ve İş Listesi (Prompt 0 - Prompt 15)
+## 🏃 İş Listesi (Prompt 1 – Prompt 15)
 
-### 🔴 Prompt 1: Uygulamayı Ayağa Kaldır, Lint / CI / Bağımlılıklar (Kritik)
-*Bağımlılık: Yok*
+### ✅ Prompt 1: Uygulamayı Ayağa Kaldır, Lint / CI / Bağımlılıklar
+- [x] `api/app.py` Pydantic model tanımlama sırası düzeltildi.
+- [x] `services/price_service.py` imza sözdizimi hatası giderildi.
+- [x] Tanımsız isimler temizlendi (ruff F821 yok; `guess_asset_type` tek modüle taşındı).
+- [x] `decision_to_dict` tekilleştirildi (yalnızca `services/decision_service.py`).
+- [x] Kullanılmayan değişken/import temizliği (`ruff check .` 0 hata).
+- [x] `ruff.toml` geçerli; `ruff check` + `ruff format --check` CI'da koşuyor.
+- [x] SQLAlchemy `from db import` kaldırıldı; `db.py` silindi.
+- [x] `lifespan` fail-closed (PB credential zorunluluğu `config.py` import'unda), koleksiyon doğrulama + migration koşumu, `/health` `pb: ok|down` alanı.
+- [x] `pocketbase==0.17.3`, `apscheduler`, `httpx` sabitlendi; `requirements.txt` pip-compile kilidi.
+- [ ] CI'ya ayrıca `python -c "import api.app"` duman adımı ekle (pytest zaten import ediyor; öncelik düşük).
+- **Kabul Kriteri:** ✅ `import api.app` ve `pytest --collect-only` 0 hata; `ruff check .` temiz.
 
-- [ ] `api/app.py` Pydantic model tanımlama sırasını düzelt (`TransactionCreateRequest` endpoint'ten önce tanımlanmalı; satır 859 vs 880).
-- [ ] `services/price_service.py` imza sözdizimi hatasını gider (`start_date, end_date, asset_type="crypto"`).
-- [ ] Tanımsız ruff isimlerini düzelt: `timedelta` (app.py: ~506/513/519), `request` (monte-carlo endpoint'i: ~843), `_guess_asset_type` (~832), `Optional` (ledger_service.py: 246, 278).
-- [ ] Çift tanımlı `decision_to_dict` fonksiyonunu tekleştir (yalnızca `services/decision_service.py` içinde olmalı).
-- [ ] Kullanılmayan değişken ve importları temizle (`user_id`, `delete_decision`, `db.py` importları).
-- [ ] `ruff.toml` dosyasını geçerli hâle getir (`line-length = 100` en üst seviyeye taşınmalı; geçersiz `[format]` alanı düzeltilmeli).
-- [ ] `api/app.py` içinden `db` / SQLAlchemy (`from db import get_session`) importunu kaldır.
-- [ ] `lifespan`: fail-closed yapılandırma doğrulaması, PB bağlantı ve koleksiyon kontrolü ekle; `@app.on_event` kaldır; `/health` yanıtına `pb: ok|down` ekle.
-- [ ] `requirements.txt`: `pocketbase==0.17.3`, `apscheduler`, `httpx` ekle; `requirements.in` + `pip-compile` ile kilit dosyası oluştur.
-- [ ] CI pipeline'ına duman testi (`python -c "import api.app"`), ruff, mypy, pytest, pip-audit ekle.
-- [ ] **Kabul Kriteri:** `python -c "import api.app"` ve `pytest --collect-only -q` 0 hata; `ruff check .` temiz.
+### ✅ Prompt 2: Gerçek PocketBase ile Test Altyapısı
+- [x] `tests/conftest.py` gerçek PB v0.40.6 binary'si ile (otomatik indirme, geçici `--dir`, superuser, shutdown).
+- [x] `pb_server`, `pb_clean` (koleksiyonlar + retrospektif hız sayaçları sıfırlanıyor), `make_user(email)` → `(user_id, JWT, user_client)`, `auth_headers` fixture'ları.
+- [x] `api_client` gerçek PB'ye bağlı FastAPI TestClient.
+- [x] Dış servisler için izole mock'lar (AI/HTTP); PB'yi taklit eden MagicMock kalmadı.
+- [x] SQLAlchemy/SQLite tabanlı fixture ve testler silindi.
+- [x] GitHub Actions: `pb_bin` önbellek adımı + `pytest -m pb` adımı.
+- **Kabul Kriteri:** ✅ `pytest -m pb` (9 test) gerçek PB'ye karşı koşuyor; tam suite 62/62 geçti.
 
----
+### ✅ Prompt 3: PB Şema, Erişim Kuralları ve Migration
+- [x] `pb_migrations/` repoda (users güncellemesi + macro_data, price_history, transactions, decisions, shadow_portfolios).
+- [x] Bozuk `ensure_collections`/`create_collection` kodu silindi (`services/pocketbase.py` yok).
+- [x] Sentiment enum'ı eşitlendi: `FOMO, STRATEGIC, PANIC, DIVIDEND, OPPORTUNITY`; `RISK_REDUCTION` API, servis, web şablon ve CSS'inden kaldırıldı; tek enum modülü `services/enums.py`.
+- [x] `decisions`: `transaction` relation, `decision_date`, `outcome_*`, `target_hit` alanları.
+- [x] `shadow_portfolios`: `user` relation zorunlu, `decision` relation `cascadeDelete=true`.
+- [x] Benzersiz indeksler: `idx_price_history_symbol_date`, `idx_macro_data_date`.
+- [x] Erişim kuralları migration'larda: kullanıcı bazlı list/view/create/update/delete; `macro_data`/`price_history` yalnız admin yazma; `users` createRule `null`.
+- **Kabul Kriteri:** ✅ Migration + iki kullanıcılı izolasyon testleri (404) geçiyor; `RISK_REDUCTION` 422.
 
-### 🔴 Prompt 2: Gerçek PocketBase ile Test Altyapısı (Kritik Altyapı)
-*Bağımlılık: Prompt 1*
+### ✅ Prompt 4: PB Dağıtımı, Sırlar ve Docker Compose
+- [x] `docker/pocketbase/Dockerfile` + `entrypoint.sh` (PB 0.40.6, `pb_migrations` COPY, healthcheck).
+- [x] `docker-compose.yml`: PB bağımsız servis; `pb_data` yalnız PB'de; `API_TOKEN` env satırı kaldırıldı.
+- [x] Sırlar `${VAR:?required}`; `changeme` / `admin@example.com` yok.
+- [x] `config.py`: PB credential'ları boşsa RuntimeError (fail-closed); `DATABASE_URL`/`GOOGLE_API_KEY`/`GEMINI_MODEL` temizlendi; `OPENROUTER_*` tanımlı.
+- [x] `.env.example` PB + OpenRouter + scheduler değişkenleriyle güncel.
+- **Kabul Kriteri:** ✅ `docker compose config` parola olmadan hata veriyor.
 
-- [ ] `tests/conftest.py` dosyasını gerçek PocketBase (v0.40.6) binary'si ile çalışacak şekilde yeniden yaz.
-- [ ] `pb_server` fixture'ı: PB v0.40.6 binary otomatik indirme, checksum doğrulama, geçici `--dir`, superuser oluşturma, test bitiminde kapatma.
-- [ ] `pb_clean` fixture'ı: her test öncesi/sonrası koleksiyonları temizleme.
-- [ ] `make_user(email)` fixture'ı: `(user_id, JWT)` üretimi.
-- [ ] `api_client` fixture'ı: gerçek PB'ye bağlı FastAPI TestClient (PB mock'ı kaldırılacak).
-- [ ] Dış servisler (yfinance, ccxt, OpenRouter, EVDS, FRED) için izole mock fixture'ları.
-- [ ] SQLAlchemy / in-memory SQLite (`Base`, `db.py`) tabanlı eski fixture ve testleri sil.
-- [ ] GitHub Actions'a PB binary önbellekleme ve `pytest -m pb` adımı ekle.
-- [ ] **Kabul Kriteri:** `pytest -m pb` gerçek PB'ye karşı çalışır; kod tabanında PB'yi taklit eden MagicMock kalmaz.
+### ✅ Prompt 5: PB İstemci Katmanı — tek eksik: event loop
+- [x] `services/pb.py`: `get_admin_client()` (thread-safe singleton, otomatik yenileme), `get_user_client(token)`, `list_all/get_one/create_record/update_record/delete_record`, `verify_collections`.
+- [x] Tüm f-string filtreler `client.filter(raw, params)` parametreli hâle getirildi (ledger ×3, counterfactual, benchmark ×3, decision).
+- [x] Kırık `get_list(params=...)` çağrıları düzeltildi (`benchmark_service._get_pb_price` — benchmarks'i hep boş döndüren sessiz yutma giderildi).
+- [x] `transactions.get(id)` → `get_one(id)`; `update(record)` → `update(id, body)`.
+- [x] `_get_holdings_at_date` sessiz `except: records = []` yutması kaldırıldı (log + Python taraflı yedek sorgu).
+- [ ] **PB/ağ çağıran endpoint'ler hâlâ `async def` ve tıkanan SDK çağrılarını event loop üzerinde yapıyor** → senkron `def`'e çevir (FastAPI threadpool'da çalıştırır). Mevcut `await` kullanımı yalnız lifespan/middleware/health'te; dönüşüm mekanik ve risksiz.
+- **Kabul Kriteri:** ✅ liste/tekil uçlar testte dönüyor; filtre enjeksiyonu parametreli.
 
----
+### ✅ Prompt 6: Kimlik Doğrulama ve Kullanıcı İzolasyonu
+- [x] `X-User-ID` ve statik `API_TOKEN` mekanizması kaldırıldı (kod, config, `.env.example`, compose).
+- [x] `get_current_user` bağımlılığı: `Authorization: Bearer <PB_JWT>` → `users.auth_refresh()` (geçersiz → 401); `CurrentUser(id, email, token, pb)`; kullanıcı bazlı PB istemcisi `request.state`'te.
+- [x] Tekil kaynak uçlarında sahiplik kontrolü → 404 (decisions GET/PUT/DELETE/close/target-check/evaluate/retrospective, shadow-positions, transactions void).
+- [x] Liste/özet uçları çağıran kullanıcıya filtreli (`/api/decisions` sızıntısı bu turda kapatıldı; `/api/counterfactual` sahiplik kontrolü eklendi).
+- [x] Rate limit kullanıcı + endpoint(karar) bazında: retrospektif 60 sn'de 1; `reset_rate_limits()` ile testlerde sıfırlanabilir.
+- [x] 64 KB gövde limiti middleware'i (Content-Length → 413).
+- [x] CORS/TrustedHost + üretim OpenAPI ayarı (`DEBUG=false` → `/docs`, `/redoc`, `/openapi.json` kapalı).
+- **Kabul Kriteri:** ✅ Token yok → 401; A→B → 404; aynı karar 2. retrospektif → 429; 65 KB → 413 (testlerle kanıtlı).
 
-### 🔴 Prompt 3: PB Şema, Erişim Kuralları ve Migration (Kritik Güvenlik)
-*Bağımlılık: Prompt 2*
+### ✅ Prompt 7: Ledger + Decision Düzeltmeleri
+- [x] SELL/CASH_OUT yetersiz stok/bakiye → `InsufficientBalanceError` → HTTP 409.
+- [x] Kullanıcı bazlı süreç içi kilit (`_user_locks`) altında stok kontrolü + kayıt.
+- [x] `void_transaction` soft-delete (`voided=true`), tekrarlı çağrıda aynı durum (idempotent).
+- [x] Snapshot: `average_cost`, `unrealized_pnl`/`pnl_pct`, **`cash_received`** (DIVIDEND nakit birikimi; nakit için fiyat araması yapılmaz) — bu turda eklendi.
+- [x] `decision_date` gelecek tarih → **422** (Pydantic validator; servis tarafı ValueError koruması da duruyor); transaction bağlantısı ve boş sayısal → `None`.
+- [x] Route sırası: `/api/decisions/stats` `{decision_id}`'den önce tanımlı.
+- [x] Hatalar standart HTTP kodlarıyla (404/409/422/400/500; `{"error"}` 200 kalıntısı `target-check`/`counterfactual` uçlarında JSONResponse 404'e bağlandı).
+- **Kabul Kriteri:** ✅ 2 BUY + 1 SELL ortalama maliyet testi, aşan SELL 409, void snapshot dışı, stats 200, DIVIDEND `cash_received` — hepsi test suite'inde geçiyor.
 
-- [ ] PB Dev admin arayüzü ile geçerli şemaları oluştur ve `pb_migrations/` dizinini repoya ekle.
-- [ ] `services/pocketbase.py` içindeki bozuk `ALL_COLLECTIONS`, `create_collection`, `ensure_collections` kodunu sil (uygulama yalnızca şema doğrulasın).
-- [ ] Tek doğruluk kaynağı (MVP §5 uyumu):
-  - Sentiment değerlerini eşitle: `FOMO`, `STRATEGIC`, `PANIC`, `DIVIDEND`, `OPPORTUNITY`. `RISK_REDUCTION`'ı tüm koddan kaldır (api, servis, validator). Tek enum modülü: `services/enums.py`.
-  - `decisions`: `transaction` relation alanı, `decision_date` (date), `outcome_*`, `target_hit` alanlarını şemaya ekle.
-  - `shadow_portfolios`: `user` relation (zorunlu), `decision` relation (cascadeDelete=true).
-  - Benzersiz indeksler: `price_history(symbol, date)`, `macro_data(date)`.
-  - Regex ve kısıtlar: `asset_symbol` (max 20, `^[A-Z0-9.=^\-/]{1,20}$`), `rationale` max 5000, `target_price > 0`.
-- [ ] Erişim Kuralları (API Rules):
-  - `transactions`, `decisions`, `shadow_portfolios`: list/view `user = @request.auth.id`, create `@request.auth.id != '' && @request.body.user = @request.auth.id`, update `user = @request.auth.id && @request.body.user:isset = false`, delete `user = @request.auth.id` (`transactions` için soft-delete voided).
-  - `macro_data`, `price_history`: list/view `@request.auth.id != ''`, create/update/delete `null` (yalnızca admin).
-  - `users`: herkese açık kayıt kapalı (`createRule: null`).
-- [ ] **Kabul Kriteri:** Boş PB'ye migration uygulanınca 5 koleksiyon oluşur; Kullanıcı A, B'nin kaydını okuyamaz/değiştiremez; anonim erişim engellenir; `RISK_REDUCTION` 422 ve PB tarafından reddedilir.
+### ✅ Prompt 8: AI Servisi: OpenRouter + Hata Semantiği
+- [ ] `google-genai` paketi `requirements.in`/`requirements.txt`'den çıkarılacak (kod artık kullanmıyor; bağımlılık çöpü — Prompt 15 ile birlikte).
+- [x] OpenRouter istemcisi: `OPENROUTER_API_KEY`, `OPENROUTER_BASE_URL`, `OPENROUTER_MODELS` fallback zinciri.
+- [x] Zaman aşımı / 5xx / 429 → sonraki model; tümü düşerse 502; anahtar yoksa 503 (`AIUnavailableError`).
+- [x] Prompt güvenliği: `<user_input>` etiketi, kaçırma, 2000 karakter sınırı; "Yatırım tavsiyesi değildir" uyarısı.
+- [x] Retrospektif bağlamı (karar tarihi/vade fiyatı, duygu) + başarıda `status: REVIEWED` güncellemesi.
+- **Kabul Kriteri:** ✅ Fallback/502/503 testleri (`tests/test_ai_service.py`) geçiyor.
 
----
+### 🟠 Prompt 9: Price Service, Time-Travel ve Value-Series — tek eksik para birimi
+- [x] `price_service` sözdizimi/imza düzeltmeleri; PB cache `list_all` ile.
+- [x] `get_price_on(symbol, asset_type, on_date)`: PB → yfinance → ccxt; hafta sonu/tatil önceki iş günü; yoksa `None` + `missing_prices`.
+- [x] Ledger `price_fn` imzası `(symbol, asset_type, on_date)`.
+- [x] Time-travel hesapları (`value_at_start`/`value_at_target`/nominal-yüzde PnL).
+- [x] `/api/portfolio/value-series`: 400 nokta limiti (422), gerçek 7 günlük haftalık adım, `timedelta` importlu.
+- [x] `/api/portfolio/real-valuation`: `nominal_end` yoksa `date_to` snapshot'ı kullanılıyor.
+- [ ] **Para birimi dinamik değil:** `value-series` yanıtında `"currency": "TRY"` sabit; `simulation_service` dinamik `currency` üretiyor. Varlık tabanına göre USD/TRY seçimi bağlanmalı (P14 seçiciyle de bağlantılı).
+- **Kabul Kriteri:** ✅ value-series 422 limiti testte; cache isabeti dış çağı kırpıyor.
 
-### 🔴 Prompt 4: PB Dağıtımı, Sırlar ve Docker Compose (Kritik Güvenlik)
-*Bağımlılık: Prompt 3*
+### 🟠 Prompt 10: Gölge Portföy — `track_shadow` gerçeğe bağlanacak
+- [x] `counterfactual_service` yeni PB katmanı + `CurrentUser` mimarisinde; endpoint'ler kullanıcı filtreli.
+- [ ] `track_shadow=True` hâlâ **`quantity=1.0` ve `entry_price=body.target_price`** sahte değeriyle gölge açıyor (`api/app.py:692`); SELL'e bağlı transaction'ın gerçek miktar/fiyatı kullanılmalı (kararın `transaction_id` relation'ından çözülür).
+- [x] `HELD_INSTEAD`/`BOUGHT_INSTEAD` tipleri + fırsat maliyeti (gölge − gerçek) hesabı serviste.
+- [x] `what_if_scenario` gerçek pozisyon/tarihsel fiyat bağlı (sahte placeholder serviste kalmadı).
+- [x] İzolasyon: başkasının gölgesine erişim 404; karar silinince `cascadeDelete` ile gölgeler siliniyor (`test_decision_and_shadow_portfolio_cascade` geçiyor).
+- **Kabul Kriteri:** ⚠️ Kısmen — miktar/fiyat bağı gerçek veriye bağlanınca tamamlanacak.
 
-- [ ] `docker/pocketbase/Dockerfile` oluştur (sabit PB 0.40.6, checksum, non-root user, `pb_migrations` COPY, `CMD ["serve", "--http=0.0.0.0:8090"]`, healthcheck).
-- [ ] `docker-compose.yml` güncelle: PB için bağımsız build, `pb_data` yalnızca PB servisine mount edilsin (FastAPI uygulamasına SQLite veritabanı mount edilmeyecek).
-- [ ] Sırları `${VAR:?zorunlu}` kalıbıyla zorunlu kıl; kod ve compose'dan sabit `admin@example.com` ve `changeme` değerlerini tamamen kaldır.
-- [ ] `config.py`: `POCKETBASE_EMAIL` / `POCKETBASE_PASSWORD` varsayılanlarını kaldır (boşsa RuntimeError); `DATABASE_URL`, `GOOGLE_API_KEY`, `GEMINI_MODEL` ölü ayarlarını temizle; `OPENROUTER_*` ekle.
-- [ ] `.env.example` dosyasını PB + OpenRouter değişkenleriyle güncelle; port haritasını dokümante et (8080 -> 8090).
-- [ ] **Kabul Kriteri:** `docker compose config` parola verilmeden hata verir; repoda `changeme` kalmaz; app konteyneri PB veri dizinini görmez.
+### 🟠 Prompt 11: Benchmark, Enflasyon, Zamanlayıcı — test eksiği
+- [x] `_upsert_to_pb` admin client + `date` benzersiz indeksi ile; sentetik sahte veri yazımı yok.
+- [x] EVDS/FRED anahtarsızken sahte veri üretmiyor (açık `None` / `data_quality` bayrağı).
+- [x] `gold_try_gram = (GC=F_USD / 31.1035) × USDTRY` hesaplaması serviste.
+- [x] APScheduler lifespan'de; günlük benchmark + `auto_close_expired_decisions`; `ENABLE_SCHEDULER=false` ile kapanıyor.
+- [x] `/api/portfolio/benchmarks` portföy/altın/S&P/TÜFE + alpha döndürüyor (`_get_pb_price` hatası bu turda düzeltildi — önceden hep boştu).
+- [ ] **Kabul kriteri birim testi eksik:** `gold_try_gram` ve alpha için deterministik birim testi yazılmalı (upsert tek kayıt testi PB ile zaten kapsanıyor).
 
----
+### 🟡 Prompt 12: Monte Carlo ve Stres Testi — kabul doğrulaması bekliyor
+- [x] `stress_test` `session` parametresi kaldırıldı; uçlar JWT kimliğiyle.
+- [x] `monte_carlo_endpoint` tanımsız `request`/`_guess_asset_type` hataları giderildi; 15 varlık / 20.000 simülasyon üst sınırları (422) uygulanıyor.
+- [ ] `market_crash` şok kalıcılığı (tüm günlere tam çarpan) — sayısal doğrulama testi yok.
+- [ ] Varlık sınıfı duyarlılık tablosu (hisse/kripto/emtia/nakit farklı tepki) — kod var, kabul testi yok.
+- [ ] 63/126/252 çoklu horizon + 40 kutu histogram + p5/p50/p95 çıktı sözleşmesi — uç var, sabit `mu/sigma` medyan yakınsama testi yok.
+- [ ] Cholesky korelasyonlu simülasyon doğrulaması.
+- **Kabul Kriteri:** ⚠️ Doğrulanmadı — deterministik seed ile birim testleri yazılmalı.
 
-### 🔴 Prompt 5: PB İstemci Katmanı (SDK Senkron Kullanımı & Okuma Yolları) (Kritik İşlevsel)
-*Bağımlılık: Prompt 3*
+### ✅ Prompt 13: Karar Günlüğü: Stats, Outcome, EXPIRED
+- [x] `DELETE /api/decisions/{id}` sahiplik + PB cascade (testli).
+- [x] Vadesi dolmuş kararlarda `outcome_price`, `outcome_return_pct`, `target_hit` `price_service` üzerinden dolduruluyor (`evaluate_decision`).
+- [x] `POST /api/decisions/{id}/evaluate` manuel değerlendirme ucu.
+- [x] `GET /api/decisions/stats` sentiment/status sayıları + outcome ortalama/medyan; `n < 3` → `insufficient_data: true`.
+- [x] Zamanlayıcı job'ı vadesi geçmiş OPEN kararları EXPIRED yapıyor.
+- **Kabul Kriteri:** ✅ Route/istatistik testleri geçiyor.
 
-- [ ] `services/pb.py` (yeni modül; eski `services/pocketbase.py` silinecek):
-  - `get_admin_client()`: macro_data, price_history ve zamanlanmış işler için superuser istemcisi (thread-safe, auto-refresh).
-  - `get_user_client(token)`: her HTTP isteği için kullanıcı JWT'si ile yetkilendirilmiş istek-bazlı PocketBase istemcisi.
-  - Yardımcı metodlar: `list_all` (`get_full_list`), `get_one`, `create`, `update(id, body)`, `delete(id)`.
-  - Sorgularda `client.filter(raw, params)` kullanımı (f-string ile enjeksiyona açık filtreleme yasak).
-  - Hata dönüşümü: PB HTTP 400/401/403/404 hatalarını FastAPI exception handler'a bağla.
-- [ ] Kırık tüm `get_list(params=...)` çağrılarını düzelt (ledger, decision, counterfactual, benchmark, price_service).
-- [ ] `transactions.get(id)` (AttributeError) yerine `get_one(id)` kullan.
-- [ ] `update(record/dict)` imza hatalarını gider (`update(id, body)`).
-- [ ] Ledger `_get_holdings_at_date` içindeki sessiz `except Exception: records = []` yutmasını kaldır.
-- [ ] PB ve ağ çağrısı yapan endpoint'leri senkron `def` (veya run_in_threadpool) hâline getir (event loop bloklanmasını önle).
-- [ ] **Kabul Kriteri:** 600+ kayıtlı koleksiyonda `list_all` sorunsuz döner; daha önce 500 veren list_decisions, get_decision, get_transactions, stats çalışır; filtre enjeksiyon testleri geçer.
+### ❌ Prompt 14: Web Arayüzü: PB Girişi ve Paneller (hepsi AÇIK)
+- [ ] Giriş ekranı `/web/login`: `users/auth-with-password`, sessionStorage'da PB JWT, `auth-refresh`, 401 → login yönlendirmesi. **Mevcut `app.js` hâlâ `sessionStorage.apiToken` (eski statik token) gönderiyor; P6 sonrası tüm web API çağrıları 401 alacak — P14, P6'nın planlı ardılıdır.**
+- [ ] `apiFetch`'e Bearer PB JWT entegrasyonu (login akışıyla birlikte).
+- [ ] CSP: `decision_form.html` inline style'ları CSS'e; Chart.js yerel vendor veya SRI (`dashboard.html` CDN kullanıyor).
+- [ ] `app.js:379` `card.innerHTML = html` → sunucu verisi `textContent`/DOM API ile basılmalı (XSS).
+- [ ] Paneller: Time-Travel, Karar Günlüğü (Retrospektif/Kapat/Sil), Gölge Portföy, Stres Testi (histogram + p5/p50/p95 + AI anlatı), İşlem Ekleme/Geçmişi.
+- [ ] USD/TRY seçicisini API `currency` alanına bağla (P9'daki dinamik para birimiyle eş zamanlı).
+- [ ] "Yatırım tavsiyesi değildir" uyarısı tüm altbilgilerde ve AI çıktılarında.
+- **Kabul Kriteri:** ❌ Login → dashboard akışı CSP/konsol hatasız kurulamadı.
 
----
-
-### 🔴 Prompt 6: Kimlik Doğrulama ve Kullanıcı İzolasyonu (Kritik Güvenlik)
-*Bağımlılık: Prompt 5*
-
-- [ ] İstemci başlığından sahte kimlik alan `X-User-ID` ve statik `API_TOKEN` mekanizmasını tamamen kaldır.
-- [ ] FastAPI `get_current_user` bağımlılığı oluştur: `Authorization: Bearer <PB_JWT>` başlığını al, `users.auth_refresh()` ile doğrula (geçersiz -> 401), kullanıcı bazlı PB istemcisini sağla (`CurrentUser(id, email, token, pb)`).
-- [ ] Tekil kaynak endpoint'lerinde (decisions GET/PUT/DELETE/close/target-check/retrospective, shadow-positions, transactions void) kullanıcı sahiplik doğrulaması yap (başkasının verisine erişim -> 404).
-- [ ] Liste ve özet uç noktalarını çağıran kullanıcıya göre filtrele.
-- [ ] Rate limit mekanizmasını kullanıcı kimliği + endpoint bazında izole et; sayaç testlerde sıfırlanabilir olsun.
-- [ ] 64 KB istek gövdesi limiti middleware'i ekle (büyük payload DoS koruması).
-- [ ] CORS ve OpenAPI üretim ayarlarını yapılandır (üretimde `/docs` kapatılabilir).
-- [ ] **Kabul Kriteri:** Token yoksa 401; Kullanıcı A, B'nin id'sini sorguladığında 404; Retrospective aynı karar için 60 sn içinde 2. istekte 429; 70 KB payload 413 döner.
-
----
-
-### 🟠 Prompt 7: Ledger + Decision Düzeltmeleri (Yüksek)
-*Bağımlılık: Prompt 5, Prompt 6*
-
-- [ ] `add_transaction`: SELL ve CASH_OUT işlemlerinde yetersiz stok / bakiye durumunda **409 Conflict** fırlat.
-- [ ] Kullanıcı bazlı süreç-içi kilit altında işlem kontrolü ve oluşturma uygula.
-- [ ] `void_transaction`: `update(id, {"voided": true})` soft-delete ve idempotent yap.
-- [ ] Snapshot hesaplaması: ortalama maliyet (average_cost), gerçekleşmemiş K/Z (unrealized PnL), `cash_received` (DIVIDEND), komisyon (fee) maliyet bazı eklemesi.
-- [ ] `decision_service`: tekil `decision_to_dict`; `create_decision` içinde `decision_date` (gelecek tarih girilirse 422) kaydet ve oku; transaction bağlantısını doğrula; boş sayısal değerleri `None` döndür.
-- [ ] Route sıralama hatasını düzelt: `GET /api/decisions/stats` route'unu `GET /api/decisions/{decision_id}` route'undan ÖNCE tanımla.
-- [ ] Hataları HTTP 200 + `{"error": ...}` yerine standart HTTP hata kodlarıyla fırlat (404, 409, 422, 502, 503).
-- [ ] **Kabul Kriteri:** 2 BUY + 1 SELL sonrası portföy ortalama maliyeti doğru; stok aşan SELL 409; void işlem snapshot'ı etkilemez; `GET /api/decisions/stats` 200 döner.
-
----
-
-### 🟠 Prompt 8: AI Servisi: OpenRouter + Hata Semantiği (Yüksek)
-*Bağımlılık: Prompt 7*
-
-- [ ] `google-genai` bağımlılığını ve `GOOGLE_API_KEY` / `GEMINI_MODEL` yapılandırmasını kaldır.
-- [ ] OpenRouter istemcisi oluştur (`OPENROUTER_API_KEY`, `OPENROUTER_BASE_URL`, `OPENROUTER_MODELS` virgülle ayrılmış fallback zinciri).
-- [ ] HTTP istemcisi (httpx) ile fallback modeli: sırasıyla modelleri dene; zaman aşımı / 5xx / 429 durumunda sonraki modele geç; tümü başarısızsa `502 AIGenerationError`; API anahtarı eksikse `503 AIUnavailableError`.
-- [ ] Prompt güvenliği: kullanıcı notunu `<user_input>...</user_input>` etiketleri arasına al; etiketleri kaçır ve 2000 karakterle sınırla; "Yatırım tavsiyesi değildir" uyarısını yanıta ekle.
-- [ ] `generate_decision_retrospective` bağlamına karar tarihi/vade fiyatı ve duygu analizi verilerini ekle.
-- [ ] Başarılı retrospektifte PB'deki karar kaydını `ai_retrospective` ve `status: "REVIEWED"` ile güncelle; hata durumunda DB'yi değiştirme.
-- [ ] **Kabul Kriteri:** İlk model 500 verirse ikinciye geçer ve başarıda DB status "REVIEWED" olur; tüm modeller çökerse 502 döner; prompt injection etiket dışına çıkamaz.
-
----
-
-### 🟠 Prompt 9: Price Service, Time-Travel ve Value-Series (Yüksek)
-*Bağımlılık: Prompt 5, Prompt 7*
-
-- [ ] `services/price_service.py` sözdizimi ve imza hatalarını düzelt; PB price_history cache kontrolünü `list_all` ile yap.
-- [ ] `get_price_on(symbol, asset_type, on_date)` fonksiyonu: PB price_history -> yfinance -> ccxt sırasıyla ara; hafta sonu/tatilde önceki işlem gününü al; fiyat bulunamazsa `None` dön ve `missing_prices` listesine ekle.
-- [ ] Ledger `price_fn` imzasını `(symbol, asset_type, on_date)` olarak güncelle.
-- [ ] Time-Travel hesaplaması: `value_at_start = start_holdings × price(T_start)`, `value_at_target = start_holdings × price(T_target)`, `actual_value_at_target = snapshot(T_target)`; nominal ve yüzde K/Z hesapla.
-- [ ] `GET /api/portfolio/value-series`: max 400 nokta sınırı (aşarsa 422); haftalık adım için gerçek 7 gün aralığı kullan; eksik `timedelta` importunu ekle; çoklu snapshot yerine toplu fiyat sorgusu yap.
-- [ ] `GET /api/portfolio/real-valuation`: `nominal_end` verilmediğinde `date_to` snapshot'ını kullan (`date_from` hatasını gider).
-- [ ] Para birimini varlık tabanına göre dinamik belirle (USD/TRY dönüşümü).
-- [ ] **Kabul Kriteri:** BTC 5 adet 30k -> 60k testinde time-travel %100 PnL üretir; value-series 400+ noktada 422 verir; cache isabetinde dış API'ye gitmez.
-
----
-
-### 🟡 Prompt 10: Gölge Portföy (Counterfactual Engine) (Orta)
-*Bağımlılık: Prompt 7, Prompt 9*
-
-- [ ] `services/counterfactual_service.py` servisini yeni PB katmanına ve `CurrentUser` mimarisine taşı.
-- [ ] `track_shadow` mantığı: SELL kararı için `HELD_INSTEAD` (satılan miktar ve fiyatla); alternatif alım için `BOUGHT_INSTEAD`.
-- [ ] Fırsat maliyeti hesabı: `HELD_INSTEAD` için gerçek = nakit gelir, gölge = miktar × güncel fiyat; `fırsat maliyeti = gölge - gerçek`.
-- [ ] `what_if_scenario` içindeki sahte (`quantity=1.0`, `type="crypto"`) placeholder kodu kaldır; gerçek pozisyon ve tarihsel fiyat bağla.
-- [ ] Kullanıcı izolasyonu: başkasının gölge pozisyonuna erişim 404; karar silinince bağlı gölgeler cascade silinsin.
-- [ ] **Kabul Kriteri:** 10 BTC 50k'dan satıldı (500k): BTC 80k olunca fırsat maliyeti +300k, 40k olunca -100k hesaplanır; Kullanıcı B, A'nın kaydını göremez.
+### 🟡 Prompt 15: Temizlik, Bağımlılıklar, Doküman Senkronizasyonu
+- [x] `futurewallet.db`, `db.py`, `scripts/sanitize_symbols.py`, `services/future_price.py` silindi (çalışma ağacında).
+- [x] Kod tekrarı giderildi: `_guess_asset_type`/`guess_asset_type` tek modül (`services/asset_types.py`), `decision_to_dict` tekilliği.
+- [x] Doküman senkronu (kısmi): `TODO.md` bu dosya ile v4'e çekildi (2026-11-16, Graphify + PB test kanıtlarıyla).
+- [ ] `requirements.in` + pip-compile/uv ile kilit yenile: `google-genai`, `schedule`, `sqlalchemy` kalıntılarını çıkar; `pocketbase==0.17.3`, `apscheduler`, `httpx` koru.
+- [ ] `MVP.md`, `README.md`, `GUNCEL_IS_PLANI.md` ve `SPRINT_PLANI_KALANLAR.md` hâlâ eski "her şey kırık" durumunu anlatıyor — v4 durumuna göre güncellenmeli.
+- [ ] **Working tree'deki tüm v3+v4 değişiklikleri commit edilmemiş** (`db.py` silmeleri, `services/pb.py`, migration'lar, auth refactor, yeni testler).
+- **Kabul Kriteri:** ⚠️ Kısmen — repoda `.db`/`db.py` kalmadı (commit sonrası kesinleşir); `sqlalchemy` kod referansı yok, paket bağımlılığı var; CI adımları tamam ama henüz uzaktan koşulmadı.
 
 ---
 
-### 🟡 Prompt 11: Benchmark, Enflasyon ve Zamanlayıcı (Orta)
-*Bağımlılık: Prompt 5, Prompt 9*
+## 📋 Hızlı Kontrol Listesi
 
-- [ ] `benchmark_service._upsert_to_pb` fonksiyonunu admin client ve `get_first_list_item` ile düzelt; `date` benzersiz indeksini kullan; sentetik sahte veri yazımını engelle.
-- [ ] EVDS ve FRED API isteklerini resmî dokümantasyona göre doğrula; anahtar yoksa açık hata/boş dön (sahte veri üretme).
-- [ ] `gold_try_gram` hesaplaması: `(GC=F_USD / 31.1035) * USDTRY` formülünü doğrula ve kaydet.
-- [ ] Zamanlayıcı altyapısı: `APScheduler` (BackgroundScheduler) lifespan içine entegre et; günlük makro/benchmark güncellemesi ve otomatik EXPIRED kontrolü çalıştır; ortam değişkeni ile kapatılabilir yap (`ENABLE_SCHEDULER=false`).
-- [ ] `GET /api/portfolio/benchmarks`: portföy getirisi, Altın (USD ve gram TL), S&P 500, TR/US TÜFE, reel getiri ve alpha (`portföy - benchmark`) çıktısı ver.
-- [ ] **Kabul Kriteri:** Aynı tarih için iki upsert tek kayıt bırakır; zamanlayıcı kapalıyken job çalışmaz; alpha ve gold_try_gram birim testleri geçer.
+```text
+[x] 1. python -c "import api.app" hatasız.
+[x] 2. ruff check . + ruff format --check . sıfır hata.
+[x] 3. Boş PB + migration → 6 koleksiyon; izolasyon testleri geçiyor.
+[x] 4. İki farklı kullanıcı birbirinin verisini okuyamıyor (404).
+[x] 5. Repoda changeme / admin@example.com / API_TOKEN yok.
+[x] 6. Snapshot 2 işlem sonrası dolu; cash_received DIVIDEND'i sayıyor.
+[x] 7. Fazla SELL → 409 Conflict.
+[ ] 8. Time-travel BTC 30k→60k %100 PnL senaryo testi yok (fonksiyon doğrulanmadı).
+[x] 9. OpenRouter fallback 502/503 semantiği testli.
+[ ] 10. market_crash %50 kalıcı şok doğrulama testi yok.
+[ ] 11. EXPIRED zamanlayıcı job'ı PB üzerinde uçtan uca test edilmedi.
+[ ] 12. Web UI login akışı yok (P14).
+[ ] 13. mypy gevşek mod temiz; ancak P10/P11/P12 kabul kriterlerinin bir kısmı hâlâ test edilmedi.
+```
 
----
+## 🔜 Öncelik Sırası
 
-### 🟡 Prompt 12: Monte Carlo ve Stres Testi (Orta)
-*Bağımlılık: Prompt 7, Prompt 9*
-
-- [ ] `stress_test` fonksiyonundaki `session` (SQLAlchemy kalıntısı) parametresini kaldır; kimliği `CurrentUser`'dan al.
-- [ ] `monte_carlo_endpoint` içindeki tanımsız `request` ve `_guess_asset_type` hatalarını gider.
-- [ ] `market_crash` senaryosundaki kalıcı etki hatasını düzelt (şok sonrası tüm günlere tam kriz çarpanı uygulanmalı, yalnızca tek gün %100 sonra %10 değil).
-- [ ] Senaryolar için varlık sınıfı duyarlılık tablosu ekle (hisse, kripto, emtia, nakit farklı tepki vermeli).
-- [ ] Simülasyon horizonlarını tek çağrıda 63, 126 ve 252 gün olarak hesapla; 40 kutulu histogram ve p5/p50/p95 döndür.
-- [ ] Cholesky korelasyonlu simülasyon, simülasyon sayısı üst sınırı 20.000 (DoS engelleme).
-- [ ] **Kabul Kriteri:** Sabit mu/sigma ile 20k yolda medyan teorik değere %2 yakın; market_crash %50 şokunda portföy ≈ %50 düşer; limit aşımı 422 döner.
-
----
-
-### 🟡 Prompt 13: Karar Günlüğü: Stats, Outcome ve EXPIRED (Orta)
-*Bağımlılık: Prompt 7, Prompt 9*
-
-- [ ] `DELETE /api/decisions/{id}` endpoint'ini kullanıcı sahipliğiyle yetkilendir; PB cascade ile bağlı gölgelerin silindiğini doğrula.
-- [ ] Vade tarihi dolmuş kararlar için sonuç ölçümü: `outcome_price`, `outcome_return_pct`, `target_hit` alanlarını `price_service` üzerinden doldur.
-- [ ] `POST /api/decisions/{id}/evaluate` manuel değerlendirme endpoint'i ekle.
-- [ ] `GET /api/decisions/stats`: duygu (sentiment) ve eylem (action) bazında adet, ortalama/medyan getiri ve başarı oranını Python'da hesapla; n < 3 ise `insufficient_data: true` dön.
-- [ ] Zamanlayıcı job'ı ile vadesi geçmiş `OPEN` kararları otomatik `EXPIRED` durumuna getir ve sonuç alanlarını doldur.
-- [ ] **Kabul Kriteri:** 3 FOMO BUY (-10, -12, -14) stats ortalamasında -12 çıkar; vadesi geçmiş karar EXPIRED olur; karar silinince gölgesi de silinir.
-
----
-
-### 🟡 Prompt 14: Web Arayüzü: PB Girişi ve Paneller (Orta)
-*Bağımlılık: Prompt 6, Prompt 9 - Prompt 13*
-
-- [ ] Giriş ekranı (`/web/login`): PocketBase `users/auth-with-password` ile giriş, token'ı sessionStorage'a alma, `auth-refresh` yenileme, 401 durumunda login'e yönlendirme.
-- [ ] `apiFetch` sarmalayıcısına otomatik `Authorization: Bearer <PB_JWT>` ekle.
-- [ ] CSP uyumu: `decision_form.html` içindeki inline style'ları CSS sınıflarına taşı; Chart.js'i yerel vendor dosyası yap veya SRI ekle.
-- [ ] Panellerin tamamlanması:
-  - Time-Travel paneli (tarih seçimi, nominal/reel getiri, value-series grafiği, benchmark kıyaslama).
-  - Karar günlüğü paneli (Retrospektif, Kapat, Sil butonları; AI metni `textContent` ile güvenli gösterim; duygu özet kartı).
-  - Gölge portföy "Ne olurdu?" paneli.
-  - Stres testi paneli (senaryo seçimi, histogram grafiği, p5/p50/p95 çizgileri, AI risk anlatısı).
-  - İşlem ekleme formu ve işlem geçmişi listesi.
-- [ ] USD / TRY para birimi seçicisini dinamik API `currency` alanına bağla.
-- [ ] "Yatırım tavsiyesi değildir" uyarısını tüm sayfa altbilgilerine ve AI çıktılarına ekle.
-- [ ] **Kabul Kriteri:** Login -> Dashboard akışı hatasız çalışır; CSP/konsol hatası olmaz; sunucu verisi hiçbir yerde `innerHTML` ile basılmaz.
-
----
-
-### 🟢 Prompt 15: Temizlik, Bağımlılıklar ve Doküman Senkronizasyonu (Düşük)
-*Bağımlılık: Tüm Promptlar*
-
-- [ ] Kalıntıları temizle: `futurewallet.db` dosyasını repodan sil (`git rm --cached futurewallet.db`), `db.py`, `scripts/sanitize_symbols.py`, `services/future_price.py` silinsin.
-- [ ] Bağımlılık temizliği: `requirements.in` üzerinden `pip-compile` ile kilit dosyası oluştur; `sqlalchemy`, `schedule`, `google-genai` paketlerini kaldır; `pocketbase==0.17.3`, `apscheduler`, `httpx` sabitle.
-- [ ] Kod tekrarlarını gider: `_guess_asset_type` fonksiyonunu tek modüle (`services/asset_types.py`) taşı; `decision_to_dict` kopyasını kaldır.
-- [ ] Dokümanları senkronize et: `MVP.md`, `README.md`, `TODO.md` ve sprint planlarını son duruma göre eşitle.
-- [ ] **Kabul Kriteri:** Repoda `.db` veya `db.py` kalmaz; kodda `sqlalchemy` ve `google.genai` referansı kalmaz; CI yeşil yanar.
+1. **P15 bağımlılık temizliği** (küçük; `google-genai`/`schedule` çıkar + kilit yenile + commit).
+2. **P5 event loop** (endpoint'leri senkron `def`'e çevir — mekanik).
+3. **P12 kabul testleri** (seed'li Monte Carlo/stres birim testleri).
+4. **P10 `track_shadow` gerçek miktar/fiyat**, P11 gold/alpha birim testi, P9 dinamik currency.
+5. **P14 web arayüzü** (login → paneller; P6 sonrası web akışının çalışması için zorunlu).

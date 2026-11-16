@@ -16,14 +16,10 @@ load_dotenv()
 
 
 # ---------------------------------------------------------------------------
-# Kimlik Doğrulama (Prompt 1)
+# Kimlik Doğrulama / CORS (Prompt 1, 6)
 # ---------------------------------------------------------------------------
 
-# API_TOKEN: FutureWallet API'sine erişim token'ı.
-#   - Authorization: Bearer <token> ile gönderilir.
-#   - Boş ve DEBUG=false → uygulama başlamaz (fail-closed, Prompt 1).
-API_TOKEN: str = environ.get("API_TOKEN", "")
-
+# Kimlik doğrulama PB JWT iledir (Authorization: Bearer <PB_JWT>) — statik token yok.
 # ALLOWED_ORIGINS: CORS'da izin verilen origin'ler (virgülle ayrılmış).
 #   - Boş → CORS middleware eklenmez (yalnızca same-origin).
 ALLOWED_ORIGINS: str = environ.get("ALLOWED_ORIGINS", "")
@@ -59,9 +55,7 @@ POCKETBASE_PASSWORD: str = _raw_password
 # ---------------------------------------------------------------------------
 
 OPENROUTER_API_KEY: str = environ.get("OPENROUTER_API_KEY", "")
-OPENROUTER_BASE_URL: str = environ.get(
-    "OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"
-)
+OPENROUTER_BASE_URL: str = environ.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
 OPENROUTER_MODELS: str = environ.get(
     "OPENROUTER_MODELS",
     "anthropic/claude-3.5-sonnet,google/gemini-2.0-flash-001,deepseek/deepseek-r1",
@@ -72,7 +66,6 @@ OPENROUTER_MODELS: str = environ.get(
 # ---------------------------------------------------------------------------
 
 ENABLE_SCHEDULER: bool = environ.get("ENABLE_SCHEDULER", "true").lower() == "true"
-
 
 
 # ---------------------------------------------------------------------------

@@ -196,9 +196,7 @@ def _call_openrouter_with_fallback(
                         content = choices[0]["message"].get("content", "")
                         if content:
                             if "yatırım tavsiyesi" not in content.lower():
-                                content += (
-                                    "\n\n*Yasal Uyarı: Bu analiz yatırım tavsiyesi niteliğinde değildir.*"
-                                )
+                                content += "\n\n*Yasal Uyarı: Bu analiz yatırım tavsiyesi niteliğinde değildir.*"
                             return content
                     logger.warning("OpenRouter model %s boş yanıt döndü", model_name)
                     continue

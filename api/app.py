@@ -8,14 +8,16 @@ Endpoint'ler:
   /api/decisions                → decision_service CRUD
   /api/decisions/{id}/close     → decision_service.close_decision
   /api/decisions/{id}/target-check → decision_service.check_decision_target
-  /api/counterfactual           → placeholder (counterfactual_service henüz yok)
-  /api/simulation/monte-carlo   → placeholder (simulation_service henüz yok)
+  /api/counterfactual           → counterfactual_service (gölge portföy kıyaslaması)
+  /api/simulation/monte-carlo   → simulation_service (Monte Carlo simülasyonu)
 
 TODO.md 4.1.
 """
 
 import logging
+import time
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import Any, Literal
 
@@ -34,7 +36,8 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 logger = logging.getLogger("futurewallet")
-from config import ALLOWED_HOSTS, ALLOWED_ORIGINS, API_TOKEN, DEBUG
+from config import ALLOWED_HOSTS, ALLOWED_ORIGINS, DEBUG
+from services.asset_types import _guess_asset_type
 from services.benchmark_service import (
     compare_to_benchmark as srv_compare_to_benchmark,
 )
@@ -46,6 +49,9 @@ from services.counterfactual_service import (
     create_shadow_position,
     get_shadow_positions,
     what_if_scenario,
+)
+from services.decision_service import (
+    auto_close_expired_decisions as svc_auto_close_expired,
 )
 from services.decision_service import (
     check_decision_target as svc_check_decision_target,
@@ -62,6 +68,9 @@ from services.decision_service import (
     get_status_summary,
 )
 from services.decision_service import (
+    evaluate_decision as svc_evaluate_decision,
+)
+from services.decision_service import (
     generate_ai_retrospective as svc_generate_ai_retrospective,
 )
 from services.decision_service import (
@@ -73,13 +82,6 @@ from services.decision_service import (
 from services.decision_service import (
     update_decision as svc_update_decision,
 )
-from services.decision_service import (
-    evaluate_decision as svc_evaluate_decision,
-)
-from services.decision_service import (
-    auto_close_expired_decisions as svc_auto_close_expired,
-)
-from services.asset_types import _guess_asset_type, guess_asset_type
 from services.ledger_service import (
     InsufficientBalanceError,
     time_travel_portfolio,
@@ -108,112 +110,75 @@ from services.simulation_service import (
 )
 
 # ---------------------------------------------------------------------------
-# Auth bağımlılığı (Prompt 1)
+# Auth bağımlılığı (Prompt 6): PB JWT — API_TOKEN / X-User-ID yok
 # ---------------------------------------------------------------------------
 
 
-_default_user_cache: dict[str, str] = {}
+@dataclass
+class CurrentUser:
+    """Doğrulanmış PB kullanıcısı: id, e-posta, JWT ve kullanıcı bazlı PB istemcisi."""
+
+    id: str
+    email: str
+    token: str
+    pb: Any
 
 
-def _get_or_create_default_user() -> str:
-    """API_TOKEN veya test amaçlı varsayılan PB kullanıcısı."""
-    try:
-        from services.pb import get_admin_client
-
-        client = get_admin_client()
-        cache_key = client.base_url
-        if cache_key in _default_user_cache:
-            cached_id = _default_user_cache[cache_key]
-            try:
-                client.collection("users").get_one(cached_id)
-                return cached_id
-            except Exception:
-                pass
-
-        email = "test_default@futurewallet.test"
-        users = client.collection("users").get_full_list(
-            query_params={"filter": f'email = "{email}"'}
-        )
-        if users:
-            uid = str(users[0].id)
-        else:
-            rec = client.collection("users").create(
-                {
-                    "email": email,
-                    "password": "TestPass123!@Pass",
-                    "passwordConfirm": "TestPass123!@Pass",
-                }
-            )
-            uid = str(rec.id)
-        _default_user_cache[cache_key] = uid
-        return uid
-    except Exception as exc:
-        logger.error("Default test kullanıcısı oluşturulamadı: %s", exc)
-        return "unknown"
-
-
-def _extract_user_id(request: Request) -> str:
-    """İstekten doğrulanmış user_id'yi alır (Prompt 6)."""
-    uid = getattr(request.state, "user_id", None)
-    if uid:
-        return str(uid)
-    if DEBUG and API_TOKEN:
-        uid = _get_or_create_default_user()
-        request.state.user_id = uid
-        return uid
-    raise HTTPException(status_code=401, detail="Yetkisiz: kullanıcı doğrulanamadı")
-
-
-def verify_api_token(request: Request) -> str:
+def get_current_user(request: Request) -> CurrentUser:
+    """Authorization: Bearer <PB_JWT> başlığını auth_refresh ile doğrular; geçersizse 401."""
     auth_header = request.headers.get("Authorization", "")
     if not auth_header.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Yetkisiz: token yok")
     token = auth_header[len("Bearer ") :].strip()
     if not token:
-        raise HTTPException(status_code=401, detail="Yetkisiz: geçersiz token")
+        raise HTTPException(status_code=401, detail="Yetkisiz: token yok")
 
-    # 1. API_TOKEN kontrolü (legacy / test uyumluluğu)
-    if API_TOKEN and token == API_TOKEN:
-        uid = _get_or_create_default_user()
-        request.state.user_id = uid
-        return uid
+    from services.pb import get_user_client
 
-    # 2. PocketBase JWT token doğrulaması (Prompt 6)
+    user_client = get_user_client(token)
     try:
-        from services.pb import get_user_client
-
-        user_client = get_user_client(token)
         auth_data = user_client.collection("users").auth_refresh()
-        uid = str(auth_data.record.id)
-        request.state.user_id = uid
-        request.state.user_client = user_client
-        return uid
+        record = auth_data.record
     except Exception:
         raise HTTPException(status_code=401, detail="Yetkisiz: geçersiz token")
 
+    request.state.user_id = str(record.id)
+    request.state.user_client = user_client
+    return CurrentUser(
+        id=str(record.id),
+        email=str(getattr(record, "email", "") or ""),
+        token=auth_data.token,
+        pb=user_client,
+    )
 
-def check_retrospective_rate_limit(request: Request) -> None:
-    token = request.headers.get("Authorization", "").replace("Bearer ", "")
-    remote_ip = request.client.host if request.client else "unknown"
-    key = (remote_ip, token)
-    import time as _time
 
-    now = int(_time.time())
-    entry = _RETRO_RATE_LIMITS.get(key)
-    if entry is None:
-        _RETRO_RATE_LIMITS[key] = {"count": 1, "reset_at": now + 60, "last": now}
-        return
-    # Time window reset
-    if now >= entry["reset_at"]:
-        entry["count"] = 0
-        entry["reset_at"] = now + 60
-    entry["count"] += 1
-    entry["last"] = now
-    if entry["count"] > 5:
-        raise HTTPException(status_code=429, detail="Hız sınırı aşıldı. Lütfen bekleyin.")
+def _extract_user_id(request: Request) -> str:
+    """get_current_user tarafından doğrulanmış user_id."""
+    uid = getattr(request.state, "user_id", None)
+    if not uid:
+        raise HTTPException(status_code=401, detail="Yetkisiz: kullanıcı doğrulanamadı")
+    return str(uid)
 
 
 _RETRO_RATE_LIMITS: dict = {}
+
+
+def reset_rate_limits() -> None:
+    """Testler için hız sınırı sayaçlarını sıfırlar (Prompt 6)."""
+    _RETRO_RATE_LIMITS.clear()
+
+
+def check_retrospective_rate_limit(
+    request: Request, current: CurrentUser = Depends(get_current_user)
+) -> None:
+    """Retrospektif: kullanıcı + karar başına 60 sn'de 1 istek (Prompt 6)."""
+    decision_id = request.path_params.get("decision_id", "")
+    now = int(time.time())
+    key = (current.id, decision_id)
+    entry = _RETRO_RATE_LIMITS.get(key)
+    if entry is not None and now < entry["reset_at"]:
+        raise HTTPException(status_code=429, detail="Hız sınırı aşıldı. Lütfen bekleyin.")
+    _RETRO_RATE_LIMITS[key] = {"count": 1, "reset_at": now + 60}
 
 
 # ---------------------------------------------------------------------------
@@ -244,6 +209,14 @@ class DecisionCreateRequest(BaseModel):
     decision_date: date | None = Field(
         None, description="Karar tarihi (ISO YYYY-MM-DD; geçmiş olabilir, gelecek yok)"
     )
+
+    @field_validator("decision_date")
+    @classmethod
+    def decision_date_not_future(cls, v: date | None) -> date | None:
+        if v is not None and v > date.today():
+            raise ValueError("decision_date gelecekte olamaz")
+        return v
+
     track_shadow: bool = Field(
         False,
         description="True → SELL kararında HELD_INSTEAD gölge pozisyonu otomatik oluştur",
@@ -412,11 +385,7 @@ _scheduler: "BackgroundScheduler | None" = None
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global _scheduler
-    # Fail-closed: API_TOKEN kontrolü
-    if not API_TOKEN and not DEBUG:
-        raise RuntimeError(
-            "API_TOKEN boş ve DEBUG=false — fail-closed. Lütfen API_TOKEN ayarlayın."
-        )
+    # Fail-closed: PB admin credential'ları config import'unda zorunlu (RuntimeError).
     # PocketBase koleksiyonlarını başlat
     await _init_pocketbase()
     # APScheduler: periyodik görevler (Prompt 11, 13)
@@ -442,6 +411,9 @@ app = FastAPI(
     description="Event-Sourcing portföy, karar günlüğü ve makro simülasyon API'si",
     version="0.1.0",
     lifespan=lifespan,
+    docs_url="/docs" if DEBUG else None,
+    redoc_url="/redoc" if DEBUG else None,
+    openapi_url="/openapi.json" if DEBUG else None,
 )
 
 
@@ -516,7 +488,7 @@ async def root():
     return {
         "name": "FutureWallet",
         "version": "0.1.0",
-        "docs": "/docs",
+        "docs": "/docs" if DEBUG else None,
     }
 
 
@@ -534,7 +506,7 @@ mount_web(app)
 # ---------------------------------------------------------------------------
 
 
-@app.get("/api/portfolio/snapshot", dependencies=[Depends(verify_api_token)])
+@app.get("/api/portfolio/snapshot", dependencies=[Depends(get_current_user)])
 async def portfolio_snapshot(
     request: Request,
     as_of: date | None = Query(None, alias="date", description="ISO YYYY-MM-DD. Yoksa bugün."),
@@ -544,7 +516,7 @@ async def portfolio_snapshot(
     return srv_get_portfolio_snapshot(user_id=user_id, as_of=as_of)
 
 
-@app.get("/api/portfolio/time-travel", dependencies=[Depends(verify_api_token)])
+@app.get("/api/portfolio/time-travel", dependencies=[Depends(get_current_user)])
 async def portfolio_time_travel(
     request: Request,
     t_start: date = Query(..., description="ISO YYYY-MM-DD başlangıç tarihi"),
@@ -556,7 +528,7 @@ async def portfolio_time_travel(
     return time_travel_portfolio(user_id=user_id, t_start=t_start, t_target=target)
 
 
-@app.get("/api/portfolio/real-valuation", dependencies=[Depends(verify_api_token)])
+@app.get("/api/portfolio/real-valuation", dependencies=[Depends(get_current_user)])
 async def portfolio_real_valuation(
     request: Request,
     date_from: date = Query(..., description="ISO YYYY-MM-DD başlangıç"),
@@ -586,7 +558,7 @@ async def portfolio_real_valuation(
     return result
 
 
-@app.get("/api/portfolio/value-series", dependencies=[Depends(verify_api_token)])
+@app.get("/api/portfolio/value-series", dependencies=[Depends(get_current_user)])
 async def portfolio_value_series(
     request: Request,
     start_date: date = Query(..., description="Başlangıç tarihi (ISO YYYY-MM-DD)"),
@@ -667,30 +639,32 @@ async def portfolio_value_series(
 # ---------------------------------------------------------------------------
 
 
-@app.get("/api/decisions", dependencies=[Depends(verify_api_token)])
+@app.get("/api/decisions", dependencies=[Depends(get_current_user)])
 async def list_decisions_endpoint(
+    request: Request,
     status: str | None = Query(None),
     sentiment: str | None = Query(None),
     asset_symbol: str | None = Query(None),
     action: str | None = Query(None),
     limit: int | None = Query(None),
 ):
-    """Filtrelenmiş karar listesi. PB decisions collection'undan."""
+    """Filtrelenmiş karar listesi — yalnızca çağıran kullanıcının kararları."""
     return svc_list_decisions(
         status=status,
         sentiment=sentiment,
         asset_symbol=asset_symbol,
         action=action,
         limit=limit,
+        user_id=_extract_user_id(request),
     )
 
 
-@app.post("/api/decisions", status_code=201, dependencies=[Depends(verify_api_token)])
+@app.post("/api/decisions", status_code=201, dependencies=[Depends(get_current_user)])
 async def create_decision_endpoint(
     body: DecisionCreateRequest,
     request: Request,
 ):
-    """Yeni karar oluştur. user_id → X-User-ID header'ı veya 'unknown'.
+    """Yeni karar oluştur. user_id yalnızca doğrulanmış PB JWT'sinden alınır.
     track_shadow=True ve action=SELL → HELD_INSTEAD gölge pozisyonu otomatik oluşturulur (Prompt 12)."""
     user_id = _extract_user_id(request)
 
@@ -724,7 +698,7 @@ async def create_decision_endpoint(
         raise HTTPException(400, str(e))
 
 
-@app.get("/api/decisions/stats", dependencies=[Depends(verify_api_token)])
+@app.get("/api/decisions/stats", dependencies=[Depends(get_current_user)])
 async def decisions_stats_endpoint(request: Request):
     """Sentiment ve action bazında karar istatistikleri (Prompt 13)."""
     uid = _extract_user_id(request)
@@ -767,7 +741,7 @@ async def decisions_stats_endpoint(request: Request):
     return stats
 
 
-@app.get("/api/decisions/{decision_id}", dependencies=[Depends(verify_api_token)])
+@app.get("/api/decisions/{decision_id}", dependencies=[Depends(get_current_user)])
 async def get_decision_endpoint(decision_id: str, request: Request):
     """ID ile tek karar. PB decisions collection'undan."""
     user_id = _extract_user_id(request)
@@ -777,7 +751,7 @@ async def get_decision_endpoint(decision_id: str, request: Request):
     return decision_to_dict(dec)
 
 
-@app.put("/api/decisions/{decision_id}", dependencies=[Depends(verify_api_token)])
+@app.put("/api/decisions/{decision_id}", dependencies=[Depends(get_current_user)])
 async def update_decision_endpoint(
     decision_id: str,
     body: DecisionUpdateRequest,
@@ -802,7 +776,7 @@ async def update_decision_endpoint(
     return decision_to_dict(dec)
 
 
-@app.post("/api/decisions/{decision_id}/close", dependencies=[Depends(verify_api_token)])
+@app.post("/api/decisions/{decision_id}/close", dependencies=[Depends(get_current_user)])
 async def close_decision_endpoint(decision_id: str, request: Request):
     """Kararı REVIEWED yap. PB decisions collection'unda."""
     user_id = _extract_user_id(request)
@@ -818,7 +792,7 @@ async def close_decision_endpoint(decision_id: str, request: Request):
 
 @app.get(
     "/api/decisions/{decision_id}/target-check",
-    dependencies=[Depends(verify_api_token)],
+    dependencies=[Depends(get_current_user)],
 )
 async def decision_target_check_endpoint(decision_id: str, request: Request):
     """Kararın hedef fiyat/vade gerçekleşme kontrolü. PB decisions collection'undan."""
@@ -835,7 +809,7 @@ async def decision_target_check_endpoint(decision_id: str, request: Request):
 
 @app.post(
     "/api/decisions/{decision_id}/evaluate",
-    dependencies=[Depends(verify_api_token)],
+    dependencies=[Depends(get_current_user)],
 )
 async def evaluate_decision_endpoint(decision_id: str, request: Request):
     """Kararın sonucunu ölçer: outcome_price, outcome_return_pct, target_hit (Prompt 13)."""
@@ -851,7 +825,7 @@ async def evaluate_decision_endpoint(decision_id: str, request: Request):
 
 @app.post(
     "/api/decisions/{decision_id}/retrospective",
-    dependencies=[Depends(verify_api_token), Depends(check_retrospective_rate_limit)],
+    dependencies=[Depends(check_retrospective_rate_limit)],
 )
 async def generate_retrospective_endpoint(decision_id: str, request: Request):
     """Bir karar için AI post-mortem (retrospektif) oluşturur. PB decisions collection'unda kaydeder."""
@@ -868,12 +842,17 @@ async def generate_retrospective_endpoint(decision_id: str, request: Request):
 # ---------------------------------------------------------------------------
 
 
-@app.get("/api/counterfactual", dependencies=[Depends(verify_api_token)])
+@app.get("/api/counterfactual", dependencies=[Depends(get_current_user)])
 async def counterfactual_endpoint(
+    request: Request,
     decision_id: str = Query(..., description="Karar ID"),
     as_of: date | None = Query(None, description="ISO YYYY-MM-DD. Yoksa bugün."),
 ):
     """What-If senaryosu: decision_id ile gölge portföy kıyaslaması (PB)."""
+    user_id = _extract_user_id(request)
+    existing = svc_get_decision(decision_id)
+    if existing is None or existing.get("user") != user_id:
+        return JSONResponse(status_code=404, content={"error": "Karar bulunamadı"})
     as_of_date = as_of or date.today()
     result = what_if_scenario(decision_id, as_of=as_of_date)
     if "error" in result:
@@ -884,7 +863,7 @@ async def counterfactual_endpoint(
 @app.post(
     "/api/counterfactual/shadow-positions",
     status_code=201,
-    dependencies=[Depends(verify_api_token)],
+    dependencies=[Depends(get_current_user)],
 )
 async def create_shadow_position_endpoint(
     body: ShadowPositionCreateRequest,
@@ -909,7 +888,7 @@ async def create_shadow_position_endpoint(
         raise HTTPException(400, str(e))
 
 
-@app.get("/api/counterfactual/shadow-positions", dependencies=[Depends(verify_api_token)])
+@app.get("/api/counterfactual/shadow-positions", dependencies=[Depends(get_current_user)])
 async def list_shadow_positions_endpoint(
     request: Request,
     decision_id: str | None = Query(None, description="Karar ID filter"),
@@ -926,7 +905,7 @@ async def list_shadow_positions_endpoint(
 
 @app.delete(
     "/api/counterfactual/shadow-positions/{position_id}",
-    dependencies=[Depends(verify_api_token)],
+    dependencies=[Depends(get_current_user)],
 )
 async def delete_shadow_position_endpoint(position_id: str, request: Request):
     """Gölge pozisyonunu sil (PB shadow_portfolios)."""
@@ -944,7 +923,7 @@ async def delete_shadow_position_endpoint(position_id: str, request: Request):
         raise HTTPException(status_code=404, detail="Gölge pozisyon bulunamadı")
 
 
-@app.delete("/api/decisions/{decision_id}", dependencies=[Depends(verify_api_token)])
+@app.delete("/api/decisions/{decision_id}", dependencies=[Depends(get_current_user)])
 async def delete_decision_endpoint(decision_id: str, request: Request):
     """Kararı sil (bağlı gölge pozisyonlar cascade silinir; transaction etkilenmez)."""
     user_id = _extract_user_id(request)
@@ -960,7 +939,7 @@ async def delete_decision_endpoint(decision_id: str, request: Request):
         raise HTTPException(500, str(e))
 
 
-@app.get("/api/simulation/monte-carlo", dependencies=[Depends(verify_api_token)])
+@app.get("/api/simulation/monte-carlo", dependencies=[Depends(get_current_user)])
 async def monte_carlo_endpoint(
     request: Request,
     assets: str = Query(..., description="Virgülle ayrılmış semboller (örn: BTC,ETH,GC=F)"),
@@ -1033,7 +1012,7 @@ class TransactionCreateRequest(BaseModel):
 TransactionCreateRequest.model_rebuild()
 
 
-@app.post("/api/transactions", status_code=201, dependencies=[Depends(verify_api_token)])
+@app.post("/api/transactions", status_code=201, dependencies=[Depends(get_current_user)])
 async def create_transaction_endpoint(
     body: TransactionCreateRequest,
     request: Request,
@@ -1058,7 +1037,7 @@ async def create_transaction_endpoint(
         raise HTTPException(400, str(e))
 
 
-@app.get("/api/transactions", dependencies=[Depends(verify_api_token)])
+@app.get("/api/transactions", dependencies=[Depends(get_current_user)])
 async def list_transactions_endpoint(
     request: Request,
     asset_symbol: str | None = Query(None),
@@ -1080,7 +1059,7 @@ async def list_transactions_endpoint(
         raise HTTPException(500, str(e))
 
 
-@app.delete("/api/transactions/{transaction_id}", dependencies=[Depends(verify_api_token)])
+@app.delete("/api/transactions/{transaction_id}", dependencies=[Depends(get_current_user)])
 async def delete_transaction_endpoint(
     transaction_id: str,
     request: Request,
@@ -1100,7 +1079,7 @@ async def delete_transaction_endpoint(
         raise HTTPException(500, str(e))
 
 
-@app.get("/api/portfolio/benchmarks", dependencies=[Depends(verify_api_token)])
+@app.get("/api/portfolio/benchmarks", dependencies=[Depends(get_current_user)])
 async def portfolio_benchmarks_endpoint(
     request: Request,
     date_from: date = Query(..., description="Başlangıç tarihi (ISO YYYY-MM-DD)"),
@@ -1134,7 +1113,7 @@ class StressTestRequest(BaseModel):
 StressTestRequest.model_rebuild()
 
 
-@app.post("/api/simulation/stress-test", dependencies=[Depends(verify_api_token)])
+@app.post("/api/simulation/stress-test", dependencies=[Depends(get_current_user)])
 async def stress_test_endpoint(body: StressTestRequest):
     """Makro şok senaryoları altında portföy değerlerini simüle eder."""
     try:
@@ -1159,7 +1138,7 @@ class NarrativeRequest(BaseModel):
 NarrativeRequest.model_rebuild()
 
 
-@app.post("/api/simulation/narrative", dependencies=[Depends(verify_api_token)])
+@app.post("/api/simulation/narrative", dependencies=[Depends(get_current_user)])
 async def narrative_endpoint(body: NarrativeRequest):
     """Monte Carlo / stres test sonucu için Türkçe risk anlatısı."""
     try:

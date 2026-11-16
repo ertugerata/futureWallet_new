@@ -22,7 +22,7 @@ from services.ai_service import (
     AIUnavailableError,
     generate_decision_retrospective,
 )
-from services.asset_types import _guess_asset_type, guess_asset_type
+from services.asset_types import _guess_asset_type
 from services.enums import (
     ACTION_ALLOWED,
     SENTIMENT_ALLOWED,
@@ -402,14 +402,12 @@ def evaluate_decision(
 
     if outcome_p is not None and entry_p is not None and entry_p > 0:
         action = dec.get("action", "BUY").upper()
-        if action == "BUY":
-            return_pct = round(((outcome_p - entry_p) / entry_p) * 100, 2)
-            if dec.get("target_price"):
-                target_hit = outcome_p >= dec["target_price"]
-        elif action == "SELL":
-            return_pct = round(((entry_p - outcome_p) / entry_p) * 100, 2)
-            if dec.get("target_price"):
-                target_hit = outcome_p <= dec["target_price"]
+        sign = 1 if action == "BUY" else (-1 if action == "SELL" else 0)
+        if sign:
+            return_pct = round(sign * (outcome_p - entry_p) / entry_p * 100, 2)
+            tp = dec.get("target_price")
+            if tp:
+                target_hit = outcome_p >= tp if action == "BUY" else outcome_p <= tp
 
     update_fields: dict[str, Any] = {}
     if outcome_p is not None:
@@ -506,6 +504,3 @@ def generate_ai_retrospective(
         "status": decision["status"],
         "api_available": False,
     }
-
-
-

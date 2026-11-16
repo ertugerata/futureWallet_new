@@ -14,8 +14,8 @@ from fastapi import status
 
 
 @pytest.mark.pb
-def test_buy_sell_average_cost_and_snapshot(api_client, pb_clean) -> None:
-    headers = {"Authorization": "Bearer test-secret-token"}
+def test_buy_sell_average_cost_and_snapshot(api_client, pb_clean, auth_headers) -> None:
+    headers = auth_headers
 
     # 1. BUY 10 BTC @ 50,000
     r1 = api_client.post(
@@ -52,8 +52,8 @@ def test_buy_sell_average_cost_and_snapshot(api_client, pb_clean) -> None:
 
 
 @pytest.mark.pb
-def test_overselling_returns_409_conflict(api_client, pb_clean) -> None:
-    headers = {"Authorization": "Bearer test-secret-token"}
+def test_overselling_returns_409_conflict(api_client, pb_clean, auth_headers) -> None:
+    headers = auth_headers
 
     # Elde 2 ETH varken 5 ETH satmaya çalış
     api_client.post(
@@ -72,8 +72,8 @@ def test_overselling_returns_409_conflict(api_client, pb_clean) -> None:
 
 
 @pytest.mark.pb
-def test_void_transaction_excludes_from_snapshot(api_client, pb_clean) -> None:
-    headers = {"Authorization": "Bearer test-secret-token"}
+def test_void_transaction_excludes_from_snapshot(api_client, pb_clean, auth_headers) -> None:
+    headers = auth_headers
 
     # BUY 100 THYAO
     r1 = api_client.post(
@@ -95,8 +95,23 @@ def test_void_transaction_excludes_from_snapshot(api_client, pb_clean) -> None:
 
 
 @pytest.mark.pb
-def test_decisions_stats_route_not_404(api_client, pb_clean) -> None:
-    headers = {"Authorization": "Bearer test-secret-token"}
+def test_dividend_cash_received_in_snapshot(api_client, pb_clean, auth_headers) -> None:
+    """DIVIDEND işlemi snapshot'a cash_received olarak yansımeli (Prompt 7)."""
+    headers = auth_headers
+    r = api_client.post(
+        "/api/transactions",
+        json={"asset_symbol": "THYAO.IS", "tx_type": "DIVIDEND", "quantity": 250.0, "price": 1.0},
+        headers=headers,
+    )
+    assert r.status_code == status.HTTP_201_CREATED
+
+    snap = api_client.get("/api/portfolio/snapshot", headers=headers).json()
+    assert snap["cash_received"] == 250.0
+
+
+@pytest.mark.pb
+def test_decisions_stats_route_not_404(api_client, pb_clean, auth_headers) -> None:
+    headers = auth_headers
 
     # Karar ekle
     api_client.post(

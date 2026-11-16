@@ -118,16 +118,20 @@ def get_shadow_positions(
     sp_coll = client.collection("shadow_portfolios")
 
     filters: list[str] = []
+    filter_params: dict[str, Any] = {}
     if user_id:
-        filters.append(f'user = "{user_id}"')
+        filters.append("user = {:user_id}")
+        filter_params["user_id"] = user_id
     if decision_id:
-        filters.append(f'decision = "{decision_id}"')
+        filters.append("decision = {:decision_id}")
+        filter_params["decision_id"] = decision_id
     if asset_symbol:
-        filters.append(f'asset_symbol = "{asset_symbol.upper()}"')
+        filters.append("asset_symbol = {:asset_symbol}")
+        filter_params["asset_symbol"] = asset_symbol.upper()
 
     query_params: dict[str, Any] = {}
     if filters:
-        query_params["filter"] = " && ".join(filters)
+        query_params["filter"] = client.filter(" && ".join(filters), filter_params)
 
     try:
         records = sp_coll.get_full_list(query_params=query_params)

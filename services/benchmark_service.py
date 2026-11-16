@@ -480,7 +480,7 @@ def _upsert_to_pb(
 
         try:
             records = collection.get_full_list(
-                query_params={"filter": f'date ~ "{pb_date_str}"'}
+                query_params={"filter": get_client().filter("date ~ {:d}", {"d": pb_date_str})}
             )
         except Exception:
             records = []
@@ -522,7 +522,10 @@ def get_cpi_for_date(
         records = macro.get_full_list(
             batch=1,
             query_params={
-                "filter": f'date <= "{dt.isoformat()} 23:59:59.999Z" && {col} != null',
+                "filter": client.filter(
+                    f"date <= {{:dt}} && {col} != null",
+                    {"dt": f"{dt.isoformat()} 23:59:59.999Z"},
+                ),
                 "sort": "-date",
             },
         )
@@ -621,8 +624,15 @@ def compare_to_benchmark(
         client = get_client()
         macro = client.collection("macro_data")
         try:
-            records = macro.get_list(
-                params=(f"filter=date<='{dt.isoformat()}' AND {col}!=''&sort=date DESC&per_page=1")
+            records = macro.get_full_list(
+                batch=1,
+                query_params={
+                    "filter": client.filter(
+                        f"date <= {{:dt}} && {col} != ''", {"dt": dt.isoformat()}
+                    ),
+                    "sort": "-date",
+                    "per_page": 1,
+                },
             )
         except Exception:
             records = []

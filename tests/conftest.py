@@ -26,7 +26,6 @@ DEFAULT_PORT = 8090
 os.environ["POCKETBASE_EMAIL"] = "test_admin@futurewallet.test"
 os.environ["POCKETBASE_PASSWORD"] = "TestPass123!@Pass"
 os.environ["POCKETBASE_URL"] = f"http://127.0.0.1:{DEFAULT_PORT}"
-os.environ["API_TOKEN"] = "test-secret-token"
 os.environ["DEBUG"] = "true"
 os.environ["ALLOWED_HOSTS"] = "localhost,127.0.0.1,testserver"
 os.environ["ALLOWED_ORIGINS"] = "http://localhost:8000"
@@ -37,7 +36,6 @@ from services.pb import delete_record, get_admin_client, get_user_client, list_a
 config.POCKETBASE_EMAIL = os.environ["POCKETBASE_EMAIL"]
 config.POCKETBASE_PASSWORD = os.environ["POCKETBASE_PASSWORD"]
 config.POCKETBASE_URL = os.environ["POCKETBASE_URL"]
-config.API_TOKEN = os.environ["API_TOKEN"]
 config.DEBUG = True
 config.ALLOWED_HOSTS = os.environ["ALLOWED_HOSTS"]
 config.ALLOWED_ORIGINS = os.environ["ALLOWED_ORIGINS"]
@@ -213,6 +211,13 @@ def make_user(pb_server):
             client.collection("users").delete(uid)
         except Exception:
             pass
+
+
+@pytest.fixture(scope="session")
+def auth_headers(make_user) -> dict[str, str]:
+    """Gerçek PB JWT'si ile Authorization başlığı (Prompt 6)."""
+    _, token, _ = make_user("auth_fixture_user@futurewallet.test")
+    return {"Authorization": f"Bearer {token}"}
 
 
 @pytest.fixture
