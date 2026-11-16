@@ -41,6 +41,8 @@ coverage.xml
 *.py,cover
 .hypothesis/
 .pytest_cache/
+.mypy_cache/
+.ruff_cache/
 
 # Translations
 *.mo
@@ -49,6 +51,7 @@ coverage.xml
 # Environments
 .env
 .env.*
+!.env.example
 .venv/
 venv/
 ENV/
@@ -80,11 +83,14 @@ logs/
 *.key
 secrets/
 
-#graphify
-graphify-out/*
+# graphify
+graphify-out/
 
-#pb-cache
-.pb_cache/*
+# PocketBase test/dev cache + binaries
+.pb_cache/
 pb_bin/
 pb_data/
 pb_test_data*/
+
+# Tool binaries (e.g. bin/uv — downloaded, per AGENTS.md)
+bin/

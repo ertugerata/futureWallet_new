@@ -11,3 +11,8 @@ Five canonical triage roles, labels match their names: `needs-triage`, `needs-in
 ### Domain docs
 
 Single-context layout: one `GLOSSARY.md` at the repo root (to be created when terms are actually resolved) and `docs/adr/` for ADRs. See `docs/agents/domain.md`.
+
+### Python & Package Management
+
+Always use `uv` for python package operations (`./bin/uv pip ...` or `uv ...`). Do not ask every time.
+

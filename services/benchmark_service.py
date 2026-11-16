@@ -22,7 +22,7 @@ import requests  # type: ignore[import-untyped]
 import yfinance as yf
 
 from config import FRED_API_KEY, TCMB_API_KEY
-from services.pocketbase import get_client
+from services.pb import get_client
 
 # ---------------------------------------------------------------------------
 # Sabitler / konfigürasyon
@@ -461,22 +461,11 @@ def _upsert_to_pb(
     collection,
     df: pd.DataFrame,
     value_col: str,
-    user_id: str,
+    user_id: str = "",
     source: str = "",
     is_estimate: bool = False,
 ) -> int:
-    """Bir DataFrame'i PB macro_data koleksiyonuna upsert eder.
-
-    DataFrame:
-      index = date (datetime.date)
-      columns = [value_col]
-
-    PB macro_data fields (PB DateTime string ile kaydedilir):
-      date (DateTime), gold_usd, gold_try_gram, sp500, tr_cpi, us_cpi,
-      source (text), is_estimate (bool), user (Relation - users)
-
-    datetime.date → PB DateTime: ISO "YYYY-MM-DD" veya "YYYY-MM-DDTHH:MM:SSZ"
-    """
+    """Bir DataFrame'i PB macro_data koleksiyonuna upsert eder."""
     if df.empty:
         return 0
 
@@ -487,24 +476,26 @@ def _upsert_to_pb(
         if val is None or (isinstance(val, float) and pd.isna(val)):
             continue
 
-        pb_date_str = d.isoformat()  # "YYYY-MM-DD" — PB DateTime olarak kabul eder
+        pb_date_str = d.isoformat()
 
         try:
-            existing = collection.get_list(params=f"filter=date='{pb_date_str}'&per_page=1")
+            records = collection.get_full_list(
+                query_params={"filter": f'date ~ "{pb_date_str}"'}
+            )
         except Exception:
-            existing = []
+            records = []
 
         record_data: dict = {
-            "date": pb_date_str,
+            "date": f"{pb_date_str} 00:00:00.000Z",
             value_col: float(val),
             "source": source,
             "is_estimate": is_estimate,
-            "user": user_id,
         }
+        if user_id:
+            record_data["user"] = user_id
 
-        if existing:
-            existing[0].update(record_data)
-            collection.update(existing[0])
+        if records:
+            collection.update(records[0].id, record_data)
         else:
             collection.create(record_data)
 
@@ -522,17 +513,18 @@ def get_cpi_for_date(
     dt: date,
     cpi_type: str = "us",  # "us" | "tr"
 ) -> float | None:
-    """Belirtilen tarihteki veya en yakın geçmiş CPI değerini PB macro_data'den döndürür.
-
-    PB macro_data: date (DateTime), tr_cpi / us_cpi (float).
-    """
+    """Belirtilen tarihteki veya en yakın geçmiş CPI değerini PB macro_data'den döndürür."""
     client = get_client()
     macro = client.collection("macro_data")
 
     col = "us_cpi" if cpi_type == "us" else "tr_cpi"
     try:
-        records = macro.get_list(
-            params=(f"filter=date<='{dt.isoformat()}' AND {col}!=''&sort=date DESC&per_page=1")
+        records = macro.get_full_list(
+            batch=1,
+            query_params={
+                "filter": f'date <= "{dt.isoformat()} 23:59:59.999Z" && {col} != null',
+                "sort": "-date",
+            },
         )
     except Exception:
         return None

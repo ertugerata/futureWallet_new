@@ -441,7 +441,6 @@ def stress_test(
     days: int = 252,
     n_simulations: int = 1000,
     seed: int | None = None,
-    session: Any = None,
 ) -> StressTestResult:
     """Makro şok senaryoları altında portföy değerlerini simüle et (Prompt 10, 12).
 

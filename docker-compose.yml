@@ -34,8 +34,10 @@ services:
       - API_TOKEN=${API_TOKEN:-}
       - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-}
       - ALLOWED_HOSTS=${ALLOWED_HOSTS:-localhost,127.0.0.1}
-      - GOOGLE_API_KEY=${GOOGLE_API_KEY:-}
-      - GEMINI_MODEL=${GEMINI_MODEL:-google/gemini-2.0-flash}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
+      - OPENROUTER_BASE_URL=${OPENROUTER_BASE_URL:-https://openrouter.ai/api/v1}
+      - OPENROUTER_MODELS=${OPENROUTER_MODELS:-anthropic/claude-3.5-sonnet,google/gemini-2.0-flash-001,deepseek/deepseek-r1}
+      - ENABLE_SCHEDULER=${ENABLE_SCHEDULER:-true}
       - TCMB_API_KEY=${TCMB_API_KEY:-}
       - FRED_API_KEY=${FRED_API_KEY:-}
       - DEBUG=${DEBUG:-false}

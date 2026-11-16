@@ -202,3 +202,47 @@ def test_retrospective_rate_limit_429(api_client, test_db) -> None:
     assert status.HTTP_429_TOO_MANY_REQUESTS in statuses, (
         f"6. çağrı 429 dönmeliydi. Alınan kodlar: {statuses}"
     )
+
+
+# ---------------------------------------------------------------------------
+# 6. 64 KB Payload Limiti ve Kullanıcı İzolasyonu Testleri (Prompt 6)
+# ---------------------------------------------------------------------------
+
+
+def test_payload_too_large_returns_413(api_client) -> None:
+    """64 KB üzeri istek gövdesi 413 Payload Too Large dönmeli."""
+    large_payload = {"data": "x" * (65 * 1024)}
+    resp = api_client.post(
+        "/api/decisions",
+        json=large_payload,
+        headers={"Authorization": "Bearer test-secret-token"},
+    )
+    assert resp.status_code == status.HTTP_413_REQUEST_ENTITY_TOO_LARGE
+
+
+def test_cross_user_decision_delete_returns_404(api_client, make_user, pb_clean) -> None:
+    """Kullanıcı B, Kullanıcı A'ya ait kararı silememeli (404)."""
+    user_a_id, token_a, _ = make_user("usera_del@test.local", "Pass12345!")
+    user_b_id, token_b, _ = make_user("userb_del@test.local", "Pass12345!")
+
+    # User A karar oluşturur
+    create_resp = api_client.post(
+        "/api/decisions",
+        json={
+            "asset_symbol": "BTC",
+            "action": "BUY",
+            "rationale": "User A kararı",
+            "sentiment": "STRATEGIC",
+        },
+        headers={"Authorization": f"Bearer {token_a}"},
+    )
+    assert create_resp.status_code == status.HTTP_201_CREATED
+    dec_id = create_resp.json()["id"]
+
+    # User B bu kararı silmeye çalışır -> 404
+    del_resp = api_client.delete(
+        f"/api/decisions/{dec_id}",
+        headers={"Authorization": f"Bearer {token_b}"},
+    )
+    assert del_resp.status_code == status.HTTP_404_NOT_FOUND
+

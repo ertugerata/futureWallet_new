@@ -19,6 +19,13 @@ from contextlib import asynccontextmanager
 from datetime import date, timedelta
 from typing import Any, Literal
 
+try:
+    from apscheduler.schedulers.background import BackgroundScheduler
+
+    _APSCHEDULER_AVAILABLE = True
+except ImportError:
+    _APSCHEDULER_AVAILABLE = False
+
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -66,9 +73,15 @@ from services.decision_service import (
 from services.decision_service import (
     update_decision as svc_update_decision,
 )
+from services.decision_service import (
+    evaluate_decision as svc_evaluate_decision,
+)
+from services.decision_service import (
+    auto_close_expired_decisions as svc_auto_close_expired,
+)
+from services.asset_types import _guess_asset_type, guess_asset_type
 from services.ledger_service import (
     InsufficientBalanceError,
-    _guess_asset_type,
     time_travel_portfolio,
 )
 from services.ledger_service import (
@@ -83,7 +96,7 @@ from services.ledger_service import (
 from services.ledger_service import (
     void_transaction as srv_void_transaction,
 )
-from services.pocketbase import get_client
+from services.pb import get_client
 from services.simulation_service import (
     generate_risk_narrative as srv_generate_risk_narrative,
 )
@@ -141,11 +154,14 @@ def _get_or_create_default_user() -> str:
 
 def _extract_user_id(request: Request) -> str:
     """İstekten doğrulanmış user_id'yi alır (Prompt 6)."""
-    return (
-        getattr(request.state, "user_id", None)
-        or request.headers.get("X-User-ID")
-        or _get_or_create_default_user()
-    )
+    uid = getattr(request.state, "user_id", None)
+    if uid:
+        return str(uid)
+    if DEBUG and API_TOKEN:
+        uid = _get_or_create_default_user()
+        request.state.user_id = uid
+        return uid
+    raise HTTPException(status_code=401, detail="Yetkisiz: kullanıcı doğrulanamadı")
 
 
 def verify_api_token(request: Request) -> str:
@@ -388,8 +404,14 @@ async def _check_pb_connection() -> bool:
         return False
 
 
+import config
+
+_scheduler: "BackgroundScheduler | None" = None
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    global _scheduler
     # Fail-closed: API_TOKEN kontrolü
     if not API_TOKEN and not DEBUG:
         raise RuntimeError(
@@ -397,7 +419,22 @@ async def lifespan(app: FastAPI):
         )
     # PocketBase koleksiyonlarını başlat
     await _init_pocketbase()
+    # APScheduler: periyodik görevler (Prompt 11, 13)
+    if config.ENABLE_SCHEDULER and _APSCHEDULER_AVAILABLE:
+        _scheduler = BackgroundScheduler()
+        _scheduler.add_job(
+            svc_auto_close_expired,
+            "interval",
+            hours=24,
+            id="expire_decisions",
+            replace_existing=True,
+        )
+        _scheduler.start()
+        logger.info("APScheduler başlatıldı.")
     yield
+    if _scheduler is not None and _scheduler.running:
+        _scheduler.shutdown(wait=False)
+        logger.info("APScheduler durduruldu.")
 
 
 app = FastAPI(
@@ -424,6 +461,28 @@ async def _add_security_headers(request: Request, call_next):
     return response
 
 
+MAX_BODY_SIZE = 64 * 1024  # 64 KB limit (Prompt 6 DoS protection)
+
+
+async def _limit_request_size(request: Request, call_next):
+    """64 KB istek gövdesi limiti middleware'i (Prompt 6)."""
+    content_length = request.headers.get("content-length")
+    if content_length:
+        try:
+            if int(content_length) > MAX_BODY_SIZE:
+                return JSONResponse(
+                    status_code=413,
+                    content={"detail": "Payload Too Large: İstek gövdesi 64 KB sınırını aşıyor"},
+                )
+        except ValueError:
+            return JSONResponse(
+                status_code=400,
+                content={"detail": "Geçersiz Content-Length başlığı"},
+            )
+    return await call_next(request)
+
+
+app.add_middleware(BaseHTTPMiddleware, dispatch=_limit_request_size)
 app.add_middleware(BaseHTTPMiddleware, dispatch=_add_security_headers)
 app.add_middleware(
     CORSMiddleware,
@@ -709,11 +768,12 @@ async def decisions_stats_endpoint(request: Request):
 
 
 @app.get("/api/decisions/{decision_id}", dependencies=[Depends(verify_api_token)])
-async def get_decision_endpoint(decision_id: str):
+async def get_decision_endpoint(decision_id: str, request: Request):
     """ID ile tek karar. PB decisions collection'undan."""
+    user_id = _extract_user_id(request)
     dec = svc_get_decision(decision_id)
-    if dec is None:
-        return JSONResponse(status_code=404, content={"error": "decision not found"})
+    if dec is None or dec.get("user") != user_id:
+        raise HTTPException(status_code=404, detail="Karar bulunamadı")
     return decision_to_dict(dec)
 
 
@@ -721,8 +781,14 @@ async def get_decision_endpoint(decision_id: str):
 async def update_decision_endpoint(
     decision_id: str,
     body: DecisionUpdateRequest,
+    request: Request,
 ):
     """Karar alanlarını güncelle (None → değiştirme). PB decisions collection'unda."""
+    user_id = _extract_user_id(request)
+    existing = svc_get_decision(decision_id)
+    if existing is None or existing.get("user") != user_id:
+        raise HTTPException(status_code=404, detail="Karar bulunamadı")
+
     dec = svc_update_decision(
         decision_id,
         rationale=body.rationale,
@@ -732,16 +798,21 @@ async def update_decision_endpoint(
         status=body.status,
     )
     if dec is None:
-        return JSONResponse(status_code=404, content={"error": "decision not found"})
+        raise HTTPException(status_code=404, detail="Karar bulunamadı")
     return decision_to_dict(dec)
 
 
 @app.post("/api/decisions/{decision_id}/close", dependencies=[Depends(verify_api_token)])
-async def close_decision_endpoint(decision_id: str):
+async def close_decision_endpoint(decision_id: str, request: Request):
     """Kararı REVIEWED yap. PB decisions collection'unda."""
+    user_id = _extract_user_id(request)
+    existing = svc_get_decision(decision_id)
+    if existing is None or existing.get("user") != user_id:
+        raise HTTPException(status_code=404, detail="Karar bulunamadı")
+
     dec = svc_close_decision(decision_id)
     if dec is None:
-        return JSONResponse(status_code=404, content={"error": "decision not found"})
+        raise HTTPException(status_code=404, detail="Karar bulunamadı")
     return decision_to_dict(dec)
 
 
@@ -749,8 +820,13 @@ async def close_decision_endpoint(decision_id: str):
     "/api/decisions/{decision_id}/target-check",
     dependencies=[Depends(verify_api_token)],
 )
-async def decision_target_check_endpoint(decision_id: str):
+async def decision_target_check_endpoint(decision_id: str, request: Request):
     """Kararın hedef fiyat/vade gerçekleşme kontrolü. PB decisions collection'undan."""
+    user_id = _extract_user_id(request)
+    existing = svc_get_decision(decision_id)
+    if existing is None or existing.get("user") != user_id:
+        raise HTTPException(status_code=404, detail="Karar bulunamadı")
+
     result = svc_check_decision_target(decision_id)
     if "error" in result:
         return JSONResponse(status_code=404, content=result)
@@ -758,11 +834,32 @@ async def decision_target_check_endpoint(decision_id: str):
 
 
 @app.post(
+    "/api/decisions/{decision_id}/evaluate",
+    dependencies=[Depends(verify_api_token)],
+)
+async def evaluate_decision_endpoint(decision_id: str, request: Request):
+    """Kararın sonucunu ölçer: outcome_price, outcome_return_pct, target_hit (Prompt 13)."""
+    user_id = _extract_user_id(request)
+    existing = svc_get_decision(decision_id)
+    if existing is None or existing.get("user") != user_id:
+        raise HTTPException(status_code=404, detail="Karar bulunamadı")
+    result = svc_evaluate_decision(decision_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail="Karar bulunamadı")
+    return result
+
+
+@app.post(
     "/api/decisions/{decision_id}/retrospective",
     dependencies=[Depends(verify_api_token), Depends(check_retrospective_rate_limit)],
 )
-async def generate_retrospective_endpoint(decision_id: str):
+async def generate_retrospective_endpoint(decision_id: str, request: Request):
     """Bir karar için AI post-mortem (retrospektif) oluşturur. PB decisions collection'unda kaydeder."""
+    user_id = _extract_user_id(request)
+    existing = svc_get_decision(decision_id)
+    if existing is None or existing.get("user") != user_id:
+        raise HTTPException(status_code=404, detail="Karar bulunamadı")
+
     return svc_generate_ai_retrospective(decision_id)
 
 
@@ -814,11 +911,14 @@ async def create_shadow_position_endpoint(
 
 @app.get("/api/counterfactual/shadow-positions", dependencies=[Depends(verify_api_token)])
 async def list_shadow_positions_endpoint(
+    request: Request,
     decision_id: str | None = Query(None, description="Karar ID filter"),
     asset_symbol: str | None = Query(None, description="Varlık sembolü filter"),
 ):
     """Gölge pozisyon listesi (filter ile)."""
+    user_id = _extract_user_id(request)
     return get_shadow_positions(
+        user_id=user_id,
         decision_id=decision_id,
         asset_symbol=asset_symbol,
     )
@@ -830,20 +930,27 @@ async def list_shadow_positions_endpoint(
 )
 async def delete_shadow_position_endpoint(position_id: str, request: Request):
     """Gölge pozisyonunu sil (PB shadow_portfolios)."""
-    _ = _extract_user_id(request)
+    user_id = _extract_user_id(request)
+    client = get_client()
     try:
-        client = get_client()
-        sp_coll = client.collection("shadow_portfolios")
-        sp_coll.delete(position_id)
+        sp = client.collection("shadow_portfolios").get_one(position_id)
+        if getattr(sp, "user", None) != user_id:
+            raise HTTPException(status_code=404, detail="Gölge pozisyon bulunamadı")
+        client.collection("shadow_portfolios").delete(position_id)
         return {"status": "deleted", "position_id": position_id}
-    except Exception as e:
-        raise HTTPException(500, str(e))
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=404, detail="Gölge pozisyon bulunamadı")
 
 
 @app.delete("/api/decisions/{decision_id}", dependencies=[Depends(verify_api_token)])
 async def delete_decision_endpoint(decision_id: str, request: Request):
     """Kararı sil (bağlı gölge pozisyonlar cascade silinir; transaction etkilenmez)."""
-    _ = _extract_user_id(request)
+    user_id = _extract_user_id(request)
+    existing = svc_get_decision(decision_id)
+    if existing is None or existing.get("user") != user_id:
+        raise HTTPException(status_code=404, detail="Karar bulunamadı")
     try:
         client = get_client()
         decisions_coll = client.collection("decisions")
@@ -987,6 +1094,8 @@ async def delete_transaction_endpoint(
             transaction_id=transaction_id,
         )
         return {"status": "voided", "transaction_id": transaction_id}
+    except (PermissionError, ValueError) as e:
+        raise HTTPException(404, str(e))
     except Exception as e:
         raise HTTPException(500, str(e))
 

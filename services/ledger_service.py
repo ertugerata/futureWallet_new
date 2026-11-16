@@ -17,6 +17,7 @@ from collections.abc import Callable
 from datetime import date, timedelta
 from typing import Any
 
+from services.asset_types import guess_asset_type, _guess_asset_type
 from services.enums import TransactionType
 from services.multi_asset_manager import AssetManager
 from services.pb import get_client
@@ -46,23 +47,6 @@ def _tx_get(tx: Any, key: str, default: Any = None) -> Any:
         return tx.get(key, default)
     return getattr(tx, key, default)
 
-
-def _guess_asset_type(symbol: str) -> str:
-    """Sembol adına göre varlık türü tahmini."""
-    cash = frozenset({"USDT", "USD", "TRY", "TL", "EUR", "GBP"})
-    gold = frozenset({"GC=F", "XAU", "GOLD"})
-    up = symbol.upper()
-    if up in cash:
-        return "cash"
-    if up in gold or "GOLD" in up or "ALTIN" in up:
-        return "commodity"
-    if ".IS" in up or up in ("THYAO", "GARAN", "ASELS", "TUPRS", "SISE"):
-        return "stock_tr"
-    if "^GSPC" in up:
-        return "stock_us"
-    if up.endswith("=X") or up.endswith("USD=X"):
-        return "forex"
-    return "crypto"
 
 
 def _build_holdings_from_transactions(

@@ -22,6 +22,7 @@ from services.ai_service import (
     AIUnavailableError,
     generate_decision_retrospective,
 )
+from services.asset_types import _guess_asset_type, guess_asset_type
 from services.enums import (
     ACTION_ALLOWED,
     SENTIMENT_ALLOWED,
@@ -372,12 +373,70 @@ def get_decisions_due_for_review() -> list[dict]:
     return due
 
 
+def evaluate_decision(
+    decision_id: str,
+    as_of: date | None = None,
+) -> dict[str, Any] | None:
+    """Kararın sonucunu ölçer: outcome_price, outcome_return_pct, target_hit (Prompt 13)."""
+    dec = get_decision(decision_id)
+    if not dec:
+        return None
+
+    target_d = as_of or dec.get("target_date") or date.today()
+    sym = dec.get("asset_symbol", "")
+    atype = _guess_asset_type(sym)
+
+    from services.price_service import get_price_on
+
+    outcome_p = get_price_on(sym, atype, target_d)
+
+    # Giriş fiyatı (varsa karar tarihindeki fiyat, yoksa target_price)
+    entry_p = None
+    if dec.get("date"):
+        entry_p = get_price_on(sym, atype, dec["date"])
+    if entry_p is None:
+        entry_p = dec.get("target_price") or outcome_p
+
+    return_pct = None
+    target_hit = None
+
+    if outcome_p is not None and entry_p is not None and entry_p > 0:
+        action = dec.get("action", "BUY").upper()
+        if action == "BUY":
+            return_pct = round(((outcome_p - entry_p) / entry_p) * 100, 2)
+            if dec.get("target_price"):
+                target_hit = outcome_p >= dec["target_price"]
+        elif action == "SELL":
+            return_pct = round(((entry_p - outcome_p) / entry_p) * 100, 2)
+            if dec.get("target_price"):
+                target_hit = outcome_p <= dec["target_price"]
+
+    update_fields: dict[str, Any] = {}
+    if outcome_p is not None:
+        update_fields["outcome_price"] = outcome_p
+    if return_pct is not None:
+        update_fields["outcome_return_pct"] = return_pct
+    if target_hit is not None:
+        update_fields["target_hit"] = target_hit
+
+    if update_fields:
+        try:
+            client = get_client()
+            client.collection("decisions").update(decision_id, update_fields)
+            dec.update(update_fields)
+        except Exception as exc:
+            logger.error("Karar sonucu kaydedilemedi (%s): %s", decision_id, exc)
+
+    return dec
+
+
 def auto_close_expired_decisions(days_before: int = 0) -> list[dict]:
-    """Hedef tarihleri dolmuş ama REVIEWED yapılmamış kararları EXPIRED yapar."""
+    """Hedef tarihleri dolmuş ama REVIEWED yapılmamış kararları EXPIRED yapar ve sonuçları doldurur."""
     cutoff = date.today() - timedelta(days=days_before)
     closed: list[dict] = []
     for d in list_decisions(status="OPEN"):
         if d["target_date"] is not None and d["target_date"] < cutoff:
+            evaluate_decision(d["id"], as_of=d["target_date"])
             updated = update_decision(d["id"], status="EXPIRED")
             if updated:
                 closed.append(updated)
@@ -401,7 +460,7 @@ def generate_ai_retrospective(
     current_price = price_fn(decision["asset_symbol"]) if decision["asset_symbol"] else None
     market_data = {"price_on_decision": current_price} if current_price else None
 
-    api_available = bool(config.GOOGLE_API_KEY)
+    api_available = bool(config.OPENROUTER_API_KEY)
     retrospective: str | None = None
 
     if api_available:
@@ -409,8 +468,7 @@ def generate_ai_retrospective(
             retrospective = generate_decision_retrospective(
                 decision,
                 market_data=market_data,
-                api_key=config.GOOGLE_API_KEY,
-                model=config.GEMINI_MODEL,
+                api_key=config.OPENROUTER_API_KEY,
             )
 
             # Başarılı → DB güncelle
@@ -450,19 +508,4 @@ def generate_ai_retrospective(
     }
 
 
-def _guess_asset_type(symbol: str) -> str:
-    """Price fetch için asset türü tahmini."""
-    cash = frozenset({"USDT", "USD", "TRY", "TL", "EUR", "GBP"})
-    gold = frozenset({"GC=F", "XAU", "GOLD"})
-    up = symbol.upper()
-    if up in cash:
-        return "cash"
-    if up in gold or "GOLD" in up or "ALTIN" in up:
-        return "commodity"
-    if ".IS" in up or up in ("THYAO", "GARAN", "ASELS", "TUPRS", "SISE"):
-        return "stock_tr"
-    if "^GSPC" in up:
-        return "stock_us"
-    if up.endswith("=X") or up.endswith("USD=X"):
-        return "forex"
-    return "crypto"
+

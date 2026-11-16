@@ -55,28 +55,24 @@ POCKETBASE_PASSWORD: str = _raw_password
 
 
 # ---------------------------------------------------------------------------
-# Veritabanı (Prompt 6 – geçiş NOT*) =======================================================================
-# ---------------------------------------------------------------------------
-# (*) SQLAlchemy/SQLite → PocketBase geçişi: bu dosya artık POCKETBASE_URL üzerinden
-#    PocketBase Async Python SDK kullanır (services/pocketbase.py).
-#    DATABASE_URL sıfırlandıktan sonra artık kullanılmaz; gelecekte tamamen kaldırılacak.
-#    Testlerde PB instance'a bağlı kalınabilir (memory SQLite yerine PB embedded).
-DATABASE_URL: str = environ.get("DATABASE_URL", "sqlite:///./data/futurewallet.db")
-
-
-# ---------------------------------------------------------------------------
-# Google Gemini / OpenRouter AI (Prompt 7 – SDK geçiş + config model)
+# OpenRouter AI (Prompt 8 – Multi-model fallback)
 # ---------------------------------------------------------------------------
 
-# GOOGLE_API_KEY: Gemini/OpenRouter API anahtarı.
-#   - Boşsa AI servisler 503 döner (api/app.py'deki pattern).
-#   - Prompt 7: google-generativeai → google-genai SDK'sına geçildi.
-GOOGLE_API_KEY: str = environ.get("GOOGLE_API_KEY", "")
+OPENROUTER_API_KEY: str = environ.get("OPENROUTER_API_KEY", "")
+OPENROUTER_BASE_URL: str = environ.get(
+    "OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"
+)
+OPENROUTER_MODELS: str = environ.get(
+    "OPENROUTER_MODELS",
+    "anthropic/claude-3.5-sonnet,google/gemini-2.0-flash-001,deepseek/deepseek-r1",
+)
 
-# GEMINI_MODEL: LLM model adı (config'ten okunur, kodda SABİT DEĞİL).
-#   - Prompt 7: "gemini-1.5-flash" sabiti kaldırıldı.
-#   - OpenRouter model naming conventionına uygun.
-GEMINI_MODEL: str = environ.get("GEMINI_MODEL", "google/gemini-2.0-flash")
+# ---------------------------------------------------------------------------
+# Zamanlayıcı (APScheduler - Prompt 11, 13)
+# ---------------------------------------------------------------------------
+
+ENABLE_SCHEDULER: bool = environ.get("ENABLE_SCHEDULER", "true").lower() == "true"
+
 
 
 # ---------------------------------------------------------------------------
