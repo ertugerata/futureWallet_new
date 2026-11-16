@@ -18,7 +18,7 @@
 #   python-dotenv: config.py env yükleme
 #
 # Test / development:
-#   pytest, pytest-mock, pip-audit
+#   pytest, pip-audit
 #
 # NOT (Prompt 15): sqlalchemy, schedule ve google-genai kaldırıldı — kod
 #      tabanı hiçbirini import etmiyor; PocketBase + OpenRouter yeterli.
@@ -47,5 +47,4 @@ setuptools>=84.1.0
 
 # Test / development (Prompt 0, 15)
 pytest>=8.0.0
-pytest-mock>=3.10.0
 pip-audit>=2.0.0

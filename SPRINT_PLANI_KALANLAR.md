@@ -2,7 +2,7 @@
 
 > **Referans Belge:** `FUTUREWALLET_DUZELTME_PROMPTLARI.md` (v3).
 > **Mimari Hedef:** PocketBase v0.40.6 (DB/Auth) + FastAPI (Hesaplama) + OpenRouter (LLM).
-> **Durum:** Önceki sprintlerde tamamlandı sanılan birçok modül derleme hataları, kırık PB SDK çağrıları veya mock'lar arkasında kaldığı için gerçek PB ortamında çalışmamaktadır. İşler v3 uygulama sırasına göre sprintlere bölünmüştür.
+> **⚠️ DURUM (2026-11-16): Bu belge v3 planlama anlık görüntüsüdür ve geçersizdir.** Aşağıdaki "kırık/çalışmıyor" değerlendirmeleri gerçek PB testleriyle aşılmıştır: P1–P13 tamamlanmıştır (68/68 test, commits `af9d5e1`/`b5fca94`/`5a63210`). Güncel iş listesi ve kalan maddeler için tek kaynak: **`TODO.md` (v4)** ve **`GUNCEL_IS_PLANI.md` (v4)**. Kalan tek büyük dilim P14 (web giriş/CSP) + küçük açıklar (track_shadow miktarı, dinamik currency, scheduler/outcome testleri).
 
 ---
 

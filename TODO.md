@@ -162,11 +162,11 @@
 ### 🟡 Prompt 15: Temizlik, Bağımlılıklar, Doküman Senkronizasyonu
 - [x] `futurewallet.db`, `db.py`, `scripts/sanitize_symbols.py`, `services/future_price.py` silindi (çalışma ağacında).
 - [x] Kod tekrarı giderildi: `_guess_asset_type`/`guess_asset_type` tek modül (`services/asset_types.py`), `decision_to_dict` tekilliği.
-- [x] Doküman senkronu (kısmi): `TODO.md` bu dosya ile v4'e çekildi (2026-11-16, Graphify + PB test kanıtlarıyla).
-- [x] `requirements.in` sadeleştirildi (`google-genai`, `schedule`, `sqlalchemy` yorum ve paketleri çıkarıldı); `requirements.txt` `uv pip compile` ile yeniden üretildi (87 paket).
-- [ ] `MVP.md`, `README.md`, `GUNCEL_IS_PLANI.md` ve `SPRINT_PLANI_KALANLAR.md` hâlâ eski "her şey kırık" durumunu anlatıyor — v4 durumuna göre güncellenmeli.
+- [x] Doküman senkronu tamamlandı (2026-11-16): `TODO.md` v4, `GUNCEL_IS_PLANI.md` v4, `README.md` (PB JWT auth, uv kurulumu, env tablosu, test adımları), `MVP.md` (durum notu, mimari ağaç, sprint durumları); `SPRINT_PLANI_KALANLAR.md` geçersizlik banner'ı ile arşivlendi.
+- [x] `requirements.in` sadeleştirildi (`google-genai`, `schedule`, `sqlalchemy`, kullanılmayan `pytest-mock` çıkarıldı); `requirements.txt` `uv pip compile` ile yeniden üretildi (86 paket).
+- [ ] CI'ın uzaktan (GitHub Actions) yeşil koşması: push sonrası `gh run list` ile doğrulanacak.
 - [x] Tüm v3+v4 çalışma commit'lendi: `af9d5e1` (P2–P7 + P15 bağımlılık temizliği), `b5fca94` (P5 threadpool), P12 testleri ayrıca commit'lendi; çalışma ağacı temiz.
-- **Kabul Kriteri:** ⚠️ Kısmen — repoda `.db`/`db.py` kalmadı, `sqlalchemy`/`google.genai` referansı yok, commit tamam; CI'ın uzaktan yeşil koşması push sonrası doğrulanmalı; diğer plan dokümanlarının senkronu açık.
+- **Kabul Kriteri:** ⚠️ Kısmen — repoda `.db`/`db.py` kalmadı, `sqlalchemy`/`google.genai` referansı yok, dokümanlar v4'e senkron, commit tamam; tek açık: CI'ın uzaktan yeşil koşması push sonrası doğrulanmalı.
 
 ---
 
@@ -193,4 +193,4 @@
 1. **P10 `track_shadow` gerçek miktar/fiyat** (küçük, doğruluk).
 2. **P11 gold/alpha birim testi**, P9 dinamik currency.
 3. **P14 web arayüzü** (login → paneller; P6 sonrası web akışının çalışması için zorunlu — en büyük kalan dilim).
-4. **P15 kalanı:** `MVP.md`/`README.md`/`GUNCEL_IS_PLANI.md`/`SPRINT_PLANI_KALANLAR.md` senkronu; CI'ın uzaktan yeşil koştuğünün doğrulanması.
+4. **P15 kalanı:** push sonrası CI'ın uzaktan yeşil koştuğunun doğrulanması.

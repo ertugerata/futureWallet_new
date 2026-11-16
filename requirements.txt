@@ -164,10 +164,6 @@ pygments==2.21.0
 pyparsing==3.3.3
     # via pip-requirements-parser
 pytest==9.2.0
-    # via
-    #   -r requirements.in
-    #   pytest-mock
-pytest-mock==3.17.0
     # via -r requirements.in
 python-dateutil==4.0.0
     # via pandas

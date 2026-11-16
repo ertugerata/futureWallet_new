@@ -32,10 +32,11 @@ Piyasadaki uygulamalar yalnızca *"Şu an ne kadar paranız var?"* sorusuna yan�
 Projenin hedef mimarisi üç ana katmandan oluşur:
 - **Veritabanı & Kimlik Doğrulama:** [PocketBase v0.40.6](https://pocketbase.io/) (SQLite tabanlı, yerleşik auth, rule-based erişim denetimi ve migration desteği)
 - **Hesaplama Motoru & REST API:** Python 3.11+, FastAPI, Pydantic v2, Uvicorn
-- **Finansal Analiz & Simülasyon:** NumPy, Pandas, SciPy
-- **AI & Doğal Dil Yorumlama:** OpenRouter API (Fallback zinciri: Claude, GPT, Gemini vb.)
+- **Finansal Analiz & Simülasyon:** NumPy, Pandas
+- **Zamanlama:** APScheduler (lifespan içinde; `ENABLE_SCHEDULER=false` ile kapatılabilir)
+- **AI & Doğal Dil Yorumlama:** OpenRouter API (Fallback zinciri: Claude, Gemini, DeepSeek)
 - **Piyasa Verisi:** yfinance, ccxt, TCMB EVDS API, FRED API
-- **Web Arayüzü:** HTML5, TailwindCSS, Chart.js, Vanilla JS (DOM-safe, CSP uyumlu)
+- **Web Arayüzü:** HTML5, Jinja2, Chart.js, Vanilla JS (giriş akışı ve CSP temizliği P14 kapsamında — bkz. `TODO.md`)
 
 ---
 
@@ -59,21 +60,23 @@ Projenin hedef mimarisi üç ana katmandan oluşur:
    PocketBase v0.40.6 binary'sini indirin ve ayrı bir terminalde çalıştırın:
    ```bash
    curl -sL -o pb.zip https://github.com/pocketbase/pocketbase/releases/download/v0.40.6/pocketbase_0.40.6_linux_amd64.zip && unzip pb.zip
-   ./pocketbase --dir ./pb_data superuser upsert admin@example.com 'GucluParola123!'
+   ./pocketbase --dir ./pb_data superuser upsert 'superuser@şirket.local' 'GucluParola123!'
    ./pocketbase serve --dir ./pb_data --http 127.0.0.1:8090
    ```
 
-3. **Python sanal ortamı kurun ve bağımlılıkları yükleyin:**
+   Migration'lar (`pb_migrations/`) uygulandığında 6 koleksiyon (`users`, `transactions`, `decisions`, `shadow_portfolios`, `macro_data`, `price_history`) oluşur; API bunu açılışta doğrular.
+
+3. **Python sanal ortamı kurun ve bağımlılıkları yükleyin** (repo kuralı: `uv`):
    ```bash
-   python -m venv venv
-   source venv/bin/activate  # Windows: venv\Scripts\activate
-   pip install -r requirements.txt
+   ./bin/uv venv
+   ./bin/uv pip install -r requirements.txt
    ```
 
 4. **Çevre değişkenlerini ayarlayın:**
    ```bash
    cp .env.example .env
-   # .env dosyasını açıp POCKETBASE_URL, POCKETBASE_EMAIL, POCKETBASE_PASSWORD ve API_TOKEN girin
+   # POCKETBASE_URL, POCKETBASE_EMAIL, POCKETBASE_PASSWORD zorunlu;
+   # AI özellikleri için OPENROUTER_API_KEY opsiyonel
    ```
 
 5. **Uygulamayı başlatın:**
@@ -83,8 +86,8 @@ Projenin hedef mimarisi üç ana katmandan oluşur:
 
 6. **Erişim:**
    - Web Arayüzü: [http://127.0.0.1:8000/web/](http://127.0.0.1:8000/web/)
-   - API Dokümantasyonu (Swagger): [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)
-   - Sistem Sağlık Kontrolü: [http://127.0.0.1:8000/health](http://127.0.0.1:8000/health)
+   - API Dokümantasyonu (Swagger): [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs) — yalnızca `DEBUG=true` iken açıktır
+   - Sistem Sağlık Kontrolü: [http://127.0.0.1:8000/health](http://127.0.0.1:8000/health) (`pb: ok|down` alanıyla)
 
 ---
 
@@ -94,19 +97,36 @@ Hassas anahtarlar ve ortam değişkenleri `.env` dosyası üzerinden yapılandı
 
 | Değişken | Açıklama | Varsayılan | Zorunlu mu? |
 |---|---|---|---|
-| `POCKETBASE_URL` | PocketBase sunucu URL'si | `http://127.0.0.1:8090` | Evet |
-| `POCKETBASE_EMAIL` | PocketBase yönetici/sistem e-postası | - | Evet (migration/admin işleri için) |
-| `POCKETBASE_PASSWORD` | PocketBase yönetici parolası | - | Evet |
-| `API_TOKEN` | FastAPI servis token'ı / fallback auth | - | Evet (fail-closed) |
+| `POCKETBASE_URL` | PocketBase sunucu URL'si | `http://localhost:8080` | Evet |
+| `POCKETBASE_EMAIL` | PocketBase superuser e-postası | - | Evet (eksikse `config.py` RuntimeError) |
+| `POCKETBASE_PASSWORD` | PocketBase superuser parolası | - | Evet (eksikse `config.py` RuntimeError) |
 | `ALLOWED_ORIGINS` | CORS izinli origin listesi (virgüllü) | `""` (yalnızca same-origin) | Hayır |
 | `ALLOWED_HOSTS` | İzinli HTTP Host başlıkları | `localhost,127.0.0.1` | Hayır |
-| `OPENROUTER_API_KEY` | OpenRouter API anahtarı | `""` | AI özellikleri için |
-| `OPENROUTER_MODELS` | Model fallback zinciri (virgüllü) | `openai/gpt-4o-mini,...` | Hayır |
+| `OPENROUTER_API_KEY` | OpenRouter API anahtarı | `""` | AI özellikleri için (yoksa AI uçları 503) |
+| `OPENROUTER_BASE_URL` | OpenRouter temel adresi | `https://openrouter.ai/api/v1` | Hayır |
+| `OPENROUTER_MODELS` | Model fallback zinciri (virgüllü) | `anthropic/claude-3.5-sonnet,google/gemini-2.0-flash-001,deepseek/deepseek-r1` | Hayır |
+| `ENABLE_SCHEDULER` | APScheduler açık/kapalı | `true` | Hayır |
 | `TCMB_API_KEY` | TCMB EVDS API anahtarı | `""` | TÜFE benchmark için |
 | `FRED_API_KEY` | FRED API anahtarı | `""` | US CPI benchmark için |
-| `DEBUG` | Geliştirici modu (`true`/`false`) | `false` | Hayır |
+| `DEBUG` | Geliştirici modu; `/docs` ve `/openapi.json` bunu açar | `false` | Hayır |
 
-> **Fail-Closed Güvenlik Notu:** `DEBUG=false` iken gerekli token ve PocketBase yapılandırmaları eksikse FastAPI uygulaması başlamayı reddeder.
+> **Fail-Closed Güvenlik Notu:** `POCKETBASE_EMAIL`/`POCKETBASE_PASSWORD` boşsa uygulama import aşamasında RuntimeError ile başlar.
+
+## 🔐 Kimlik Doğrulama
+
+Statik API token **yoktur**. Tüm `/api/*` uçları PocketBase kullanıcı JWT'si ister:
+
+```bash
+# 1. Kullanıcı oluşturun (PB admin veya kayıt) ve token alın:
+curl -X POST $POCKETBASE_URL/api/collections/users/auth-with-password \
+  -H 'Content-Type: application/json' \
+  -d '{"identity":"user@sirket.local","password":"Parola123!"}'
+
+# 2. API çağrılarında taşıyın:
+curl -H "Authorization: Bearer <token>" http://127.0.0.1:8000/api/portfolio/snapshot
+```
+
+Sunucu token'ı `users/auth_refresh` ile doğrular (geçersiz/süresi dolmuş → 401); tüm veri erişimi PB erişim kuralları ve uygulama tarafı sahiplik kontrolleriyle kullanıcı bazında izoledir.
 
 ---
 
@@ -148,13 +168,20 @@ Proje kurallarına göre (`FUTUREWALLET_DUZELTME_PROMPTLARI.md` Prompt 0):
 ```bash
 # Statik kod analizi ve lint
 ruff check .
+ruff format --check .
 
-# Tip denetimi
+# Tip denetimi (gevşek mod, mypy.ini)
 mypy api services config.py
 
-# Testleri çalıştırma
+# Testleri çalıştırma (PocketBase binary'si tests/conftest.py tarafından
+# otomatik indirilir ve pb_bin/ içinde önbelleklenir)
 pytest -q
+
+# Yalnızca PocketBase entegrasyon testleri
+pytest -m pb -q
 ```
+
+CI (`.github/workflows/ci.yml`) bu adımların tamamını + `pip-audit` ve docker build'i koşar.
 
 ---
 

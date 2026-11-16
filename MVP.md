@@ -1,8 +1,9 @@
 # 🚀 FutureWallet – MVP Dokümanı (PocketBase + FastAPI + OpenRouter)
 
-> **Sürüm:** 2.0  
-> **Mimari:** PocketBase (DB/Auth) + FastAPI (Hesaplama) + OpenRouter (LLM)  
+> **Sürüm:** 2.0
+> **Mimari:** PocketBase (DB/Auth) + FastAPI (Hesaplama) + OpenRouter (LLM)
 > **Tarih:** Kasım 2026
+> **Uygulama Durumu (2026-11-16):** Sprint 1–3 tamamlandı ve gerçek PocketBase v0.40.6 testleriyle doğrulandı (68/68; ayrıntı `TODO.md` v4). Sprint 4'ün web giriş akışı (P14) ve son küçük maddeler (track_shadow miktarı, dinamik currency, scheduler/outcome birim testleri) açık.
 
 ---
 
@@ -81,13 +82,18 @@ FutureWallet/
 ├── api/
 │   └── app.py                  # FastAPI REST Uç Noktaları
 ├── services/
+│   ├── pb.py                   # PocketBase SDK sarmalayıcıları (admin/user client, CRUD, client.filter)
 │   ├── ledger_service.py       # Event-Sourcing İşlem ve Snapshot Motoru
 │   ├── benchmark_service.py    # Altın, SP500, TÜFE (EVDS/FRED) Entegrasyonu
 │   ├── decision_service.py     # Karar Günlüğü & Post-Mortem Analizörü
 │   ├── counterfactual_service.py # Gölge Portföy / What-If Motoru
 │   ├── simulation_service.py   # Monte Carlo & Stres Testi Engine
 │   ├── ai_service.py           # OpenRouter LLM Karar Yorumlama & Senaryo Anlatısı
-│   └── price_service.py        # yfinance, ccxt, PB price_history cache birleştirici
+│   ├── price_service.py        # yfinance, ccxt, PB price_history cache birleştirici
+│   ├── multi_asset_manager.py  # Sembol başına fiyat/veri yönetimi (varlık sınıfı bazlı)
+│   ├── asset_types.py          # guess_asset_type tek doğruluk kaynağı
+│   └── enums.py                # TransactionType / Sentiment tek enum kaynağı
+├── pb_migrations/              # PB şema + erişim kuralları migration'ları (6 koleksiyon)
 ├── web_app/                    # Web Arayüzü & Dashboard Components (HTML5 + Jinja2 + Chart.js + JavaScript)
 └── docker-compose.yml          # PocketBase + FastAPI container tanımları
 ```
@@ -187,7 +193,7 @@ FutureWallet/
 
 | Aşama / Sprint | Görev Tanımı | Tahmini Süre |
 | :--- | :--- | :--- |
-| **Sprint 1** | **Güvenlik, Altyapı & PocketBase Geçişi:** Auth/JWT katmanı, CSP/ALLOWED_ORIGINS, PB koleksiyon şemaları, SQLAlchemy → PB Async Client migrasyonu, docker-compose tanımları, asset_symbol regex doğrulaması (Pydantic field_validator), web UI innerHTML→textContent güvenlik temizliği. | 1 Hafta |
-| **Sprint 2** | **Reel Değerleme, Benchmark & Gölge Portföy:** Fiyat servisi (yfinance + ccxt + PB cache), time-travel endpoint, EVDS/TÜFE entegrasyonu, Gram Altın formülü, benchmark endpoint, gölge portföy otomatik oluşturma (karar anında HELD_INSTEAD/BOUGHT_INSTEAD), POST/GET/DELETE shadow-positions endpoint'leri, fırsat maliyeti hesabı. | 1 Hafta |
-| **Sprint 3** | **OpenRouter AI & Makro Simülasyon:** OpenRouter client (fallback zinciri: claude-3.5-sonnet → gemini-2.0-flash → deepseek-r1), model fallback, karar retrospektifi endpoint, Monte Carlo (drift düzeltmeli GBM), histogram (40 kutu), POST /api/simulation/stress-test, POST /api/simulation/narrative, AI risk anlatısı endpoint. | 1 Hafta |
-| **Sprint 4** | **Web Arayüzü & Yayına Hazırlık:** Karar formu doğrulamaları, USD/TRY seçici entegrasyonu, stres test histogram/p5/p50/p95 çizgileri, Docker USER app, requirements.txt sürüm kilitleme, pip-audit. | 1 Hafta |
+| **Sprint 1** ✅ | **Güvenlik, Altyapı & PocketBase Geçişi:** Auth/JWT katmanı, CSP/ALLOWED_ORIGINS, PB koleksiyon şemaları, SQLAlchemy → PB senkron Client migrasyonu, docker-compose tanımları, asset_symbol regex doğrulaması (Pydantic field_validator). *(web UI innerHTML→textContent temizliği Sprint 4/P14'e taşındı — henüz açık.)* | 1 Hafta |
+| **Sprint 2** ✅ | **Reel Değerleme, Benchmark & Gölge Portföy:** Fiyat servisi (yfinance + ccxt + PB cache), time-travel endpoint, EVDS/TÜFE entegrasyonu, Gram Altın formülü, benchmark endpoint, gölge portföy otomatik oluşturma (karar anında HELD_INSTEAD/BOUGHT_INSTEAD), POST/GET/DELETE shadow-positions endpoint'leri, fırsat maliyeti hesabı. | 1 Hafta |
+| **Sprint 3** ✅ | **OpenRouter AI & Makro Simülasyon:** OpenRouter client (fallback zinciri: claude-3.5-sonnet → gemini-2.0-flash → deepseek-r1), model fallback, karar retrospektifi endpoint, Monte Carlo (drift düzeltmeli GBM), histogram (40 kutu), POST /api/simulation/stress-test, POST /api/simulation/narrative, AI risk anlatısı endpoint. | 1 Hafta |
+| **Sprint 4** ⚠️ | **Web Arayüzü & Yayına Hazırlık:** requirements kilidi + pip-audit + Docker tamam; PB login akışı, USD/TRY dinamik seçici, histogram çizgileri ve CSP temizliği (P14) açık. | 1 Hafta |
