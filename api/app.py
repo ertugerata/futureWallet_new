@@ -366,7 +366,7 @@ async def _init_pocketbase() -> None:
         raise
 
 
-async def _check_pb_connection() -> bool:
+def _check_pb_connection() -> bool:
     """PocketBase bağlantısını kontrol et."""
     try:
         from services.pb import get_admin_client
@@ -478,13 +478,13 @@ app.add_middleware(
 
 
 @app.get("/health")
-async def health():
-    pb_ok = await _check_pb_connection()
+def health():
+    pb_ok = _check_pb_connection()
     return {"status": "ok", "pb": "ok" if pb_ok else "down"}
 
 
 @app.get("/")
-async def root():
+def root():
     return {
         "name": "FutureWallet",
         "version": "0.1.0",
@@ -507,7 +507,7 @@ mount_web(app)
 
 
 @app.get("/api/portfolio/snapshot", dependencies=[Depends(get_current_user)])
-async def portfolio_snapshot(
+def portfolio_snapshot(
     request: Request,
     as_of: date | None = Query(None, alias="date", description="ISO YYYY-MM-DD. Yoksa bugün."),
 ):
@@ -517,7 +517,7 @@ async def portfolio_snapshot(
 
 
 @app.get("/api/portfolio/time-travel", dependencies=[Depends(get_current_user)])
-async def portfolio_time_travel(
+def portfolio_time_travel(
     request: Request,
     t_start: date = Query(..., description="ISO YYYY-MM-DD başlangıç tarihi"),
     t_target: date | None = Query(None, description="ISO YYYY-MM-DD hedef tarih. Yoksa bugün."),
@@ -529,7 +529,7 @@ async def portfolio_time_travel(
 
 
 @app.get("/api/portfolio/real-valuation", dependencies=[Depends(get_current_user)])
-async def portfolio_real_valuation(
+def portfolio_real_valuation(
     request: Request,
     date_from: date = Query(..., description="ISO YYYY-MM-DD başlangıç"),
     date_to: date = Query(..., description="ISO YYYY-MM-DD bitiş"),
@@ -559,7 +559,7 @@ async def portfolio_real_valuation(
 
 
 @app.get("/api/portfolio/value-series", dependencies=[Depends(get_current_user)])
-async def portfolio_value_series(
+def portfolio_value_series(
     request: Request,
     start_date: date = Query(..., description="Başlangıç tarihi (ISO YYYY-MM-DD)"),
     end_date: date = Query(..., description="Bitiş tarihi (ISO YYYY-MM-DD)"),
@@ -640,7 +640,7 @@ async def portfolio_value_series(
 
 
 @app.get("/api/decisions", dependencies=[Depends(get_current_user)])
-async def list_decisions_endpoint(
+def list_decisions_endpoint(
     request: Request,
     status: str | None = Query(None),
     sentiment: str | None = Query(None),
@@ -660,7 +660,7 @@ async def list_decisions_endpoint(
 
 
 @app.post("/api/decisions", status_code=201, dependencies=[Depends(get_current_user)])
-async def create_decision_endpoint(
+def create_decision_endpoint(
     body: DecisionCreateRequest,
     request: Request,
 ):
@@ -699,7 +699,7 @@ async def create_decision_endpoint(
 
 
 @app.get("/api/decisions/stats", dependencies=[Depends(get_current_user)])
-async def decisions_stats_endpoint(request: Request):
+def decisions_stats_endpoint(request: Request):
     """Sentiment ve action bazında karar istatistikleri (Prompt 13)."""
     uid = _extract_user_id(request)
     sentiment_summary = get_sentiment_summary(user_id=uid)
@@ -742,7 +742,7 @@ async def decisions_stats_endpoint(request: Request):
 
 
 @app.get("/api/decisions/{decision_id}", dependencies=[Depends(get_current_user)])
-async def get_decision_endpoint(decision_id: str, request: Request):
+def get_decision_endpoint(decision_id: str, request: Request):
     """ID ile tek karar. PB decisions collection'undan."""
     user_id = _extract_user_id(request)
     dec = svc_get_decision(decision_id)
@@ -752,7 +752,7 @@ async def get_decision_endpoint(decision_id: str, request: Request):
 
 
 @app.put("/api/decisions/{decision_id}", dependencies=[Depends(get_current_user)])
-async def update_decision_endpoint(
+def update_decision_endpoint(
     decision_id: str,
     body: DecisionUpdateRequest,
     request: Request,
@@ -777,7 +777,7 @@ async def update_decision_endpoint(
 
 
 @app.post("/api/decisions/{decision_id}/close", dependencies=[Depends(get_current_user)])
-async def close_decision_endpoint(decision_id: str, request: Request):
+def close_decision_endpoint(decision_id: str, request: Request):
     """Kararı REVIEWED yap. PB decisions collection'unda."""
     user_id = _extract_user_id(request)
     existing = svc_get_decision(decision_id)
@@ -794,7 +794,7 @@ async def close_decision_endpoint(decision_id: str, request: Request):
     "/api/decisions/{decision_id}/target-check",
     dependencies=[Depends(get_current_user)],
 )
-async def decision_target_check_endpoint(decision_id: str, request: Request):
+def decision_target_check_endpoint(decision_id: str, request: Request):
     """Kararın hedef fiyat/vade gerçekleşme kontrolü. PB decisions collection'undan."""
     user_id = _extract_user_id(request)
     existing = svc_get_decision(decision_id)
@@ -811,7 +811,7 @@ async def decision_target_check_endpoint(decision_id: str, request: Request):
     "/api/decisions/{decision_id}/evaluate",
     dependencies=[Depends(get_current_user)],
 )
-async def evaluate_decision_endpoint(decision_id: str, request: Request):
+def evaluate_decision_endpoint(decision_id: str, request: Request):
     """Kararın sonucunu ölçer: outcome_price, outcome_return_pct, target_hit (Prompt 13)."""
     user_id = _extract_user_id(request)
     existing = svc_get_decision(decision_id)
@@ -827,7 +827,7 @@ async def evaluate_decision_endpoint(decision_id: str, request: Request):
     "/api/decisions/{decision_id}/retrospective",
     dependencies=[Depends(check_retrospective_rate_limit)],
 )
-async def generate_retrospective_endpoint(decision_id: str, request: Request):
+def generate_retrospective_endpoint(decision_id: str, request: Request):
     """Bir karar için AI post-mortem (retrospektif) oluşturur. PB decisions collection'unda kaydeder."""
     user_id = _extract_user_id(request)
     existing = svc_get_decision(decision_id)
@@ -843,7 +843,7 @@ async def generate_retrospective_endpoint(decision_id: str, request: Request):
 
 
 @app.get("/api/counterfactual", dependencies=[Depends(get_current_user)])
-async def counterfactual_endpoint(
+def counterfactual_endpoint(
     request: Request,
     decision_id: str = Query(..., description="Karar ID"),
     as_of: date | None = Query(None, description="ISO YYYY-MM-DD. Yoksa bugün."),
@@ -865,7 +865,7 @@ async def counterfactual_endpoint(
     status_code=201,
     dependencies=[Depends(get_current_user)],
 )
-async def create_shadow_position_endpoint(
+def create_shadow_position_endpoint(
     body: ShadowPositionCreateRequest,
     request: Request,
 ):
@@ -889,7 +889,7 @@ async def create_shadow_position_endpoint(
 
 
 @app.get("/api/counterfactual/shadow-positions", dependencies=[Depends(get_current_user)])
-async def list_shadow_positions_endpoint(
+def list_shadow_positions_endpoint(
     request: Request,
     decision_id: str | None = Query(None, description="Karar ID filter"),
     asset_symbol: str | None = Query(None, description="Varlık sembolü filter"),
@@ -907,7 +907,7 @@ async def list_shadow_positions_endpoint(
     "/api/counterfactual/shadow-positions/{position_id}",
     dependencies=[Depends(get_current_user)],
 )
-async def delete_shadow_position_endpoint(position_id: str, request: Request):
+def delete_shadow_position_endpoint(position_id: str, request: Request):
     """Gölge pozisyonunu sil (PB shadow_portfolios)."""
     user_id = _extract_user_id(request)
     client = get_client()
@@ -924,7 +924,7 @@ async def delete_shadow_position_endpoint(position_id: str, request: Request):
 
 
 @app.delete("/api/decisions/{decision_id}", dependencies=[Depends(get_current_user)])
-async def delete_decision_endpoint(decision_id: str, request: Request):
+def delete_decision_endpoint(decision_id: str, request: Request):
     """Kararı sil (bağlı gölge pozisyonlar cascade silinir; transaction etkilenmez)."""
     user_id = _extract_user_id(request)
     existing = svc_get_decision(decision_id)
@@ -940,7 +940,7 @@ async def delete_decision_endpoint(decision_id: str, request: Request):
 
 
 @app.get("/api/simulation/monte-carlo", dependencies=[Depends(get_current_user)])
-async def monte_carlo_endpoint(
+def monte_carlo_endpoint(
     request: Request,
     assets: str = Query(..., description="Virgülle ayrılmış semboller (örn: BTC,ETH,GC=F)"),
     days: int = Query(
@@ -1013,7 +1013,7 @@ TransactionCreateRequest.model_rebuild()
 
 
 @app.post("/api/transactions", status_code=201, dependencies=[Depends(get_current_user)])
-async def create_transaction_endpoint(
+def create_transaction_endpoint(
     body: TransactionCreateRequest,
     request: Request,
 ):
@@ -1038,7 +1038,7 @@ async def create_transaction_endpoint(
 
 
 @app.get("/api/transactions", dependencies=[Depends(get_current_user)])
-async def list_transactions_endpoint(
+def list_transactions_endpoint(
     request: Request,
     asset_symbol: str | None = Query(None),
     tx_type: str | None = Query(None),
@@ -1060,7 +1060,7 @@ async def list_transactions_endpoint(
 
 
 @app.delete("/api/transactions/{transaction_id}", dependencies=[Depends(get_current_user)])
-async def delete_transaction_endpoint(
+def delete_transaction_endpoint(
     transaction_id: str,
     request: Request,
 ):
@@ -1080,7 +1080,7 @@ async def delete_transaction_endpoint(
 
 
 @app.get("/api/portfolio/benchmarks", dependencies=[Depends(get_current_user)])
-async def portfolio_benchmarks_endpoint(
+def portfolio_benchmarks_endpoint(
     request: Request,
     date_from: date = Query(..., description="Başlangıç tarihi (ISO YYYY-MM-DD)"),
     date_to: date = Query(..., description="Bitiş tarihi (ISO YYYY-MM-DD)"),
@@ -1114,7 +1114,7 @@ StressTestRequest.model_rebuild()
 
 
 @app.post("/api/simulation/stress-test", dependencies=[Depends(get_current_user)])
-async def stress_test_endpoint(body: StressTestRequest):
+def stress_test_endpoint(body: StressTestRequest):
     """Makro şok senaryoları altında portföy değerlerini simüle eder."""
     try:
         result = srv_stress_test(
@@ -1139,7 +1139,7 @@ NarrativeRequest.model_rebuild()
 
 
 @app.post("/api/simulation/narrative", dependencies=[Depends(get_current_user)])
-async def narrative_endpoint(body: NarrativeRequest):
+def narrative_endpoint(body: NarrativeRequest):
     """Monte Carlo / stres test sonucu için Türkçe risk anlatısı."""
     try:
         result = srv_generate_risk_narrative(
