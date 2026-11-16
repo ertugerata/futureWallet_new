@@ -20,9 +20,9 @@
 | AI Servisi | OpenRouter fallback zinciri + 502/503 semantiği + prompt injection etiketi | [x] Tamamlandı |
 | Zamanlayıcı | APScheduler lifespan'a entegre, `ENABLE_SCHEDULER` ile kapatılabilir, EXPIRED otomatik job'ı | [x] Tamamlandı |
 | Benchmark | `_upsert_to_pb` ve `_get_pb_price` düzeltildi (bozuk `get_list(params=)` kalıntısı temizlendi); alpha/gold birim testi YOK | [ ] Kısmen |
-| Monte Carlo / Stres | Endpoint'ler ve limitler (20k simülasyon, 15 varlık) var; kabul kriteri senaryoları doğrulanmadı | [ ] Kısmen |
+| Monte Carlo / Stres | Kabul testleri yazıldı ve geçiyor; singular kovaryans çökmesi ve boş portföye NaN üreten hatalar düzeltildi; 3/6/12 ay tek çağrıda | [x] Tamamlandı |
 | Web Arayüzü | PB login akışı yok; `innerHTML` kullanımı ve inline style (CSP) duruyor | [ ] AÇIK |
-| Temizlik & Bağımlılıklar | `futurewallet.db`, `db.py`, `sanitize_symbols.py`, `future_price.py` silindi; `google-genai` + `schedule` hâlâ requirements'ta; değişiklikler commit edilmedi | [ ] Kısmen |
+| Temizlik & Bağımlılıklar | `futurewallet.db`, `db.py`, `sanitize_symbols.py`, `future_price.py` silindi; `google-genai`/`schedule` requirements'tan çıkarıldı, kilit uv ile yenilendi; v3+v4 çalışma commit'lendi | [x] Tamamlandı |
 
 ---
 
@@ -68,13 +68,13 @@
 - [x] `.env.example` PB + OpenRouter + scheduler değişkenleriyle güncel.
 - **Kabul Kriteri:** ✅ `docker compose config` parola olmadan hata veriyor.
 
-### ✅ Prompt 5: PB İstemci Katmanı — tek eksik: event loop
+### ✅ Prompt 5: PB İstemci Katmanı
 - [x] `services/pb.py`: `get_admin_client()` (thread-safe singleton, otomatik yenileme), `get_user_client(token)`, `list_all/get_one/create_record/update_record/delete_record`, `verify_collections`.
 - [x] Tüm f-string filtreler `client.filter(raw, params)` parametreli hâle getirildi (ledger ×3, counterfactual, benchmark ×3, decision).
 - [x] Kırık `get_list(params=...)` çağrıları düzeltildi (`benchmark_service._get_pb_price` — benchmarks'i hep boş döndüren sessiz yutma giderildi).
 - [x] `transactions.get(id)` → `get_one(id)`; `update(record)` → `update(id, body)`.
 - [x] `_get_holdings_at_date` sessiz `except: records = []` yutması kaldırıldı (log + Python taraflı yedek sorgu).
-- [ ] **PB/ağ çağıran endpoint'ler hâlâ `async def` ve tıkanan SDK çağrılarını event loop üzerinde yapıyor** → senkron `def`'e çevir (FastAPI threadpool'da çalıştırır). Mevcut `await` kullanımı yalnız lifespan/middleware/health'te; dönüşüm mekanik ve risksiz.
+- [x] PB/ağ çağıran tüm endpoint handler'ları senkron `def`'e çevrildi; FastAPI bunları threadpool'da çalıştırıyor, event loop bloklanmıyor. `await` yalnız lifespan/middleware'de kaldı (commit `b5fca94`).
 - **Kabul Kriteri:** ✅ liste/tekil uçlar testte dönüyor; filtre enjeksiyonu parametreli.
 
 ### ✅ Prompt 6: Kimlik Doğrulama ve Kullanıcı İzolasyonu
@@ -131,14 +131,15 @@
 - [x] `/api/portfolio/benchmarks` portföy/altın/S&P/TÜFE + alpha döndürüyor (`_get_pb_price` hatası bu turda düzeltildi — önceden hep boştu).
 - [ ] **Kabul kriteri birim testi eksik:** `gold_try_gram` ve alpha için deterministik birim testi yazılmalı (upsert tek kayıt testi PB ile zaten kapsanıyor).
 
-### 🟡 Prompt 12: Monte Carlo ve Stres Testi — kabul doğrulaması bekliyor
+### ✅ Prompt 12: Monte Carlo ve Stres Testi
 - [x] `stress_test` `session` parametresi kaldırıldı; uçlar JWT kimliğiyle.
-- [x] `monte_carlo_endpoint` tanımsız `request`/`_guess_asset_type` hataları giderildi; 15 varlık / 20.000 simülasyon üst sınırları (422) uygulanıyor.
-- [ ] `market_crash` şok kalıcılığı (tüm günlere tam çarpan) — sayısal doğrulama testi yok.
-- [ ] Varlık sınıfı duyarlılık tablosu (hisse/kripto/emtia/nakit farklı tepki) — kod var, kabul testi yok.
-- [ ] 63/126/252 çoklu horizon + 40 kutu histogram + p5/p50/p95 çıktı sözleşmesi — uç var, sabit `mu/sigma` medyan yakınsama testi yok.
-- [ ] Cholesky korelasyonlu simülasyon doğrulaması.
-- **Kabul Kriteri:** ⚠️ Doğrulanmadı — deterministik seed ile birim testleri yazılmalı.
+- [x] `monte_carlo_endpoint` tanımsız `request`/`_guess_asset_type` hataları giderildi; 15 varlık / 20.000 simülasyon üst sınırları (422) uygulanıyor ve test edildi.
+- [x] `market_crash` şok kalıcılığı testi: %50 özel şokta vade medyanı ≈ −%50 (`tests/test_simulation_stress.py`).
+- [x] Varlık sınıfı duyarlılık tablosu `DEFAULT_STRESS_SCENARIOS.asset_impacts` içinde; `worst_case`/`loss_pct` sözleşmesi testli.
+- [x] 63/126/252 çoklu horizon tek çağrıda (`days` verilmezse `horizons` sözlüğü döner) + 40 kutu histogram + p5/p50/p95; sabit mu/sigma ile 20k yolda medyan teorik GBM değerine %2 içinde.
+- [x] Cholesky determinizm ve tekil kovaryans dayanıklılığı: eigen-değer clipping `0.0` yerine `1e-12`'e çekildi — verisi olmayan varlıklarda `LinAlgError` çökmesi düzeltildi; aynı seed aynı çıktı.
+- [x] Boş portföyde `use_ledger` miktarı `0`'a düşürüp NaN üretiyordu; snapshot döngü dışına alındı ve istekte gelen miktar korunuyor.
+- **Kabul Kriteri:** ✅ `tests/test_simulation_stress.py` 6/6 geçti.
 
 ### ✅ Prompt 13: Karar Günlüğü: Stats, Outcome, EXPIRED
 - [x] `DELETE /api/decisions/{id}` sahiplik + PB cascade (testli).
@@ -162,10 +163,10 @@
 - [x] `futurewallet.db`, `db.py`, `scripts/sanitize_symbols.py`, `services/future_price.py` silindi (çalışma ağacında).
 - [x] Kod tekrarı giderildi: `_guess_asset_type`/`guess_asset_type` tek modül (`services/asset_types.py`), `decision_to_dict` tekilliği.
 - [x] Doküman senkronu (kısmi): `TODO.md` bu dosya ile v4'e çekildi (2026-11-16, Graphify + PB test kanıtlarıyla).
-- [ ] `requirements.in` + pip-compile/uv ile kilit yenile: `google-genai`, `schedule`, `sqlalchemy` kalıntılarını çıkar; `pocketbase==0.17.3`, `apscheduler`, `httpx` koru.
+- [x] `requirements.in` sadeleştirildi (`google-genai`, `schedule`, `sqlalchemy` yorum ve paketleri çıkarıldı); `requirements.txt` `uv pip compile` ile yeniden üretildi (87 paket).
 - [ ] `MVP.md`, `README.md`, `GUNCEL_IS_PLANI.md` ve `SPRINT_PLANI_KALANLAR.md` hâlâ eski "her şey kırık" durumunu anlatıyor — v4 durumuna göre güncellenmeli.
-- [ ] **Working tree'deki tüm v3+v4 değişiklikleri commit edilmemiş** (`db.py` silmeleri, `services/pb.py`, migration'lar, auth refactor, yeni testler).
-- **Kabul Kriteri:** ⚠️ Kısmen — repoda `.db`/`db.py` kalmadı (commit sonrası kesinleşir); `sqlalchemy` kod referansı yok, paket bağımlılığı var; CI adımları tamam ama henüz uzaktan koşulmadı.
+- [x] Tüm v3+v4 çalışma commit'lendi: `af9d5e1` (P2–P7 + P15 bağımlılık temizliği), `b5fca94` (P5 threadpool), P12 testleri ayrıca commit'lendi; çalışma ağacı temiz.
+- **Kabul Kriteri:** ⚠️ Kısmen — repoda `.db`/`db.py` kalmadı, `sqlalchemy`/`google.genai` referansı yok, commit tamam; CI'ın uzaktan yeşil koşması push sonrası doğrulanmalı; diğer plan dokümanlarının senkronu açık.
 
 ---
 
@@ -181,7 +182,7 @@
 [x] 7. Fazla SELL → 409 Conflict.
 [ ] 8. Time-travel BTC 30k→60k %100 PnL senaryo testi yok (fonksiyon doğrulanmadı).
 [x] 9. OpenRouter fallback 502/503 semantiği testli.
-[ ] 10. market_crash %50 kalıcı şok doğrulama testi yok.
+[x] 10. market_crash %50 kalıcı şok testi geçiyor.
 [ ] 11. EXPIRED zamanlayıcı job'ı PB üzerinde uçtan uca test edilmedi.
 [ ] 12. Web UI login akışı yok (P14).
 [ ] 13. mypy gevşek mod temiz; ancak P10/P11/P12 kabul kriterlerinin bir kısmı hâlâ test edilmedi.
@@ -189,8 +190,7 @@
 
 ## 🔜 Öncelik Sırası
 
-1. **P15 bağımlılık temizliği** (küçük; `google-genai`/`schedule` çıkar + kilit yenile + commit).
-2. **P5 event loop** (endpoint'leri senkron `def`'e çevir — mekanik).
-3. **P12 kabul testleri** (seed'li Monte Carlo/stres birim testleri).
-4. **P10 `track_shadow` gerçek miktar/fiyat**, P11 gold/alpha birim testi, P9 dinamik currency.
-5. **P14 web arayüzü** (login → paneller; P6 sonrası web akışının çalışması için zorunlu).
+1. **P10 `track_shadow` gerçek miktar/fiyat** (küçük, doğruluk).
+2. **P11 gold/alpha birim testi**, P9 dinamik currency.
+3. **P14 web arayüzü** (login → paneller; P6 sonrası web akışının çalışması için zorunlu — en büyük kalan dilim).
+4. **P15 kalanı:** `MVP.md`/`README.md`/`GUNCEL_IS_PLANI.md`/`SPRINT_PLANI_KALANLAR.md` senkronu; CI'ın uzaktan yeşil koştuğünün doğrulanması.

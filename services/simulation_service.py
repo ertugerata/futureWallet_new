@@ -175,7 +175,8 @@ def _simulate_paths_multivariate(
         L = np.linalg.cholesky(cov_matrix)
     except np.linalg.LinAlgError:
         eigenvalues, eigenvectors = np.linalg.eigh(cov_matrix)
-        eigenvalues = np.maximum(eigenvalues, 0.0)
+        # Sıfıra clip tekil matris üretir ve cholesky yine patlar; epsilon ile PD yapılır
+        eigenvalues = np.maximum(eigenvalues, 1e-12)
         cov_matrix = eigenvectors @ np.diag(eigenvalues) @ eigenvectors.T
         L = np.linalg.cholesky(cov_matrix)
 
@@ -240,21 +241,19 @@ def monte_carlo_simulation(
     asset_symbols = [a["symbol"] for a in asset_list]
 
     # Başlangıç değerleri (Prompt 10: use_ledger=True → miktarlar ledger'dan)
+    holdings: dict[str, dict] = {}
+    if use_ledger:
+        from services.ledger_service import get_portfolio_snapshot
+
+        snapshot = get_portfolio_snapshot(user_id=user_id, as_of=None)
+        holdings = {h["asset_symbol"]: h for h in snapshot.get("holdings", [])}
+
     initial_values = []
     for a in asset_list:
         amount = a.get("amount", 1.0)
         if use_ledger:
-            from services.ledger_service import get_portfolio_snapshot
-
-            # Ledger'dan miktarları çek (PocketBase uyumlu)
-            if use_ledger:
-                from services.ledger_service import get_portfolio_snapshot
-
-                snapshot = get_portfolio_snapshot(user_id=user_id, as_of=None)
-                holdings = {h["asset_symbol"]: h for h in snapshot.get("holdings", [])}
-                amount = holdings.get(a["symbol"], {}).get("quantity", 0.0)
-            holdings = {h["asset_symbol"]: h for h in snapshot.get("holdings", [])}
-            amount = holdings.get(a["symbol"], {}).get("quantity", 0.0)
+            # Boş pozisyonda istekte gelen miktar korunur → total_initial 0'a düşüp NaN üretmez
+            amount = holdings.get(a["symbol"], {}).get("quantity") or amount
         mgr = AssetManager()
         price = mgr.get_price(a["symbol"], a.get("type", "crypto"))
         if price is None:
@@ -451,7 +450,6 @@ def stress_test(
         days: Simülasyon süresi
         n_simulations: Kaç patika
         seed: RNG seed
-        session: Eski SQLAlchemy kalıntısı (opsiyonel)
 
     Returns:
         StressTestResult dict.

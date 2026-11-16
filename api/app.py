@@ -943,11 +943,11 @@ def delete_decision_endpoint(decision_id: str, request: Request):
 def monte_carlo_endpoint(
     request: Request,
     assets: str = Query(..., description="Virgülle ayrılmış semboller (örn: BTC,ETH,GC=F)"),
-    days: int = Query(
-        126,
+    days: int | None = Query(
+        None,
         ge=1,
         le=756,
-        description="Gün sayısı (varsayılan 126 = 6 ay, max 756 = 3 yıl)",
+        description="Gün sayısı; verilmezse 3/6/12 ay (63/126/252) tek çağrıda hesaplanır",
     ),
     simulations: int = Query(
         10000,
@@ -978,7 +978,21 @@ def monte_carlo_endpoint(
         raise HTTPException(400, "En fazla 7 percentil belirtebilirsiniz.")
 
     user_id = _extract_user_id(request)
-    result = monte_carlo_simulation(
+    if days is None:
+        # Prompt 12: 3/6/12 ay tek çağrıda
+        horizons = {
+            str(h): monte_carlo_simulation(
+                user_id=user_id,
+                asset_list=asset_list,
+                days=h,
+                n_simulations=simulations,
+                percentiles=pct_list,
+                seed=seed,
+            )
+            for h in (63, 126, 252)
+        }
+        return {"horizons": horizons}
+    return monte_carlo_simulation(
         user_id=user_id,
         asset_list=asset_list,
         days=days,
@@ -986,7 +1000,6 @@ def monte_carlo_endpoint(
         percentiles=pct_list,
         seed=seed,
     )
-    return result
 
 
 class TransactionCreateRequest(BaseModel):
