@@ -516,6 +516,11 @@ async function runMonteCarlo() {
     const result = await api('/api/simulation/monte-carlo', {
       params: { assets, days, simulations: sims, percentiles: '5,50,95' },
     });
+    if (result.currency) {
+      const sel = $('#currencySelect');
+      sel.value = result.currency;
+      setCurrency(result.currency);
+    }
     const pv = (result.percentile_values || {}).portfolio || {};
     const init = result.total_initial_value ?? 0;
     mcSummary.replaceChildren();
