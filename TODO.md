@@ -22,7 +22,7 @@
 | Benchmark | `_upsert_to_pb` ve `_get_pb_price` düzeltildi (bozuk `get_list(params=)` kalıntısı temizlendi); alpha/gold birim testi YOK | [ ] Kısmen |
 | Monte Carlo / Stres | Kabul testleri yazıldı ve geçiyor; singular kovaryans çökmesi ve boş portföye NaN üreten hatalar düzeltildi; 3/6/12 ay tek çağrıda | [x] Tamamlandı |
 | Web Arayüzü | PB login akışı yok; `innerHTML` kullanımı ve inline style (CSP) duruyor | [ ] AÇIK |
-| Temizlik & Bağımlılıklar | `futurewallet.db`, `db.py`, `sanitize_symbols.py`, `future_price.py` silindi; `google-genai`/`schedule` requirements'tan çıkarıldı, kilit uv ile yenilendi; v3+v4 çalışma commit'lendi | [x] Tamamlandı |
+| Temizlik & Bağımlılıklar | `futurewallet.db`, `db.py`, `sanitize_symbols.py`, `future_price.py` silindi; `google-genai`/`schedule`/`sqlalchemy`/`pytest-mock` requirements'tan çıkarıldı, kilit uv ile yenilendi; dokümanlar v4; CI 5/5 yeşil (run `44056500353`) | [x] Tamamlandı |
 
 ---
 
@@ -164,9 +164,9 @@
 - [x] Kod tekrarı giderildi: `_guess_asset_type`/`guess_asset_type` tek modül (`services/asset_types.py`), `decision_to_dict` tekilliği.
 - [x] Doküman senkronu tamamlandı (2026-11-16): `TODO.md` v4, `GUNCEL_IS_PLANI.md` v4, `README.md` (PB JWT auth, uv kurulumu, env tablosu, test adımları), `MVP.md` (durum notu, mimari ağaç, sprint durumları); `SPRINT_PLANI_KALANLAR.md` geçersizlik banner'ı ile arşivlendi.
 - [x] `requirements.in` sadeleştirildi (`google-genai`, `schedule`, `sqlalchemy`, kullanılmayan `pytest-mock` çıkarıldı); `requirements.txt` `uv pip compile` ile yeniden üretildi (86 paket).
-- [ ] CI'ın uzaktan (GitHub Actions) yeşil koşması: push sonrası `gh run list` ile doğrulanacak.
+- [x] CI uzaktan yeşil: run `44056500353` (commit `7103827`) — Ruff Lint, Mypy, Pytest (gerçek PB binary indirmeli), **Pip Audit** (`soupsieve` 4.1.1 bumpı sonrası temiz), Docker Build; 5/5 success.
 - [x] Tüm v3+v4 çalışma commit'lendi: `af9d5e1` (P2–P7 + P15 bağımlılık temizliği), `b5fca94` (P5 threadpool), P12 testleri ayrıca commit'lendi; çalışma ağacı temiz.
-- **Kabul Kriteri:** ⚠️ Kısmen — repoda `.db`/`db.py` kalmadı, `sqlalchemy`/`google.genai` referansı yok, dokümanlar v4'e senkron, commit tamam; tek açık: CI'ın uzaktan yeşil koşması push sonrası doğrulanmalı.
+- **Kabul Kriteri:** ✅ Repoda `.db`/`db.py` yok; `sqlalchemy`/`google.genai`/`schedule` referansı ve paket bağımlılığı yok; dokümanlar v4; tüm çalışma commit'li; CI yeşil.
 
 ---
 
@@ -193,4 +193,3 @@
 1. **P10 `track_shadow` gerçek miktar/fiyat** (küçük, doğruluk).
 2. **P11 gold/alpha birim testi**, P9 dinamik currency.
 3. **P14 web arayüzü** (login → paneller; P6 sonrası web akışının çalışması için zorunlu — en büyük kalan dilim).
-4. **P15 kalanı:** push sonrası CI'ın uzaktan yeşil koştuğunun doğrulanması.

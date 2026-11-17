@@ -72,8 +72,8 @@ DELETE+cascade testli, outcome alanları `evaluate`, stats + `insufficient_data`
 - `app.js:379` `innerHTML` → DOM API/`textContent`; `decision_form.html` inline style → CSS sınıfı; Chart.js yerel vendor/SRI.
 - Paneller: Time-Travel, Karar Günlüğü (Retrospektif/Kapat/Sil), Gölge, Stres, İşlem Ekleme; USD/TRY seçicisi; yasal uyarı satır altları.
 
-### 🟢 Prompt 15 — Temizlik, Bağımlılıklar, Doküman ✅ (kısmi)
-Kalıntı dosyalar silindi ve commit'lendi; `services/asset_types.py` tekilleştirme tamam; `requirements.in` temizliği + uv kilidi tamam; `TODO.md`/`GUNCEL_IS_PLANI.md`/`README.md`/`MVP.md` v4'e senkronlandı; `SPRINT_PLANI_KALANLAR.md` geçersizliği başlık banner'ı ile işaretlendi. **Açık:** CI'ın uzaktan (GitHub) yeşil koşusunun push sonrası doğrulanması.
+### 🟢 Prompt 15 — Temizlik, Bağımlılıklar, Doküman ✅
+Kalıntı dosyalar silindi ve commit'lendi; `services/asset_types.py` tekilleştirme tamam; `requirements.in` temizliği + uv kilidi tamam; `TODO.md`/`GUNCEL_IS_PLANI.md`/`README.md`/`MVP.md` v4'e senkronlandı; `SPRINT_PLANI_KALANLAR.md` geçersizlik banner'ı ile arşivlendi; **CI 5/5 yeşil** (run `44056500353`, pip-audit dahil). P15 kapandı.
 
 ---
 
