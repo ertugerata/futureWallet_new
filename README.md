@@ -23,7 +23,7 @@ Piyasadaki uygulamalar yalnızca *"Şu an ne kadar paranız var?"* sorusuna yan�
 - 📓 **Karar Günlüğü (Decision Journal):** İşlem anında strateji notu ve duygu durumu kaydı (FOMO, STRATEGIC, PANIC, DIVIDEND, OPPORTUNITY). Vade sonunda AI destekli karar retrospektifi (Post-Mortem).
 - 📉 **Reel Değerleme & Benchmark Engine:** TÜİK TÜFE, US CPI, Gram Altın ve S&P 500 ile enflasyondan arındırılmış reel getiri ve alpha analizi.
 - 🔀 **Gölge Portföy (Counterfactual Engine):** Alınmayan (BOUGHT_INSTEAD) veya erken satılan (HELD_INSTEAD) kararların alternatif senaryolarla fırsat maliyeti takibi.
-- 🎲 **Monte Carlo & Makro Stres Testi Motoru:** Varlık korelasyonlu geometrik Brownian hareketi (GBM), makro şok senaryoları (faiz, kur şoku, piyasa çöküşü) ve LLM destekli durum analizi.
+- 🎲 **Monte Carlo & Makro Stres Testi Motoru:** Varlık korelasyonlu geometrik Brownian hareketi (GBM), makro şok senaryoları (faiz, kur şoku, piyasa çöküşü) ve LLM destekli durum analizi. `currency` çıktısı varlık tabanına göre dinamik (BIST/TL → TRY, kripto/ABD/emtia → USD; karışık sepette çoğunluk).
 
 ---
 
@@ -33,10 +33,10 @@ Projenin hedef mimarisi üç ana katmandan oluşur:
 - **Veritabanı & Kimlik Doğrulama:** [PocketBase v0.40.6](https://pocketbase.io/) (SQLite tabanlı, yerleşik auth, rule-based erişim denetimi ve migration desteği)
 - **Hesaplama Motoru & REST API:** Python 3.11+, FastAPI, Pydantic v2, Uvicorn
 - **Finansal Analiz & Simülasyon:** NumPy, Pandas
-- **Zamanlama:** APScheduler (lifespan içinde; `ENABLE_SCHEDULER=false` ile kapatılabilir)
+- **Zamanlama:** APScheduler (lifespan içinde; `ENABLE_SCHEDULER=false` ile kapatılabilir) — job'lar: vadesi geçmiş OPEN kararları EXPIRED yapma + outcome doldurma (`auto_close_expired_decisions`, uçtan uca PB testli) ve 24s makro veri yenileme (`refresh_macro`)
 - **AI & Doğal Dil Yorumlama:** OpenRouter API (Fallback zinciri: Claude, Gemini, DeepSeek)
 - **Piyasa Verisi:** yfinance, ccxt, TCMB EVDS API, FRED API
-- **Web Arayüzü:** HTML5, Jinja2, Chart.js, Vanilla JS (PB JWT giriş akışı + CSP temizliği tamam — P14; dinamik USD/TRY currency P9 açık maddesi)
+- **Web Arayüzü:** HTML5, Jinja2, Chart.js, Vanilla JS — PB JWT giriş akışı, CSP temizliği ve `innerHTML`-siz DOM render (P14) canlı tarayıcı E2E ile doğrulandı; USD/TRY para birimi seçicisi API `currency` alanına dinamik bağlı (P9 kapandı)
 
 ---
 
@@ -57,14 +57,14 @@ Projenin hedef mimarisi üç ana katmandan oluşur:
    ```
 
 2. **PocketBase'i kurun ve başlatın:**
-   PocketBase v0.40.6 binary'sini indirin ve ayrı bir terminalde çalıştırın:
+   PocketBase v0.40.6 binary'sini indirin ve ayrı bir terminalde, **repo kökünde** çalıştırın (`./pocketbase` yerine `./pb_bin/pocketbase` de olur; test fixture'ı binary'yi oraya da önbellekler):
    ```bash
    curl -sL -o pb.zip https://github.com/pocketbase/pocketbase/releases/download/v0.40.6/pocketbase_0.40.6_linux_amd64.zip && unzip pb.zip
-   ./pocketbase --dir ./pb_data superuser upsert 'superuser@şirket.local' 'GucluParola123!'
-   ./pocketbase serve --dir ./pb_data --http 127.0.0.1:8090
+   ./pocketbase --dir ./pb_data superuser upsert 'superuser@sirket.local' 'GucluParola123!'
+   ./pocketbase serve --dir ./pb_data --http 127.0.0.1:8080
    ```
 
-   Migration'lar (`pb_migrations/`) uygulandığında 6 koleksiyon (`users`, `transactions`, `decisions`, `shadow_portfolios`, `macro_data`, `price_history`) oluşur; API bunu açılışta doğrular.
+   Port `8080`, `POCKETBASE_URL` varsayımıyla (`http://localhost:8080`) birebir eşleşir. Repo kökünde koşulduğunda `pb_migrations/` otomatik uygulanır; sonucunda 6 koleksiyon (`users`, `transactions`, `decisions`, `shadow_portfolios`, `macro_data`, `price_history`) oluşur — API bunu açılışta ayrıca doğrular (`/health` → `pb: ok|down`).
 
 3. **Python sanal ortamı kurun ve bağımlılıkları yükleyin** (repo kuralı: `uv` — `bin/uv` gitignore'dadır; yoksa kurun):
    ```bash
@@ -76,8 +76,8 @@ Projenin hedef mimarisi üç ana katmandan oluşur:
 4. **Çevre değişkenlerini ayarlayın:**
    ```bash
    cp .env.example .env
-   # POCKETBASE_URL, POCKETBASE_EMAIL, POCKETBASE_PASSWORD zorunlu;
-   # AI özellikleri için OPENROUTER_API_KEY opsiyonel
+   # POCKETBASE_EMAIL + POCKETBASE_PASSWORD zorunlu (.env.example'da boş bırakılır);
+   # POCKETBASE_URL yalnız farklı port/host için; AI için OPENROUTER_API_KEY opsiyonel
    ```
 
 5. **Uygulamayı başlatın:**
@@ -98,7 +98,7 @@ Hassas anahtarlar ve ortam değişkenleri `.env` dosyası üzerinden yapılandı
 
 | Değişken | Açıklama | Varsayılan | Zorunlu mu? |
 |---|---|---|---|
-| `POCKETBASE_URL` | PocketBase sunucu URL'si | `http://localhost:8080` | Evet |
+| `POCKETBASE_URL` | PocketBase sunucu URL'si | `http://localhost:8080` | Hayır (compose bunu ağ içi değere sabitler) |
 | `POCKETBASE_EMAIL` | PocketBase superuser e-postası | - | Evet (eksikse `config.py` RuntimeError) |
 | `POCKETBASE_PASSWORD` | PocketBase superuser parolası | - | Evet (eksikse `config.py` RuntimeError) |
 | `ALLOWED_ORIGINS` | CORS izinli origin listesi (virgüllü) | `""` (yalnızca same-origin) | Hayır |
@@ -110,6 +110,7 @@ Hassas anahtarlar ve ortam değişkenleri `.env` dosyası üzerinden yapılandı
 | `TCMB_API_KEY` | TCMB EVDS API anahtarı | `""` | TÜFE benchmark için |
 | `FRED_API_KEY` | FRED API anahtarı | `""` | US CPI benchmark için |
 | `DEBUG` | Geliştirici modu; `/docs` ve `/openapi.json` bunu açar | `false` | Hayır |
+| `APP_HOST` / `APP_PORT` | Uvicorn bind hedefi (`uvicorn` CLI kullanılıyorsa CLI geçerli) | `127.0.0.1` / `8000` | Hayır |
 
 > **Fail-Closed Güvenlik Notu:** `POCKETBASE_EMAIL`/`POCKETBASE_PASSWORD` boşsa uygulama import aşamasında RuntimeError ile başlar.
 
@@ -127,7 +128,7 @@ curl -X POST $POCKETBASE_URL/api/collections/users/auth-with-password \
 curl -H "Authorization: Bearer <token>" http://127.0.0.1:8000/api/portfolio/snapshot
 ```
 
-Sunucu token'ı `users/auth_refresh` ile doğrular (geçersiz/süresi dolmuş → 401); tüm veri erişimi PB erişim kuralları ve uygulama tarafı sahiplik kontrolleriyle kullanıcı bazında izoledir.
+Sunucu token'ı `users/auth_refresh` ile doğrular (geçersiz/süresi dolmuş → 401); tüm veri erişimi PB erişim kuralları ve uygulama tarafı sahiplik kontrolleriyle kullanıcı bazında izole edilir (başkasının kaynağı → 404). PB record ID'leri uç girişinde `^[a-z0-9]{15}$` formatında doğrulanır — biçimsiz ID path/query/body'de servise inmeden 422 döner.
 
 ---
 
@@ -145,8 +146,8 @@ docker compose up -d --build
 ```
 
 ### Konteyner Mimarisi
-- `pocketbase`: PocketBase v0.40.6 servisi (`127.0.0.1:8080:8090`). Veritabanı verisi `./pb_data` içinde kalıcı saklanır.
-- `futurewallet`: FastAPI hesaplama servisi (`127.0.0.1:8000:8000`). PocketBase ile iç Docker ağı üzerinden konuşur.
+- `pocketbase`: PocketBase v0.40.6 servisi (`127.0.0.1:8080:8090`). Veritabanı verisi adlandırılmış Docker volume'ünde (`pb_data`) kalıcı saklanır; migration'lar imajla gelir.
+- `futurewallet`: FastAPI hesaplama servisi (`127.0.0.1:8000:8000`). `POCKETBASE_URL=http://pocketbase:8090` compose içinde ağ-internal olarak verilir; host `.env`'inden yalnız credential/anahtarlar okunur (`${VAR:?required}` fail-closed).
 
 Günlükleri takip etmek için:
 ```bash
@@ -172,17 +173,17 @@ ruff check .
 ruff format --check .
 
 # Tip denetimi (gevşek mod, mypy.ini)
-mypy api services config.py
+mypy api services config.py web_app
 
 # Testleri çalıştırma (PocketBase binary'si tests/conftest.py tarafından
-# otomatik indirilir ve pb_bin/ içinde önbelleklenir)
+# otomatik indirilir ve pb_bin/ içinde önbelleklenir) — mevcut durum: 101/101
 pytest -q
 
 # Yalnızca PocketBase entegrasyon testleri
 pytest -m pb -q
 ```
 
-CI (`.github/workflows/ci.yml`) bu adımların tamamını + `pip-audit` ve docker build'i koşar.
+CI (`.github/workflows/ci.yml`) bu adımların tamamını + ayrı `python -c "import api.app"` duman adımı, `pip-audit` ve docker build'i koşar.
 
 ---
 
