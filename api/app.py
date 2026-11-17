@@ -405,7 +405,7 @@ def _run_daily_macro_refresh() -> None:
     from services.benchmark_service import fetch_and_save_macro_data
 
     try:
-        fetch_and_save_macro_data(user_id="")
+        fetch_and_save_macro_data()
     except Exception as exc:
         logger.error("Günlük makro veri çekimi başarısız: %s", exc)
 

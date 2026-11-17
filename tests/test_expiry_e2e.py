@@ -28,7 +28,6 @@ def test_expire_job_marks_overdue_decision_expired_with_outcome(
         pb_admin.collection("price_history").create(
             {
                 "symbol": "BTC",
-                "asset_type": "crypto",
                 "date": f"{when.isoformat()} 00:00:00.000Z",
                 "price": px,
             }

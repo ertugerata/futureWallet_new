@@ -2,7 +2,7 @@
 
 > **Kaynak & Dayanak:** `FUTUREWALLET_DUZELTME_PROMPTLARI.md` (v3); durum tespiti Graphify bilgi grafiği (`graphify-out/`, commit `45b1fcbe` + working tree) ve gerçek PocketBase (v0.40.6) test koşusu ile yapıldı.
 > **Temel İlke (Prompt 0):** Yalnızca gerçek PocketBase entegrasyon testinden geçen maddeler `[x]` yapılabilir.
-> **Doğrulama kanıtı:** `pytest tests` → **100/100 geçti** (tek oturum, gerçek PB sunucusu ile; P10+P11+P14 + P9-currency + EXPIRED-e2e + review-minörleri turları dahil); `ruff check .` ve `ruff format --check .` temiz; `mypy api services config.py web_app` (gevşek mod) hatasız; `python -c "import api.app"` başarılı (CI'da ayrı duman adımı). P14 + para birimi seçicisinin MC `currency` alanına bağlanması canlı tarayıcı E2E ile doğrulandı (gerçek PB + uvicorn).
+> **Doğrulama kanıtı:** `pytest tests` → **101/101 geçti** (tek oturum, gerçek PB sunucusu ile; P10+P11+P14 + P9-currency + EXPIRED-e2e + review-minörleri + PB şema-bütünlüğü turları dahil); `ruff check .` ve `ruff format --check .` temiz; `mypy api services config.py web_app` (gevşek mod) hatasız; `python -c "import api.app"` başarılı (CI'da ayrı duman adımı). P14 + para birimi seçicisinin MC `currency` alanına bağlanması canlı tarayıcı E2E ile doğrulandı (gerçek PB + uvicorn).
 
 ---
 
@@ -197,3 +197,4 @@ Kalan iş yok — üç madde de 2026-11-17 turunda kapandı (`feat/mvp-remaining
 1. ~~P9 dinamik currency~~ → `base_currency`/`infer_portfolio_currency` + value-series/MC/web-çıkışı bağlama.
 2. ~~EXPIRED job uçtan uca PB testi~~ → `tests/test_expiry_e2e.py`; test iki sessiz hatayı buldu ve düzeltildi: `_parse_pb_date` boşluklu PB timestamp/`created` datetime karşısında None'a düşüyordu (job hiçbir karar göremiyordu) ve `evaluate_decision` giriş temeli olarak `created` kullanıyordu (geçmiş kararların P&L'i bugünkü dış fiyattan hesaplanıyordu — `decision_date` temele alındı).
 3. ~~Review minörleri~~ → shadow-positions create karar sahipliği (yabancı/olmayan karar → 400); PB kayıt ID'leri `^[a-z0-9]{15}$` path/query/body doğrulaması (biçimsiz → 422, servise inmez).
+4. ~~Sessiz alan düşürme denetimi~~ (e2e bulgusunun sınıfı, 2026-11-17 ek tur) → tüm PB write payload'ları 6 koleksiyon şemasına karşı denetlendi: `macro_data` şemasına `source`/`is_estimate` eklendi (migration `1794054597`; `_upsert_to_pb` yazıkları artık gerçekten kalıcı — RED→GREEN testi `test_upsert_persists_source_and_is_estimate`) ve okunmayan şema-dışı `user_id` threading'i ölü kod olarak kaldırıldı; `price_history.asset_type` yazımı (şemada yok, hiçbir okuyucu yok) `_save_to_cache`'den ve test seed'lerinden çıkarıldı.

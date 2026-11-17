@@ -350,7 +350,6 @@ def compute_gold_try_gram(
 
 
 def fetch_and_save_macro_data(
-    user_id: str,
     start: date | None = None,
     end: date | None = None,
     save_sp500: bool = True,
@@ -388,7 +387,6 @@ def fetch_and_save_macro_data(
             macro,
             gold_df,
             "gold_usd",
-            user_id,
             source="yfinance",
             is_estimate=False,
         )
@@ -400,7 +398,6 @@ def fetch_and_save_macro_data(
             macro,
             sp_df,
             "sp500",
-            user_id,
             source="yfinance",
             is_estimate=False,
         )
@@ -419,7 +416,6 @@ def fetch_and_save_macro_data(
                     macro,
                     gold_try_df,
                     "gold_try_gram",
-                    user_id,
                     source="derived",
                     is_estimate=False,
                 )
@@ -432,7 +428,6 @@ def fetch_and_save_macro_data(
                 macro,
                 tr_df,
                 "tr_cpi",
-                user_id,
                 source="EVDS/TÜİK",
                 is_estimate=False,
             )
@@ -447,7 +442,6 @@ def fetch_and_save_macro_data(
                 macro,
                 us_df,
                 "us_cpi",
-                user_id,
                 source="FRED",
                 is_estimate=False,
             )
@@ -461,7 +455,6 @@ def _upsert_to_pb(
     collection,
     df: pd.DataFrame,
     value_col: str,
-    user_id: str = "",
     source: str = "",
     is_estimate: bool = False,
 ) -> int:
@@ -491,8 +484,6 @@ def _upsert_to_pb(
             "source": source,
             "is_estimate": is_estimate,
         }
-        if user_id:
-            record_data["user"] = user_id
 
         if records:
             collection.update(records[0].id, record_data)

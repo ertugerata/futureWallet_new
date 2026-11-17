@@ -39,7 +39,6 @@ def test_price_service_cache_hit(pb_admin) -> None:
     pb_admin.collection("price_history").create(
         {
             "symbol": "MOCK_BTC",
-            "asset_type": "crypto",
             "date": f"{test_date.isoformat()} 00:00:00.000Z",
             "price": 85000.0,
         }
@@ -60,7 +59,6 @@ def test_price_service_weekend_lookback(pb_admin) -> None:
     pb_admin.collection("price_history").create(
         {
             "symbol": "MOCK_STOCK",
-            "asset_type": "stock_tr",
             "date": f"{friday.isoformat()} 00:00:00.000Z",
             "price": 320.0,
         }

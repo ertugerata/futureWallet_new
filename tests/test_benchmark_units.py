@@ -53,6 +53,22 @@ def test_upsert_same_date_keeps_single_record(pb_server, pb_clean) -> None:
 
 
 @pytest.mark.pb
+def test_upsert_persists_source_and_is_estimate(pb_server, pb_clean) -> None:
+    """source/is_estimate PB şemasında tutulmalı; şema dışı alan PB'de SESSİZ düşer
+    (gold_try vakası — e2e denetiminde price_history.asset_type ile aynı sınıf)."""
+    client = get_admin_client()
+    macro = client.collection("macro_data")
+
+    idx = pd.to_datetime([date(2026, 2, 10)])
+    df = pd.DataFrame({"us_cpi": [321.5]}, index=idx)
+    assert _upsert_to_pb(macro, df, "us_cpi", source="FRED", is_estimate=True) == 1
+
+    rec = list_all(macro)[0]
+    assert rec.source == "FRED"
+    assert rec.is_estimate is True
+
+
+@pytest.mark.pb
 def test_compare_to_benchmark_alpha(pb_server, pb_clean) -> None:
     """alpha = portföy − benchmark; deterministik macro_data satırlarıyla."""
     client = get_admin_client()

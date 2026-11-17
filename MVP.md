@@ -3,7 +3,7 @@
 > **Sürüm:** 2.0
 > **Mimari:** PocketBase (DB/Auth) + FastAPI (Hesaplama) + OpenRouter (LLM)
 > **Tarih:** Kasım 2026
-> **Uygulama Durumu (2026-11-17):** Sprint 1–4 ve tüm kalan maddeler tamamlandı: API + web arayüzü (PB JWT giriş dahil) gerçek PocketBase v0.40.6 üzerinde 100/100 test ve canlı tarayıcı E2E ile doğrulandı (ayrıntı `TODO.md` v5). Kapanan son tur: dinamik USD/TRY `currency` (value-series + Monte Carlo + web seçici bağlama), EXPIRED job'ının uçtan uca PB testi (iki sessiz hatayı buldu ve düzeltti), shadow-create karar sahipliği ve PB record ID girdi doğrulaması.
+> **Uygulama Durumu (2026-11-17):** Sprint 1–4 ve tüm kalan maddeler tamamlandı: API + web arayüzü (PB JWT giriş dahil) gerçek PocketBase v0.40.6 üzerinde 101/101 test ve canlı tarayıcı E2E ile doğrulandı (ayrıntı `TODO.md` v5). Kapanan son tur: dinamik USD/TRY `currency` (value-series + Monte Carlo + web seçici bağlama), EXPIRED job'ının uçtan uca PB testi (iki sessiz hatayı buldu ve düzeltti), shadow-create karar sahipliği ve PB record ID girdi doğrulaması; ek turda PB şema-bütünlüğü denetimi (makro `source`/`is_estimate` kolonları migration ile, ölü şema-dışı yazımlar temizlendi).
 
 ---
 

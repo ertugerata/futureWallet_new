@@ -37,8 +37,12 @@ def _load_from_cache(symbol: str, on_date: date) -> Optional[float]:
     return None
 
 
-def _save_to_cache(symbol: str, asset_type: str, on_date: date, price: float) -> None:
-    """PocketBase price_history koleksiyonuna fiyat kaydet."""
+def _save_to_cache(symbol: str, on_date: date, price: float) -> None:
+    """PocketBase price_history koleksiyonuna fiyat kaydet.
+
+    Şemada olmayan alan PB'de sessiz düşer (asset_type yazımı e2e denetiminde
+    kaldırıldı; provenance için şemadaki `source` alanı kullanılır).
+    """
     try:
         from services.pb import get_admin_client
 
@@ -47,7 +51,6 @@ def _save_to_cache(symbol: str, asset_type: str, on_date: date, price: float) ->
         client.collection("price_history").create(
             {
                 "symbol": symbol,
-                "asset_type": asset_type,
                 "date": f"{date_str} 00:00:00.000Z",
                 "price": price,
             }
@@ -99,12 +102,12 @@ def get_price_on(
         # 2. Dış servis kontrolü
         price = _fetch_from_yfinance(symbol, curr_date)
         if price is not None:
-            _save_to_cache(symbol, asset_type, curr_date, price)
+            _save_to_cache(symbol, curr_date, price)
             return price
 
         price = _fetch_from_ccxt(symbol, curr_date)
         if price is not None:
-            _save_to_cache(symbol, asset_type, curr_date, price)
+            _save_to_cache(symbol, curr_date, price)
             return price
 
         # Geriye dönük gün ara (hafta sonu / resmi tatil)

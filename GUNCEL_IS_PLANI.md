@@ -2,7 +2,7 @@
 
 > **Kaynak & Dayanak:** `FUTUREWALLET_DUZELTME_PROMPTLARI.md` (v3), `TODO.md` (v5) ve `docs/plans/2026-11-17-mvp-remaining-work.md`.
 > **Temel Kural (Prompt 0):** Yalnızca **gerçek PocketBase (v0.40.6)** entegrasyon testini geçen maddeler tamamlandı (`[x]`) sayılır.
-> **Bu dokümanın durumu:** v3'teki "her şey kırık" analizi geçersizdir. Güncel doğrulama: `pytest tests/` → **100/100 geçti** (gerçek PB; P14 + P9 currency + EXPIRED-e2e + review minörleri turu dahil; UI canlı tarayıcı E2E ile); `ruff check .` + `ruff format --check .` temiz; `mypy api services config.py web_app` (gevşek) hatasız. Commits: `af9d5e1`…`10274b0` (P10/P11/P14), `feat/mvp-remaining-work` dalı `3b8bcb6`…(P9/EXPIRED/minörler/CI duman).
+> **Bu dokümanın durumu:** v3'teki "her şey kırık" analizi geçersizdir. Güncel doğrulama: `pytest tests/` → **101/101 geçti** (gerçek PB; P14 + P9 currency + EXPIRED-e2e + review minörleri + PB şema-bütünlüğü turu dahil; UI canlı tarayıcı E2E ile); `ruff check .` + `ruff format --check .` temiz; `mypy api services config.py web_app` (gevşek) hatasız. Commits: `af9d5e1`…`10274b0` (P10/P11/P14), `3b8bcb6`…`01bd58f` (P9/EXPIRED/minörler/CI duman, main'e ff), şema-bütünlüğü ek turu.
 
 ---
 
