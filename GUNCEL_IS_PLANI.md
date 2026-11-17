@@ -2,7 +2,7 @@
 
 > **Kaynak & Dayanak:** `FUTUREWALLET_DUZELTME_PROMPTLARI.md` (v3), `TODO.md` (v4) ve `docs/superpowers/plans/2026-11-16-futurewallet-completion.md`.
 > **Temel Kural (Prompt 0):** Yalnızca **gerçek PocketBase (v0.40.6)** entegrasyon testini geçen maddeler tamamlandı (`[x]`) sayılır.
-> **Bu dokümanın durumu:** v3'teki "her şey kırık" analizi geçersizdir. Güncel doğrulama: `pytest tests/` → **76/76 geçti** (tek oturum, gerçek PB); `ruff check .` + `ruff format --check .` temiz; `mypy api services config.py` (gevşek) hatasız. Commits: `af9d5e1`, `b5fca94`, `5a63210`, `47b77f4`, `e1baf9c` (final-review fix pass: simülasyon hücre bütçeleri, chunked 64 KB limiti, günlük makro job, CASH cüzdanı semantiği).
+> **Bu dokümanın durumu:** v3'teki "her şey kırık" analizi geçersizdir. Güncel doğrulama: `pytest tests/` → **91/91 geçti** (gerçek PB; P14 ayrıca canlı tarayıcı E2E ile); `ruff check .` + `ruff format --check .` temiz; `mypy api services config.py web_app` (gevşek) hatasız. Commits: `af9d5e1`…`e1baf9c`, `47b77f4`, `038da85`, `7103827` (CI yeşil), P10/P11/P14 turu.
 
 ---
 
@@ -20,8 +20,8 @@
 | **AI Entegrasyonu** | ✅ OpenRouter fallback zinciri + 502/503 semantiği + prompt injection etiketi; `google-genai` bağımlılığı kaldırıldı |
 | **Zamanlayıcı** | ✅ APScheduler lifespan'de; `ENABLE_SCHEDULER`; EXPIRED otomatik job (uçtan uca test henüz yok — bkz. P13 notu) |
 | **Monte Carlo / Stres** | ✅ Kabul testli: medyan yakınsama (%2), market_crash kalıcılığı, Cholesky determinizm, 40 kutu histogram, 3/6/12 ay tek çağrıda |
-| **Web Arayüzü** | ⚠️ Login akışı yok (eski statik token'ı gönderiyor → P6 sonrası 401 beklenir); `innerHTML`/inline style CSP borcu — **P14 açık** |
-| **Kalan küçük açıklar** | `track_shadow` miktarı hâlâ 1.0 sabiti (P10); `value-series` para birimi sabit TRY (P9); gold/alpha birim testi yok (P11) |
+| **Web Arayüzü** | ✅ PB login (`/web/login` + `auth-with-password` + `auth-refresh`), Bearer JWT, canlı tarayıcı E2E; DOM API render (innerHTML yok), inline style/script yok, Chart.js SRI, CSP `connect-src` PB origin'li |
+| **Kalan küçük açıklar** | P9 dinamik currency (`value-series` sabit TRY) · EXPIRED job uçtan uca testi · ertelenmiş review minörleri (shadow create sahipliği, PB ID girdi doğrulaması) |
 
 ---
 
@@ -54,11 +54,11 @@ Fallback zinciri, 502/503, `<user_input>` güvenliği, REVIEWED güncellemesi te
 ### 🟠 Prompt 9 — Price / Time-Travel / Value-Series ✅ (tek alt madde açık)
 Değerleme zinciri, 400 nokta limiti, `date_to` snapshot düzeltmesi tamam. **Açık:** `value-series` `currency` alanı sabit `"TRY"`; varlık tabanına göre dinamik USD/TRY bağlanacak (P14 seçicisiyle birlikte).
 
-### 🟡 Prompt 10 — Gölge Portföy ✅ (tek alt madde açık)
-Servis PB katmanında, izolasyon+cascade testli, `what_if` placeholder'ı kaldırıldı. **Açık:** `api/app.py` `track_shadow=True` dalı gölgeyi `quantity=1.0`/`entry_price=target_price` sabitleriyle açıyor; kararın bağlı transaction'ının gerçek miktar/fiyatı kullanılmalı.
+### 🟡 Prompt 10 — Gölge Portföy ✅
+Servis PB katmanında, izolasyon+cascade testli, `what_if` placeholder'ı kaldırıldı. `track_shadow` artık kararın bağlı SELL işleminden gerçek miktar/fiyatı okuyor (`transaction_id` sahiplik+sembol+tip doğrulamasıyla; hatalı link 400); link yoksa 1.0/target_price fallback.
 
-### 🟡 Prompt 11 — Benchmark, Enflasyon, Zamanlayıcı ✅ (test eksiği)
-Upsert tek kayıt, EVDS/FRED sahte-veri yok, `gold_try_gram` formülü, günlük+EXPIRED job'ları, benchmarks/alpha ucu çalışıyor (`_get_pb_price` düzeltmesiyle). **Eksik:** `gold_try_gram`/alpha deterministik birim testi; EXPIRED job'ının uçtan uca PB testi (`tests/test_scheduler_and_outcomes.py` planlanmıştı, yazılmadı).
+### 🟡 Prompt 11 — Benchmark, Enflasyon, Zamanlayıcı ✅ (kabul testli)
+Upsert tek kayıt testiyle doğrulandı; EVDS/FRED sahte veri yok; `gold_try_gram` şema migration'ı (`gold_try`→`gold_try_gram`, kodun yazdığı alan şemada eksikti ve PB sessizce düşürüyordu) + formül birim testi; `_get_pb_price` gün-sonu `date <=` düzeltmesi; APScheduler'da `expire_decisions` + `refresh_macro` (24h) job'ları kayıt testiyle; `compare_to_benchmark` `alpha` sözlüğü döndürüyor (deterministik PB testi).
 
 ### 🟡 Prompt 12 — Monte Carlo & Stres ✅
 `tests/test_simulation_stress.py` 6/6: medyan teorik ±%2 (20k yol), market_crash −%50 kalıcı, singular kovaryans çökmüyor (eigen clip 1e-12), Cholesky deterministik, 422 limitleri, 63/126/252 tek çağrıda. Boş portföy NaN hatası giderildi.
@@ -66,11 +66,8 @@ Upsert tek kayıt, EVDS/FRED sahte-veri yok, `gold_try_gram` formülü, günlük
 ### 🟡 Prompt 13 — Karar Günlüğü ✅
 DELETE+cascade testli, outcome alanları `evaluate`, stats + `insufficient_data`, zamanlayıcı EXPIRED (job kurulumu; uçtan uca test P11 eksiği ile aynı madde).
 
-### ❌ Prompt 14 — Web Arayüzü (AÇIK — tek büyük dilim)
-- `/web/login`: PB `auth-with-password`, sessionStorage'da PB JWT, `auth-refresh`, 401→login yönlendirmesi.
-- `apiFetch`'e Bearer PB JWT (mevcut `app.js` eski `apiToken`'ı gönderiyor → tüm web çağrıları 401).
-- `app.js:379` `innerHTML` → DOM API/`textContent`; `decision_form.html` inline style → CSS sınıfı; Chart.js yerel vendor/SRI.
-- Paneller: Time-Travel, Karar Günlüğü (Retrospektif/Kapat/Sil), Gölge, Stres, İşlem Ekleme; USD/TRY seçicisi; yasal uyarı satır altları.
+### ❌→✅ Prompt 14 — Web Arayüzü ✅ (canlı tarayıcı E2E ile)
+`/web/login` + `static/login.js` (PB `auth-with-password` → `sessionStorage.pb_token`, açılışta `auth-refresh`, 401→login); `app.js` sıfırdan: tek `api()` katmanı Bearer JWT + `opts.params` (eski dosyada GET parametreleri hiç gönderilmiyordu ve JS içine gömülü CSS blokları sözdizimi hatasıydı); tüm render DOM API (`textContent`), sunucu verisi `innerHTML` yok; `decision_form` inline script/style'dan arındırıldı; Chart.js SRI; CSP `connect-src`'e PB origin eklendi (olmazsa login fetch'i CSP bloke ediyor — E2E'de yakalandı); paneller: Snapshot+Time-Travel, İşlem Ekleme/Geçmişi(void), Karar Günlüğü (AI/Kapat/Sil + outcome + duygu özeti), Gölge (kıyaslama + ekleme/silme), MC (40-kutu canvas histogram + p5/p50/p95), Stres tablosu (en kötü vurgusu), AI anlatısı + disclaimer; para birimi seçicisi istemci-tarafı (API dinamik currency → P9 açık madde).
 
 ### 🟢 Prompt 15 — Temizlik, Bağımlılıklar, Doküman ✅
 Kalıntı dosyalar silindi ve commit'lendi; `services/asset_types.py` tekilleştirme tamam; `requirements.in` temizliği + uv kilidi tamam; `TODO.md`/`GUNCEL_IS_PLANI.md`/`README.md`/`MVP.md` v4'e senkronlandı; `SPRINT_PLANI_KALANLAR.md` geçersizlik banner'ı ile arşivlendi; **CI 5/5 yeşil** (run `44056500353`, pip-audit dahil). P15 kapandı.
@@ -87,16 +84,16 @@ Kalıntı dosyalar silindi ve commit'lendi; `services/asset_types.py` tekilleşt
 [x] 5. changeme / admin@example.com / API_TOKEN yok.
 [x] 6. Snapshot zengin (average_cost, unrealized, cash_received).
 [x] 7. Fazla SELL → 409.
-[ ] 8. Time-travel 30k→60k senaryo testi yazılmadı.
+[x] 8. Time-travel 30k→60k %100 PnL senaryo testi geçiyor.
 [x] 9. OpenRouter 502/503 semantiği testli.
 [x] 10. market_crash %50 kalıcılık testi geçiyor.
 [ ] 11. EXPIRED job uçtan uca test edilmedi.
-[ ] 12. Web UI login akışı yok (P14).
-[ ] 13. Kalan küçük açıklar: track_shadow miktarı, dinamik currency, gold/alpha birim testi.
+[x] 12. Web UI login → dashboard akışı tarayıcı E2E ile doğrulandı.
+[ ] 13. Kalan: P9 dinamik currency, EXPIRED job ucu açık testi, 2 review minörü.
 ```
 
 ## 🔜 Sıradaki İş Sırası
 
-1. **P14 web arayüzü** — en büyük ve tek blok eden dilim (login olmadan web kullanılamaz).
-2. P10 `track_shadow` gerçek miktar/fiyat · P11 scheduler/outcome testleri · P9 dinamik currency · P8-hızlı-kontrol 8 time-travel senaryo testi.
-3. Push + CI yeşil doğrulaması.
+1. **P9 dinamik currency** — `value-series`/API `currency` sabit TRY; P14 seçicisinin API'ye bağlanması bunu bekliyor.
+2. **EXPIRED job uçtan uca PB testi** (`refresh_macro` kayıt testi mevcut; tetikleme davranışı test edilmeli).
+3. İki ertelenmiş review minörü: shadow-positions create karar sahipliği; PB ID girdi regex'i.

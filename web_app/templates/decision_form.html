@@ -3,6 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="pb-base" content="{{ pb_base }}">
   <title>Yeni Karar – FutureWallet</title>
   <link rel="stylesheet" href="/static/style.css">
 </head>
@@ -13,104 +14,71 @@
       <span class="logo">📊</span>
       <div>
         <h1>FutureWallet</h1>
-        <p>Yeni Karar Ekle</p>
+        <p>Yeni Karar Girişi</p>
       </div>
     </div>
     <a href="/web/" class="btn btn-ghost">← Geri</a>
   </header>
 
-  <main class="layout" style="max-width: 600px; margin: 2rem auto; padding: 0 .5rem;">
+  <main class="layout page-narrow">
     <section class="panel card">
       <div class="panel-head">
-        <h2>Yeni Yatırım Kararı</h2>
+        <h2>Yeni Karar Ekle</h2>
       </div>
-      <div class="panel-body">
-        <form id="decisionForm" action="/api/decisions" method="POST">
-
-          <div class="form-row">
-            <label>Varlık Sembolü *</label>
-            <input type="text" name="asset_symbol" required placeholder="BTC, ETH, TRY/USD, GC=F…">
-          </div>
-
-          <div class="form-row">
-            <label>Eylem *</label>
-            <select name="action" required>
-              <option value="BUY">Alış (BUY)</option>
-              <option value="SELL">Satış (SELL)</option>
-              <option value="HOLD">Tut (HOLD)</option>
-            </select>
-          </div>
-
-          <div class="form-row">
-            <label>Duygu / Neden *</label>
-            <select name="sentiment" required>
-              <option value="FOMO">FOMO – korku/kaçırma</option>
-              <option value="STRATEGIC">Stratejik Analiz</option>
-              <option value="PANIC">Panik Satışı</option>
-              <option value="DIVIDEND">Temettü / Gelir</option>
-            </select>
-          </div>
-
-          <div class="form-row form-row-wide">
-            <label>Gerekçesi *</label>
-            <textarea name="rationale" rows="4" required placeholder="Neden bu kararı aldın? Teknik kırılım, temel beklenti, duygu durumu…"></textarea>
-          </div>
-
-          <div class="form-row">
-            <label>Hedef Fiyat (opsiyonel)</label>
-            <input type="number" name="target_price" step="0.01" placeholder="örn: 50000">
-          </div>
-
-          <div class="form-row">
-            <label>Hedef Tarih (opsiyonel)</label>
-            <input type="date" name="target_date">
-          </div>
-
-          <div class="modal-actions">
-            <button type="submit" class="btn btn-primary">Kaydet</button>
-            <a href="/web/" class="btn btn-ghost">İptal</a>
-          </div>
-        </form>
-      </div>
+      <form id="decisionForm" class="modal-body">
+        <div class="form-row">
+          <label>Varlık Sembolü</label>
+          <input type="text" name="asset_symbol" required placeholder="BTC, ETH, GC=F, THYAO.IS…">
+        </div>
+        <div class="form-row">
+          <label>Eylem</label>
+          <select name="action" required>
+            <option value="BUY">Alış (BUY)</option>
+            <option value="SELL">Satış (SELL)</option>
+            <option value="HOLD">Tut (HOLD)</option>
+          </select>
+        </div>
+        <div class="form-row">
+          <label>Duygu / Neden (Sentiment)</label>
+          <select name="sentiment" required>
+            <option value="FOMO">FOMO – korku/kaçırma</option>
+            <option value="STRATEGIC">Stratejik Analiz</option>
+            <option value="PANIC">Panik Satışı</option>
+            <option value="DIVIDEND">Temettü / Gelir</option>
+            <option value="OPPORTUNITY">Fırsat</option>
+          </select>
+        </div>
+        <div class="form-row form-row-wide">
+          <label>Gerekçesi (Rationale)</label>
+          <textarea name="rationale" rows="3" required placeholder="Neden bu kararı aldın?"></textarea>
+        </div>
+        <div class="form-row form-row-wide">
+          <label>Hedef Fiyat (opsiyonel)</label>
+          <input type="number" name="target_price" step="0.01" placeholder="örn: 50000">
+        </div>
+        <div class="form-row">
+          <label>Hedef Tarih (opsiyonel)</label>
+          <input type="date" name="target_date">
+        </div>
+        <div class="form-row">
+          <label>Karar Tarihi (opsiyonel, geçmiş olabilir)</label>
+          <input type="date" name="decision_date">
+        </div>
+        <div class="modal-actions">
+          <button type="submit" class="btn btn-primary">Kaydet</button>
+        </div>
+        <p class="login-error" id="formError" hidden></p>
+      </form>
     </section>
   </main>
 
-  <script>
-    const form = document.getElementById('decisionForm');
-    form.addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const data = Object.fromEntries(new FormData(form));
-      // Boş alanları kaldır (backend'de de None'a çevrilir)
-      for (const k of Object.keys(data)) {
-        if (data[k] === '' || data[k] == null) delete data[k];
-      }
-      try {
-        const token = sessionStorage.getItem('apiToken');
-        const headers = { 'Content-Type': 'application/json' };
-        if (token) headers['Authorization'] = 'Bearer ' + token;
-        const res = await fetch('/api/decisions', {
-          method: 'POST',
-          headers,
-          body: JSON.stringify(data),
-        });
-        if (res.ok) {
-          window.location.href = '/web/';
-        } else {
-          const err = await res.json().catch(() => ({ detail: res.statusText }));
-          const msg = Array.isArray(err.detail)
-            ? err.detail.map(d => d.loc[0] + ': ' + d.msg).join('\n')
-            : (err.detail || res.statusText);
-          alert('Hata:\n' + msg);
-        }
-      } catch (err) {
-        alert('Bağlantı hatası: ' + err.message);
-      }
-    });
+  <footer class="disclaimer">
+    <strong>⚠️ Yasal Uyarı:</strong> Bu ürün yatırım tavsiyesi değildir. FutureWallet, yatırımcıların karar
+    süreçlerini takip etmeleri için bir karar destek platformudur. Burada sunulan bilgiler geçmiş verilere
+    dayanır ve geleceği garanti etmez. Yatırım kararlarınızı vermeden önce kendi araştırmanızı yapın ve
+    gerekirse profesyonel finansal danışmana başvurun.
+  </footer>
 
-  </script>
-
-<footer class="disclaimer" style="margin-top: 2rem; padding: 1rem; border-top: 1px solid #ddd; text-align: center; font-size: 0.85rem; color: #666;">
-  <p><strong>⚠️ Yasal Uyarı:</strong> Bu ürün yatırım tavsiyesi değildir. FutureWallet, yatırımcıların karar süreçlerini takip etmeleri için bir karar destek platformudur. Burada sunulan bilgiler geçmiş verilere dayanır ve geleceği garanti etmez. Yatırım kararlarınızı vermeden önce kendi araştırmanızı yapın ve gerekirse profesyonel finansal danışmana başvurun.</p>
-</footer>
+  <script src="/static/decision_form.js"></script>
 </body>
 </html>

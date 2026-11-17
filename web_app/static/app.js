@@ -1,451 +1,308 @@
-
-function fmtCurrency(n, currency = 'TRY') {
-  return new Intl.NumberFormat('tr-TR', { 
-    style: 'currency', 
-    currency, 
-    maximumFractionDigits: 0 
-  }).format(n ?? 0);
-}
-
-function fmtPct(v) {
-  return (v == null ? '—' : (v >= 0 ? '+' : '') + v.toFixed(2) + '%');
-}
-
-function drawHistogram(ctx, histogram, p5, p50, p95, maxValue) {
-  const bins = histogram.bins;
-  const counts = histogram.counts;
-  const barCount = bins.length - 1;
-  const barWidth = (ctx.canvas.width - 100) / barCount;
-  
-  // Find max count for scaling
-  const maxCount = Math.max(...counts);
-  
-  // Draw bars
-  for (let i = 0; i < barCount; i++) {
-    const x = 50 + i * barWidth;
-    const barHeight = (counts[i] / maxCount) * (ctx.canvas.height - 60);
-    ctx.fillStyle = '#3b82f6';
-    ctx.fillRect(x, ctx.canvas.height - barHeight - 30, barWidth - 2, barHeight);
-  }
-  
-  // Draw percentile lines
-  const scaleX = (val) => 50 + ((val - bins[0]) / (bins[binCount] - bins[0])) * (ctx.canvas.width - 100);
-  
-  ctx.strokeStyle = '#ef4444';
-  ctx.setLineDash([5, 5]);
-  ctx.beginPath();
-  ctx.moveTo(scaleX(p5), 10);
-  ctx.lineTo(scaleX(p5), ctx.canvas.height - 30);
-  ctx.stroke();
-  
-  ctx.strokeStyle = '#22c55e';
-  ctx.beginPath();
-  ctx.moveTo(scaleX(p50), 10);
-  ctx.lineTo(scaleX(p50), ctx.canvas.height - 30);
-  ctx.stroke();
-  
-  ctx.strokeStyle = '#3b82f6';
-  ctx.beginPath();
-  ctx.moveTo(scaleX(p95), 10);
-  ctx.lineTo(scaleX(p95), ctx.canvas.height - 30);
-  ctx.stroke();
-  
-  ctx.setLineDash([]);
-  
-  // Labels
-  ctx.fillStyle = '#ef4444';
-  ctx.fillText('p5: ' + fmtCurrency(p5), scaleX(p5) + 5, 20);
-  ctx.fillStyle = '#22c55e';
-  ctx.fillText('p50: ' + fmtCurrency(p50), scaleX(p50) + 5, 20);
-  ctx.fillStyle = '#3b82f6';
-  ctx.fillText('p95: ' + fmtCurrency(p95), scaleX(p95) + 5, 20);
-}
-
-
-
-/* USD/TRY Seçici */
-.currency-selector {
-  margin-left: auto;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
-  background: rgba(255,255,255,0.9);
-  border-radius: 6px;
-}
-.currency-selector label {
-  font-size: 0.85rem;
-  color: #666;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-.currency-selector select {
-  padding: 4px 8px;
-  border: 1px solid #ddd;
-  border-radius: 4px;
-  background: white;
-  font-size: 0.85rem;
-  cursor: pointer;
-}
-
-/* Sentiment Özet Kartı */
-.sentiment-summary-card {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-  gap: 12px;
-  margin-bottom: 16px;
-  padding: 12px;
-  background: #f8f9fa;
-  border-radius: 8px;
-}
-.sentiment-summary-card .summary-loading {
-  grid-column: 1 / -1;
-  text-align: center;
-  color: #888;
-  font-size: 0.9rem;
-}
-.sentiment-stat {
-  text-align: center;
-  padding: 8px;
-  background: white;
-  border-radius: 6px;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-}
-.sentiment-stat .sentiment-label {
-  font-size: 0.75rem;
-  color: #666;
-  text-transform: uppercase;
-  margin-bottom: 4px;
-}
-.sentiment-stat .sentiment-count {
-  font-size: 1.5rem;
-  font-weight: bold;
-  color: var(--accent, #3b82f6);
-}
-.sentiment-stat .sentiment-pct {
-  font-size: 0.8rem;
-  color: #888;
-}
-
-/* Stres Test Histogram */
-.mc-summary .percentile-row {
-  display: flex;
-  justify-content: space-between;
-  padding: 8px 12px;
-  border-bottom: 1px solid #eee;
-}
-.mc-summary .percentile-row:last-child {
-  border-bottom: none;
-}
-.mc-summary .percentile-label {
-  font-weight: 600;
-  color: #333;
-}
-.mc-summary .percentile-value {
-  color: #666;
-}
-.mc-summary .histogram-info {
-  margin-top: 12px;
-  padding: 12px;
-  background: #f8f9fa;
-  border-radius: 6px;
-}
-.mc-summary .histogram-info h4 {
-  margin: 0 0 8px 0;
-  font-size: 0.9rem;
-  color: #666;
-}
-.mc-summary .histogram-bars {
-  display: flex;
-  align-items: flex-end;
-  height: 80px;
-  gap: 2px;
-}
-.mc-summary .histogram-bar {
-  flex: 1;
-  background: linear-gradient(to top, #3b82f6, #60a5fa);
-  border-radius: 2px 2px 0 0;
-  min-height: 4px;
-  position: relative;
-}
-.mc-summary .histogram-bar .bar-label {
-  position: absolute;
-  bottom: -20px;
-  left: 50%;
-  transform: translateX(-50%);
-  font-size: 0.6rem;
-  color: #888;
-  white-space: nowrap;
-}
-.mc-summary .p5-line, .mc-summary .p50-line, .mc-summary .p95-line {
-  position: absolute;
-  left: 0;
-  right: 0;
-  border-top: 2px dashed;
-  pointer-events: none;
-}
-.mc-summary .p5-line { border-color: #ef4444; top: 95%; }
-.mc-summary .p50-line { border-color: #22c55e; top: 50%; }
-.mc-summary .p95-line { border-color: #3b82f6; top: 5%; }
-
-/* AI Disclaimer */
-.ai-disclaimer {
-  margin-top: 1rem;
-  padding: 0.5rem;
-  border-top: 1px solid #ddd;
-  font-size: 0.8rem;
-  color: #666;
-}
-
-/* ── FutureWallet Dashboard – Client-side logic ───────────────────── */
+/* FutureWallet dashboard — PB JWT auth + paneller.
+   CSP uyumlu: inline handler/histogram innerHTML yok, tüm DOM textContent ile kurulur. */
 'use strict';
 
-const API = window.location.origin;   // FastAPI aynı port'ta çalışır
+const API = '';
+const PB_BASE = (document.querySelector('meta[name="pb-base"]') || {}).content || '';
 
-/* ── Helpers ──────────────────────────────────────────────────────── */
-const $ = (sel, ctx = document) => ctx.querySelector(sel);
-const el = (tag, cls, text) => {
-  const e = document.createElement(tag);
-  if (cls) e.className = cls;
-  if (text != null) e.textContent = text;
-  return e;
-};
+/* ── yardımcılar ─────────────────────────────────────────────────── */
+const $ = (sel) => document.querySelector(sel);
+
+function el(tag, cls, text) {
+  const n = document.createElement(tag);
+  if (cls) n.className = cls;
+  if (text !== undefined && text !== null) n.textContent = String(text);
+  return n;
+}
+
 function toast(msg, type = 'info', dur = 3500) {
   const c = $('#toastContainer');
+  if (!c) return;
   const t = el('div', 'toast ' + type, msg);
   c.appendChild(t);
-  setTimeout(() => { t.remove(); }, dur);
+  setTimeout(() => t.remove(), dur);
 }
-function req(path, params = {}) {
-  const u = new URL(API + path);
-  for (const [k, v] of Object.entries(params))
-    if (v !== undefined && v !== null) u.searchParams.set(k, String(v));
-  const headers = { 'Content-Type': 'application/json' };
-  const token = sessionStorage.getItem('apiToken');
-  if (token) headers['Authorization'] = 'Bearer ' + token;
-  return fetch(u.toString(), { headers }).then(r => {
-    if (!r.ok) throw new Error(`HTTP ${r.status}`);
-    return r.json();
-  });
-}
-function fmtTL(n, currency = 'TRY') {
+
+window._currency = 'TRY';
+
+function fmtCurrency(n, currency = 'TRY') {
   return new Intl.NumberFormat('tr-TR', { style: 'currency', currency, maximumFractionDigits: 0 }).format(n ?? 0);
 }
-function fmtPct(v) {
-  return (v == null ? '—' : (v >= 0 ? '+' : '') + v.toFixed(2) + '%');
-}
+function fmtTL(n) { return fmtCurrency(n, window._currency); }
+function fmtPct(v) { return (v == null ? '—' : (v >= 0 ? '+' : '') + Number(v).toFixed(2) + '%'); }
 function badge(label) {
   const b = el('span', 'badge ' + (label || 'OPEN').replace(/\s+/g, '_').toUpperCase());
   b.textContent = label || 'OPEN';
   return b;
 }
 
-/* ── Health check ─────────────────────────────────────────────────── */
+/* ── auth + istek katmanı (P14/P6: PB JWT) ───────────────────────── */
+function authHeaders() {
+  const h = { 'Content-Type': 'application/json' };
+  const t = sessionStorage.getItem('pb_token');
+  if (t) h['Authorization'] = 'Bearer ' + t;
+  return h;
+}
+
+function toLogin() {
+  sessionStorage.removeItem('pb_token');
+  window.location.href = '/web/login';
+}
+
+async function api(path, opts = {}) {
+  const u = new URL(API + path, window.location.origin);
+  for (const [k, v] of Object.entries(opts.params || {})) {
+    if (v !== undefined && v !== null && v !== '') u.searchParams.set(k, String(v));
+  }
+  const res = await fetch(u.toString(), {
+    method: opts.method || 'GET',
+    headers: authHeaders(),
+    body: opts.body != null ? JSON.stringify(opts.body) : undefined,
+  });
+  if (res.status === 401) {
+    toast('Oturum süresi doldu — yeniden giriş gerekiyor', 'error');
+    toLogin();
+    throw new Error('401 Unauthorized');
+  }
+  if (res.status === 204) return null;
+  if (!res.ok) {
+    const d = await res.json().catch(() => ({}));
+    throw new Error(d.detail || d.message || ('HTTP ' + res.status));
+  }
+  return res.json();
+}
+
+async function refreshToken() {
+  const t = sessionStorage.getItem('pb_token');
+  if (!t) { toLogin(); return false; }
+  try {
+    const res = await fetch(PB_BASE + '/api/collections/users/auth-refresh', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: t },
+      body: JSON.stringify({}),
+    });
+    if (!res.ok) { toLogin(); return false; }
+    const data = await res.json();
+    if (data.token) sessionStorage.setItem('pb_token', data.token);
+    return true;
+  } catch (e) {
+    // PB erişilemez (ağ): API kendi doğrulamasını yapar, devam et
+    console.warn('auth-refresh denendi, erişilemedi:', e.message);
+    return true;
+  }
+}
+
+/* ── health ──────────────────────────────────────────────────────── */
 async function checkHealth() {
   const pulse = $('#healthPulse');
   const label = $('#healthLabel');
   try {
     const r = await fetch(API + '/health');
-    if (r.ok) { pulse.className = 'pulse ok';   label.textContent = 'API: online'; }
-    else      { pulse.className = 'pulse fail'; label.textContent = 'API: hata'; }
+    if (r.ok) { pulse.className = 'pulse ok'; label.textContent = 'API: online'; }
+    else { pulse.className = 'pulse fail'; label.textContent = 'API: hata'; }
   } catch (e) {
     pulse.className = 'pulse fail'; label.textContent = 'API: erişilemez';
   }
 }
 
-/* ── Chart (global registry, tek Canvas) ─────────────────────────── */
+/* ── chart registry ──────────────────────────────────────────────── */
 const charts = new Map();
-
 function destroyChart(key) {
   const c = charts.get(key);
   if (c) { c.destroy(); charts.delete(key); }
 }
 function newChart(key, canvas, cfg) {
   destroyChart(key);
-  const ctx = canvas.getContext('2d');
-  const ch = new Chart(ctx, cfg);
+  const ch = new Chart(canvas.getContext('2d'), cfg);
   charts.set(key, ch);
   return ch;
 }
 
-/* ── Panel 1: Snapshot ────────────────────────────────────────────── */
-let snapshotChart = null;
+/* ── Panel: Snapshot & Time-Travel ───────────────────────────────── */
+window._lastSnapshot = null;
 
 async function loadSnapshot() {
   const date = $('#snapshotDate').value || new Date().toISOString().slice(0, 10);
   $('#btnSnapshot').disabled = true;
-  $('#btnSnapshot').textContent = 'Yükleniyor…';
   try {
-    const data = await req('/api/portfolio/snapshot', { date });
-    // KV grid
+    const data = await api('/api/portfolio/snapshot', { params: { date } });
+    window._lastSnapshot = data;
+    const cashHoldings = (data.holdings || []).filter(h => h.type === 'cash');
+    const cashTotal = cashHoldings.reduce((a, h) => a + (h.quantity || 0), 0);
     const kv = $('#snapshotKV');
-    kv.innerHTML = '';
+    kv.replaceChildren();
     const rows = [
-      ['Toplam Değer',        fmtTL(data.total_value)],
-      ['Varlık Sayısı',       data.holdings?.length ?? 0],
-      ['Tarih',               data.as_of_date ?? date],
+      ['Toplam Değer', fmtTL(data.total_value), true],
+      ['Toplam Maliyet', fmtTL(data.total_cost)],
+      ['K/Z', fmtTL(data.pnl) + '  ' + fmtPct(data.pnl_pct), true],
+      ['Nakit Kovası', fmtTL(cashTotal)],
+      ['Temettü Geliri', fmtTL(data.cash_received)],
+      ['Varlık Sayısı', (data.holdings || []).length - cashHoldings.length],
+      ['Tarih', data.as_of],
     ];
-    for (const [label, value] of rows) {
+    for (const [label, value, isMoney] of rows) {
       const div = el('div', 'kv-item');
       div.appendChild(el('div', '', label));
-      div.appendChild(el('div', 'value', value));
+      const v = el('div', 'value' + (isMoney ? ' value-display' : ''), value);
+      if (isMoney) v.dataset.value = String(label === 'K/Z' ? data.pnl : data.total_value);
+      div.appendChild(v);
       kv.appendChild(div);
     }
-    // Tek spot chart
-    const holdings = data.holdings || [];
-    const canvas = $('#snapshotChart');
-    canvas.parentElement.style.minHeight = '200px';
-    newChart('snapshot', canvas, {
+    const holdings = (data.holdings || []).filter(h => h.type !== 'cash');
+    newChart('snapshot', $('#snapshotChart'), {
       type: 'bar',
       data: {
-        labels: holdings.map(h => h.asset_symbol || '?'),
+        labels: holdings.map(h => h.asset_symbol),
         datasets: [{
-          label: 'Değer (₺)',
-          data: holdings.map(h => h.value || 0),
-          backgroundColor: ['#3b82f6','#10b981','#f59e0b','#8b5cf6','#ec4899','#14b8a6','#f97316'][0] || '#3b82f6',
+          label: 'Değer',
+          data: holdings.map(h => h.current_value || 0),
+          backgroundColor: '#3b82f6',
           borderRadius: 4,
         }],
       },
       options: {
-        responsive: true,
-        maintainAspectRatio: false,
+        responsive: true, maintainAspectRatio: false,
         plugins: { legend: { display: false } },
-        scales: {
-          y: { beginAtZero: true, ticks: { callback: v => fmtTL(v) } },
-          x: { grid: { display: false } },
-        },
+        scales: { y: { beginAtZero: true }, x: { grid: { display: false } } },
       },
     });
-    toast('Snapshot yüklendi: ' + fmtTL(data.total_value), 'success');
   } catch (e) {
-    toast('Snapshot hatası: ' + e.message, 'error');
+    if (e.message !== '401 Unauthorized') toast('Snapshot hatası: ' + e.message, 'error');
   } finally {
     $('#btnSnapshot').disabled = false;
-    $('#btnSnapshot').textContent = 'Güncelle';
   }
 }
 
-$('#btnSnapshot').addEventListener('click', loadSnapshot);
-$('#snapshotDate').addEventListener('change', loadSnapshot);
-// Varsayılan bugünkü tarih
-(function setDefaultDate() {
-  const d = new Date().toISOString().slice(0, 10);
-  $('#snapshotDate').value = d;
-// Currency selector change handler
-$('#currencySelect').addEventListener('change', function(e) {
-  window._currency = e.target.value;
-  // Update all displayed values
-  document.querySelectorAll('.value-display').forEach(el => {
-    const val = parseFloat(el.dataset.value);
-    if (!isNaN(val)) {
-      el.textContent = fmtCurrency(val, window._currency);
-    }
-  });
-  // Update chart if exists
-  if (window._mcChart) {
-    // Would need to redraw with new currency
-  }
-});
-
-window._currency = 'TRY';
-
-})();
-
-/* ── Panel 2: Decisions ───────────────────────────────────────────── */
-/**
- * Sentiment özet kartını doldur
- */
-async function loadSentimentSummary() {
+async function runTimeTravel() {
+  const tStart = $('#ttStart').value;
+  const tTarget = $('#ttTarget').value || new Date().toISOString().slice(0, 10);
+  if (!tStart) { toast('Başlangıç tarihi gerekli', 'warn'); return; }
+  const wrap = $('#ttResult');
+  wrap.replaceChildren(el('div', 'kv-empty', 'Hesaplanıyor…'));
   try {
-    const res = await req('/api/decisions/stats');
-    const card = $('#sentimentSummary');
-    if (!res || !res.sentiment) {
-      card.innerHTML = '<div class="summary-loading">Veri yok</div>';
+    const r = await api('/api/portfolio/time-travel', { params: { t_start: tStart, t_target: tTarget } });
+    wrap.replaceChildren();
+    for (const [label, value] of [
+      ['Değer (T_start)', fmtTL(r.value_at_start)],
+      ['Değer (T_target)', fmtTL(r.value_at_target)],
+      ['Nominal K/Z', fmtTL(r.pnl) + '  ' + fmtPct(r.pnl_pct)],
+    ]) {
+      const div = el('div', 'kv-item');
+      div.appendChild(el('div', '', label));
+      div.appendChild(el('div', 'value', value));
+      wrap.appendChild(div);
+    }
+  } catch (e) {
+    wrap.replaceChildren(el('div', 'kv-empty', 'Hata: ' + e.message));
+  }
+}
+
+/* ── Panel: Karar Günlüğü ────────────────────────────────────────── */
+async function loadSentimentSummary() {
+  const card = $('#sentimentSummary');
+  if (!card) return;
+  try {
+    const res = await api('/api/decisions/stats');
+    const counts = res.sentiment_counts || {};
+    const entries = Object.entries(counts);
+    if (entries.length === 0) {
+      card.replaceChildren(el('div', 'summary-loading', 'Veri yok'));
       return;
     }
-
-    const total = res.total || Object.values(res.sentiment).reduce((a, b) => a + b, 0);
-    let html = '';
-    for (const [sentiment, count] of Object.entries(res.sentiment)) {
-      const pct = total > 0 ? ((count / total) * 100).toFixed(1) : '0.0';
-      const label = sentiment.charAt(0) + sentiment.slice(1).toLowerCase();
-      html += '<div class="sentiment-stat">' +
-        '<div class="sentiment-label">' + label + '</div>' +
-        '<div class="sentiment-count">' + count + '</div>' +
-        '<div class="sentiment-pct">' + pct + '%</div>' +
-        '</div>';
+    const total = entries.reduce((a, [, c]) => a + c, 0);
+    card.replaceChildren();
+    for (const [sentiment, count] of entries) {
+      const stat = el('div', 'sentiment-stat');
+      stat.appendChild(el('div', 'sentiment-label', sentiment));
+      stat.appendChild(el('div', 'sentiment-count', count));
+      stat.appendChild(el('div', 'sentiment-pct', (100 * count / total).toFixed(1) + '%'));
+      card.appendChild(stat);
     }
-    card.innerHTML = html;
+    if (res.insufficient_data) {
+      card.appendChild(el('div', 'summary-loading', 'Yeterli veri yok (n < 3) — sonuç ortalaması hesaplanmadı'));
+    }
+  } catch (e) { /* sessiz: panel opsiyonel */ }
+}
+
+async function retroDecision(id, btn) {
+  btn.disabled = true;
+  btn.textContent = '…';
+  try {
+    const r = await api(`/api/decisions/${id}/retrospective`, { method: 'POST' });
+    toast('Retrospektif hazır', 'success');
+    loadDecisions();
+    return r;
   } catch (e) {
-    console.error('Sentiment summary yüklenemedi:', e);
+    toast('Retrospektif: ' + e.message, 'error');
+    btn.disabled = false;
+    btn.textContent = 'AI';
   }
+}
+
+async function closeDecision(id) {
+  try {
+    await api(`/api/decisions/${id}/close`, { method: 'POST' });
+    toast('Karar kapatıldı (REVIEWED)', 'success');
+    loadDecisions();
+  } catch (e) { toast('Kapatma: ' + e.message, 'error'); }
+}
+
+async function deleteDecision(id) {
+  if (!confirm('Karar ve bağlı gölge pozisyonlar silinecek. Emin misin?')) return;
+  try {
+    await api(`/api/decisions/${id}`, { method: 'DELETE' });
+    toast('Karar silindi', 'success');
+    loadDecisions();
+  } catch (e) { toast('Silme: ' + e.message, 'error'); }
 }
 
 async function loadDecisions() {
   const tbody = $('#decisionsBody');
-  tbody.innerHTML = '';
-  const loaderRow = el('tr');
-  const loaderTd = el('td', 'empty-row', 'Yükleniyor…');
-  loaderTd.colSpan = 8;
-  loaderRow.appendChild(loaderTd);
-  tbody.appendChild(loaderRow);
+  tbody.replaceChildren();
+  const loader = el('tr');
+  const td = el('td', 'empty-row', 'Yükleniyor…');
+  td.colSpan = 9;
+  loader.appendChild(td);
+  tbody.appendChild(loader);
   try {
-    const list = await req('/api/decisions');
-    if (!list || list.length === 0) {
-      tbody.textContent = '';
-      const emptyRow = el('tr');
-      const emptyTd = el('td', 'empty-row', 'Karar yok — yukarıdaki + butonuna tıklayın.');
-      emptyTd.colSpan = 8;
-      emptyRow.appendChild(emptyTd);
-      tbody.appendChild(emptyRow);
+    const list = await api('/api/decisions');
+    tbody.replaceChildren();
+    if (!list.length) {
+      const empty = el('tr');
+      const etd = el('td', 'empty-row', 'Karar yok — "+ Yeni Karar" ile ekleyin.');
+      etd.colSpan = 9;
+      empty.appendChild(etd);
+      tbody.appendChild(empty);
       return;
     }
-    tbody.innerHTML = '';
     for (const d of list) {
       const tr = el('tr');
-      tr.appendChild(el('td', '', d.date ? d.date.slice(0, 10) : '—'));
+      tr.appendChild(el('td', '', (d.date || '—')));
       tr.appendChild(el('td', '', d.asset_symbol || '—'));
       tr.appendChild(el('td', '', d.action || '—'));
-      tr.appendChild(el('td', '', badge(d.sentiment)));
+      const tdS = el('td'); tdS.appendChild(badge(d.sentiment)); tr.appendChild(tdS);
       tr.appendChild(el('td', '', d.target_price != null ? d.target_price.toFixed(2) : '—'));
       tr.appendChild(el('td', '', d.target_date || '—'));
-      tr.appendChild(el('td', '', badge(d.status)));
-      // AI retrospective badge
-      const tdAI = el('td');
-      if (d.ai_retrospective) {
-        tdAI.appendChild(el('span', 'badge STRATEGIC', 'AI ✅'));
-        tdAI.title = d.ai_retrospective.slice(0, 200);
-      } else if (d.status === 'REVIEWED') {
-        tdAI.appendChild(el('span', 'badge EXPIRED', '—'));
-      } else {
-        tdAI.appendChild(el('span', 'badge OPEN', ' Beklemede'));
-      }
-      tr.appendChild(tdAI);
+      const tdSt = el('td'); tdSt.appendChild(badge(d.status)); tr.appendChild(tdSt);
+      tr.appendChild(el('td', '', d.outcome_return_pct != null ? fmtPct(d.outcome_return_pct) : '—'));
+      const tdA = el('td', 'row-actions');
+      const bR = el('button', 'btn btn-ghost btn-sm', d.ai_retrospective ? 'AI ✓' : 'AI Retro');
+      bR.title = d.ai_retrospective ? d.ai_retrospective.slice(0, 300) : 'AI retrospektifi üret';
+      bR.addEventListener('click', () => retroDecision(d.id, bR));
+      const bC = el('button', 'btn btn-ghost btn-sm', 'Kapat');
+      bC.addEventListener('click', () => closeDecision(d.id));
+      const bD = el('button', 'btn btn-danger btn-sm', 'Sil');
+      bD.addEventListener('click', () => deleteDecision(d.id));
+      tdA.appendChild(bR); tdA.appendChild(bC); tdA.appendChild(bD);
+      tr.appendChild(tdA);
       tbody.appendChild(tr);
     }
   } catch (e) {
-    toast('Karar listeleme hatası: ' + e.message, 'error');
+    if (e.message !== '401 Unauthorized') toast('Karar listesi: ' + e.message, 'error');
   }
 }
 
-async function apiFetch(path, opts = {}) {
-  const u = new URL(API + path);
-  for (const [k, v] of Object.entries(opts.params || {}))
-    if (v !== undefined && v !== null) u.searchParams.set(k, String(v));
-  const res = await fetch(u.toString(), {
-    method: opts.method || 'GET',
-    headers: { 'Content-Type': 'application/json', ...opts.headers },
-    body: opts.body ? JSON.stringify(opts.body) : undefined,
-  });
-  if (!res.ok) {
-    const detail = await res.json().catch(() => ({}));
-    const msg = detail.detail || detail.message || `HTTP ${res.status}`;
-    throw new Error(msg);
-  }
-  return res.json();
-}
-
+/* modal karar formu */
 async function createDecision(formData) {
   const body = {};
   for (const [k, v] of formData.entries()) {
@@ -453,417 +310,336 @@ async function createDecision(formData) {
     body[k] = v;
   }
   try {
-    await apiFetch('/api/decisions', {
-      method: 'POST',
-      body,
-    });
+    await api('/api/decisions', { method: 'POST', body });
     toast('Karar kaydedildi', 'success');
     $('#decisionModal').hidden = true;
     loadDecisions();
+    loadSentimentSummary();
   } catch (e) {
-    toast('Kaydetme hatası: ' + e.message, 'error');
+    if (e.message !== '401 Unauthorized') toast('Kaydetme: ' + e.message, 'error');
   }
 }
 
-$('#btnShowDecisionForm').addEventListener('click', () => {
-  $('#decisionModal').hidden = false;
-  $('#decisionForm').reset();
-});
-$('#btnCloseModal').addEventListener('click', () => { $('#decisionModal').hidden = true; });
-$('#btnCancelModal').addEventListener('click', () => { $('#decisionModal').hidden = true; });
-$('#decisionForm').addEventListener('submit', e => {
-  e.preventDefault();
-  const fd = new FormData(e.target);
-  createDecision(fd);
-});
+/* ── Panel: İşlemler ─────────────────────────────────────────────── */
+async function loadTransactions() {
+  const tbody = $('#txBody');
+  if (!tbody) return;
+  tbody.replaceChildren();
+  try {
+    const list = await api('/api/transactions', { params: { limit: 100 } });
+    if (!list.length) {
+      const tr = el('tr'); const td = el('td', 'empty-row', 'İşlem yok.'); td.colSpan = 7;
+      tr.appendChild(td); tbody.appendChild(tr); return;
+    }
+    for (const t of list) {
+      const tr = el('tr');
+      tr.appendChild(el('td', '', String(t.timestamp || '').slice(0, 10)));
+      tr.appendChild(el('td', '', t.asset_symbol));
+      const tdT = el('td'); tdT.appendChild(badge(t.type)); tr.appendChild(tdT);
+      tr.appendChild(el('td', '', t.quantity));
+      tr.appendChild(el('td', '', t.price));
+      tr.appendChild(el('td', '', t.fee || 0));
+      const tdA = el('td', 'row-actions');
+      if (!t.voided) {
+        const b = el('button', 'btn btn-danger btn-sm', 'İptal Et');
+        b.addEventListener('click', async () => {
+          if (!confirm('İşlem void edilecek (soft delete). Emin misin?')) return;
+          try {
+            await api(`/api/transactions/${t.id}`, { method: 'DELETE' });
+            toast('İşlem void edildi', 'success');
+            loadTransactions(); loadSnapshot();
+          } catch (e) { toast('Void: ' + e.message, 'error'); }
+        });
+        tdA.appendChild(b);
+      } else {
+        tdA.appendChild(el('span', 'badge VOIDED', 'VOID'));
+      }
+      tr.appendChild(tdA);
+      tbody.appendChild(tr);
+    }
+  } catch (e) {
+    if (e.message !== '401 Unauthorized') toast('İşlem listesi: ' + e.message, 'error');
+  }
+}
 
-/* ── Panel 3: Counterfactual ──────────────────────────────────────── */
+async function addTransaction(e) {
+  e.preventDefault();
+  const f = e.target;
+  const body = {
+    asset_symbol: f.txSymbol.value.trim().toUpperCase(),
+    tx_type: f.txType.value,
+    quantity: parseFloat(f.txQty.value),
+    price: parseFloat(f.txPrice.value),
+    fee: parseFloat(f.txFee.value || '0'),
+  };
+  if (f.txDate.value) body.timestamp = f.txDate.value;
+  try {
+    await api('/api/transactions', { method: 'POST', body });
+    toast('İşlem eklendi', 'success');
+    f.reset();
+    loadTransactions();
+    loadSnapshot();
+  } catch (err) {
+    if (err.message !== '401 Unauthorized') toast('İşlem: ' + err.message, 'error');
+  }
+}
+
+/* ── Panel: Gölge Portföy + Ne Olurdu ────────────────────────────── */
+async function loadShadowPositions() {
+  const tbody = $('#shadowBody');
+  if (!tbody) return;
+  tbody.replaceChildren();
+  try {
+    const list = await api('/api/counterfactual/shadow-positions');
+    if (!list.length) {
+      const tr = el('tr'); const td = el('td', 'empty-row', 'Gölge pozisyon yok.'); td.colSpan = 6;
+      tr.appendChild(td); tbody.appendChild(tr); return;
+    }
+    for (const p of list) {
+      const tr = el('tr');
+      tr.appendChild(el('td', '', p.entry_date || '—'));
+      tr.appendChild(el('td', '', p.asset_symbol));
+      const tdT = el('td'); tdT.appendChild(badge(p.shadow_type)); tr.appendChild(tdT);
+      tr.appendChild(el('td', '', p.quantity));
+      tr.appendChild(el('td', '', p.entry_price));
+      const tdA = el('td', 'row-actions');
+      const b = el('button', 'btn btn-danger btn-sm', 'Sil');
+      b.addEventListener('click', async () => {
+        if (!confirm('Gölge pozisyon silinsin mi?')) return;
+        try {
+          await api(`/api/counterfactual/shadow-positions/${p.id}`, { method: 'DELETE' });
+          toast('Gölge pozisyon silindi', 'success');
+          loadShadowPositions();
+        } catch (e) { toast('Silme: ' + e.message, 'error'); }
+      });
+      tdA.appendChild(b);
+      tr.appendChild(tdA);
+      tbody.appendChild(tr);
+    }
+  } catch (e) {
+    if (e.message !== '401 Unauthorized') toast('Gölge liste: ' + e.message, 'error');
+  }
+}
+
+async function addShadowPosition(e) {
+  e.preventDefault();
+  const f = e.target;
+  try {
+    await api('/api/counterfactual/shadow-positions', {
+      method: 'POST',
+      body: {
+        decision_id: f.shadowDecisionId.value.trim(),
+        asset_symbol: f.shadowSymbol.value.trim().toUpperCase(),
+        shadow_type: f.shadowType.value,
+        quantity: parseFloat(f.shadowQty.value),
+        entry_price: parseFloat(f.shadowPrice.value),
+      },
+    });
+    toast('Gölge pozisyon eklendi', 'success');
+    f.reset();
+    loadShadowPositions();
+  } catch (e2) {
+    if (e2.message !== '401 Unauthorized') toast('Gölge ekleme: ' + e2.message, 'error');
+  }
+}
+
 async function runCounterfactual() {
   const id = $('#cfDecisionId').value.trim();
-  const elWrap = $('#cfResult');
-  elWrap.innerHTML = '';
+  const wrap = $('#cfResult');
+  wrap.replaceChildren();
   if (!id) {
-    const msg = document.createElement('div');
-    msg.className = 'cf-empty';
-    msg.textContent = 'Karar ID girin.';
-    elWrap.appendChild(msg);
+    wrap.appendChild(el('div', 'cf-empty', 'Karar ID girin.'));
     return;
   }
-  const loading = document.createElement('div');
-  loading.className = 'cf-empty';
-  loading.textContent = 'Yükleniyor…';
-  elWrap.appendChild(loading);
+  wrap.appendChild(el('div', 'cf-empty', 'Yükleniyor…'));
   try {
-    const result = await req('/api/counterfactual', { decision_id: id });
-    if (result.error) {
-      elWrap.innerHTML = '';
-      const err = document.createElement('div');
-      err.className = 'cf-empty';
-      err.textContent = result.error;
-      elWrap.appendChild(err);
-      return;
-    }
+    const result = await api('/api/counterfactual', { params: { decision_id: id } });
+    wrap.replaceChildren();
+    const rp = result.real_portfolio_value ?? 0;
     const sp = result.shadow_portfolio_value ?? 0;
     const op = result.opportunity_cost ?? 0;
     const oppct = result.opportunity_cost_pct ?? 0;
     const isWin = oppct >= 0;
-    elWrap.innerHTML = '';
-    // Stats
     const stats = el('div', 'cf-stats');
-    const makeStat = (label, value, cls, fmt) => {
+    const makeStat = (label, value, cls) => {
       const s = el('div', 'cf-stat ' + cls);
       s.appendChild(el('div', 'cf-stat-label', label));
-      s.appendChild(el('div', 'cf-stat-value', fmt(value)));
+      s.appendChild(el('div', 'cf-stat-value', fmtTL(value)));
       return s;
     };
-    stats.appendChild(makeStat('Gerçek Portföy', rp, '', fmtTL));
-    stats.appendChild(makeStat('Gölge Portföy', sp, '', fmtTL));
-    stats.appendChild(makeStat('Fırsat Maliyeti', op, isWin ? 'positive' : 'negative', fmtTL));
-    elWrap.appendChild(stats);
-    // Bar
-    const maxV = Math.max(Math.abs(rp), Math.abs(sp), 1);
-    const bar = el('div', 'cf-bar-track');
-    const fill = el('div', 'cf-bar-fill ' + (isWin ? 'good' : 'bad'));
-    fill.style.width = Math.abs(oppct / 100) * 100 + '%';
-    bar.appendChild(fill);
-    elWrap.appendChild(el('p', '', `Fırsat maliyeti: ${fmtPct(oppct)} — ${isWin ? 'kararın doğru yönde' : 'kararın ters yönde'}`));
-    toast('Gölge kıyaslaması yüklendi', 'success');
+    stats.appendChild(makeStat('Gerçek Portföy', rp, ''));
+    stats.appendChild(makeStat('Gölge Portföy', sp, ''));
+    stats.appendChild(makeStat('Fırsat Maliyeti', op, isWin ? 'positive' : 'negative'));
+    wrap.appendChild(stats);
+    wrap.appendChild(el('p', '', `Fırsat maliyeti: ${(oppct * 100).toFixed(2)}% — ${isWin ? 'gölge senaryo daha iyi' : 'gerçek karar daha iyi'}`));
   } catch (e) {
-    toast('Kıyaslama hatası: ' + e.message, 'error');
+    wrap.replaceChildren(el('div', 'cf-empty', 'Hata: ' + e.message));
   }
 }
-$('#btnCfCompare').addEventListener('click', runCounterfactual);
 
-/* ── Panel 4: Monte Carlo ─────────────────────────────────────────── */
-let mcChart = null;
+/* ── Panel: Monte Carlo + Stres ──────────────────────────────────── */
+function drawHistogram(canvas, histogram, p5, p50, p95) {
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+  const bins = histogram.bins, counts = histogram.counts;
+  const barCount = bins.length - 1;
+  const pad = 50;
+  const barWidth = (W - 2 * pad) / barCount;
+  const maxCount = Math.max(...counts, 1);
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = '#3b82f6';
+  for (let i = 0; i < barCount; i++) {
+    const x = pad + i * barWidth;
+    const hgt = (counts[i] / maxCount) * (H - 60);
+    ctx.fillRect(x, H - hgt - 30, barWidth - 2, hgt);
+  }
+  const scaleX = (val) => pad + ((val - bins[0]) / (bins[bins.length - 1] - bins[0] || 1)) * (W - 2 * pad);
+  const line = (val, color, label) => {
+    ctx.strokeStyle = color; ctx.setLineDash([5, 5]); ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(scaleX(val), 10); ctx.lineTo(scaleX(val), H - 30); ctx.stroke();
+    ctx.setLineDash([]); ctx.fillStyle = color; ctx.font = '12px sans-serif';
+    ctx.fillText(label + ': ' + Math.round(val), scaleX(val) + 4, 20);
+  };
+  line(p5, '#ef4444', 'p5');
+  line(p50, '#22c55e', 'p50');
+  line(p95, '#3b82f6', 'p95');
+}
 
 async function runMonteCarlo() {
   const assets = $('#simAssets').value;
-  const days   = parseInt($('#simDays').value) || 126;
-  const sims   = parseInt($('#simSims').value) || 10000;
+  const days = parseInt($('#simDays').value, 10) || 126;
+  const sims = parseInt($('#simSims').value, 10) || 10000;
   $('#btnSimRun').disabled = true;
-  $('#btnSimRun').textContent = 'Çalıştırılıyor…';
   const mcSummary = $('#mcSummary');
-  mcSummary.innerHTML = '';
-  const loadingSum = el('div', 'mc-empty', 'Simülasyon çalıştırılıyor…');
-  mcSummary.appendChild(loadingSum);
-  const aiNarrative = $('#aiNarrative');
-  aiNarrative.innerHTML = '';
-  const loadingAI = el('div', 'ai-empty', 'AI analiz yükleniyor…');
-  aiNarrative.appendChild(loadingAI);
-  $('#mcChart').parentElement.style.minHeight = '300px';
-
+  mcSummary.replaceChildren(el('div', 'mc-empty', 'Simülasyon çalıştırılıyor…'));
   try {
-    const result = await req('/api/simulation/monte-carlo', {
-      assets, days, simulations: sims,
-      percentiles: '5,50,95',
+    const result = await api('/api/simulation/monte-carlo', {
+      params: { assets, days, simulations: sims, percentiles: '5,50,95' },
     });
-    // Summary kartları
-    const pv    = result.percentile_values?.portfolio ?? {};
-    const init  = result.total_initial_value ?? 0;
-    const gpct  = init > 0 ? ((pv.p50 - init) / init * 100) : 0;
-    const sum   = el('div', 'mc-summary');
-    const mkC   = (label, key, cls) => {
+    const pv = (result.percentile_values || {}).portfolio || {};
+    const init = result.total_initial_value ?? 0;
+    mcSummary.replaceChildren();
+    const sum = el('div', 'mc-summary');
+    const mkC = (label, key, cls) => {
       const c = el('div', 'mc-card ' + cls);
       c.appendChild(el('div', 'mc-card-label', label));
-      c.appendChild(el('div', 'mc-card-value', fmtTL(pv[key] ?? 0)));
+      c.appendChild(el('div', 'mc-card-value value-display', fmtTL(pv[key] ?? 0)));
+      c.querySelector('.value-display').dataset.value = String(pv[key] ?? 0);
       return c;
     };
-    sum.appendChild(mkC('%5 Bear (En kötü)',  'p5',  'p5'));
+    sum.appendChild(mkC('%5 Bear (En kötü)', 'p5', 'p5'));
     sum.appendChild(mkC('%50 Medyan (Base)', 'p50', 'p50'));
     sum.appendChild(mkC('%95 Bull (En iyi)', 'p95', 'p95'));
-    mcSummary.innerHTML = '';
-    mcSummary.appendChild(sum);
-
-    // Histogram placeholder (tek No0st buyout dağılımı gösterimi)
-    const canvas = $('#mcChart');
-    newChart('mc', canvas, {
-      type: 'doughnut',
-      data: {
-        labels: ['En kötü %5', 'Olası %45', 'Medyan %50', 'En iyi %5'],
-        datasets: [{
-          data: [pv.p5 ?? 0, (pv.p50 - pv.p5) * 0.45, (pv.p50 - pv.p5) * 0.45, pv.p95 ?? 0],
-          backgroundColor: ['#dc2626','#f59e0b','#3b82f6','#16a34a'],
-          borderWidth: 0,
-        }],
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: {
-          legend: { position: 'bottom', labels: { boxWidth: 12, padding: 12 } },
-          tooltip: { callbacks: { label: ctx => ctx.raw.toLocaleString('tr-TR') + ' ₺' } },
-        },
-      },
-    });
-
-    // AI narrative
-    if (result.narrative) {
-      const content = document.createElement('div');
-      content.className = 'ai-content';
-      content.textContent = result.narrative;
-      $('#aiNarrative').appendChild(content);
-      
-      // Disclaimer
-      const disclaimer = document.createElement('div');
-      disclaimer.className = 'ai-disclaimer';
-      disclaimer.style.marginTop = '1rem';
-      disclaimer.style.padding = '0.5rem';
-      disclaimer.style.borderTop = '1px solid #ddd';
-      disclaimer.style.fontSize = '0.8rem';
-      disclaimer.style.color = '#666';
-      disclaimer.textContent = '⚠️ Bu AI analizi yatırım tavsiyesi değildir. Kararlarınız kendi araştırmanıza dayanmalıdır.';
-      $('#aiNarrative').appendChild(disclaimer);
-    } else {
-      const content = document.createElement('div');
-      content.className = 'ai-content';
-      content.textContent = [
-        '📊 Simülasyon Özeti:',
-        '   Başlangıç: ' + fmtTL(init) + ' → Medyan ' + fmtTL(pv.p50 ?? 0) + ' (' + fmtPct(gpct) + ')',
-        '   Bear  %5:  ' + fmtTL(pv.p5  ?? 0),
-        '   Bull  %95: ' + fmtTL(pv.p95 ?? 0),
-        '',
-        '   Öneri: AI risk anlatısı için Google API key ekleyin.',
-        '   (config.py → GOOGLE_API_KEY)',
-      ].join('\n');
-      $('#aiNarrative').appendChild(content);
+    const initCard = el('div', 'mc-card init');
+    initCard.appendChild(el('div', 'mc-card-label', 'Başlangıç Değeri'));
+    const initV = el('div', 'mc-card-value value-display', fmtTL(init));
+    initV.dataset.value = String(init);
+    initCard.appendChild(initV);
+    sum.appendChild(initCard);
+    mcSummary.replaceChildren(sum);
+    if (result.data_quality === 'estimated') {
+      mcSummary.appendChild(el('p', 'kv-empty', 'Veri kalitesi: tahmini (tarihsel seride eksik varlık)'));
     }
-    toast('Monte Carlo tamamlandı', 'success');
+    if (result.histogram && result.histogram.bins) {
+      destroyChart('mc');
+      drawHistogram($('#mcChart'), result.histogram, pv.p5 ?? 0, pv.p50 ?? 0, pv.p95 ?? 0);
+    }
+    await loadNarrative(result);
   } catch (e) {
-    toast('Monte Carlo hatası: ' + e.message, 'error');
+    mcSummary.replaceChildren(el('div', 'mc-empty', 'Monte Carlo hatası: ' + e.message));
+    if (e.message !== '401 Unauthorized') toast('Monte Carlo: ' + e.message, 'error');
   } finally {
     $('#btnSimRun').disabled = false;
-    $('#btnSimRun').textContent = 'Çalıştır';
   }
 }
-$('#btnSimRun').addEventListener('click', runMonteCarlo);
 
-/* ── Boot ─────────────────────────────────────────────────────────── */
-
-
-/* USD/TRY Seçici */
-.currency-selector {
-  margin-left: auto;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
-  background: rgba(255,255,255,0.9);
-  border-radius: 6px;
-}
-.currency-selector label {
-  font-size: 0.85rem;
-  color: #666;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-.currency-selector select {
-  padding: 4px 8px;
-  border: 1px solid #ddd;
-  border-radius: 4px;
-  background: white;
-  font-size: 0.85rem;
-  cursor: pointer;
-}
-
-/* Sentiment Özet Kartı */
-.sentiment-summary-card {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-  gap: 12px;
-  margin-bottom: 16px;
-  padding: 12px;
-  background: #f8f9fa;
-  border-radius: 8px;
-}
-.sentiment-summary-card .summary-loading {
-  grid-column: 1 / -1;
-  text-align: center;
-  color: #888;
-  font-size: 0.9rem;
-}
-.sentiment-stat {
-  text-align: center;
-  padding: 8px;
-  background: white;
-  border-radius: 6px;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-}
-.sentiment-stat .sentiment-label {
-  font-size: 0.75rem;
-  color: #666;
-  text-transform: uppercase;
-  margin-bottom: 4px;
-}
-.sentiment-stat .sentiment-count {
-  font-size: 1.5rem;
-  font-weight: bold;
-  color: var(--accent, #3b82f6);
-}
-.sentiment-stat .sentiment-pct {
-  font-size: 0.8rem;
-  color: #888;
-}
-
-/* Stres Test Histogram */
-.mc-summary .percentile-row {
-  display: flex;
-  justify-content: space-between;
-  padding: 8px 12px;
-  border-bottom: 1px solid #eee;
-}
-.mc-summary .percentile-row:last-child {
-  border-bottom: none;
-}
-.mc-summary .percentile-label {
-  font-weight: 600;
-  color: #333;
-}
-.mc-summary .percentile-value {
-  color: #666;
-}
-.mc-summary .histogram-info {
-  margin-top: 12px;
-  padding: 12px;
-  background: #f8f9fa;
-  border-radius: 6px;
-}
-.mc-summary .histogram-info h4 {
-  margin: 0 0 8px 0;
-  font-size: 0.9rem;
-  color: #666;
-}
-.mc-summary .histogram-bars {
-  display: flex;
-  align-items: flex-end;
-  height: 80px;
-  gap: 2px;
-}
-.mc-summary .histogram-bar {
-  flex: 1;
-  background: linear-gradient(to top, #3b82f6, #60a5fa);
-  border-radius: 2px 2px 0 0;
-  min-height: 4px;
-  position: relative;
-}
-.mc-summary .histogram-bar .bar-label {
-  position: absolute;
-  bottom: -20px;
-  left: 50%;
-  transform: translateX(-50%);
-  font-size: 0.6rem;
-  color: #888;
-  white-space: nowrap;
-}
-.mc-summary .p5-line, .mc-summary .p50-line, .mc-summary .p95-line {
-  position: absolute;
-  left: 0;
-  right: 0;
-  border-top: 2px dashed;
-  pointer-events: none;
-}
-.mc-summary .p5-line { border-color: #ef4444; top: 95%; }
-.mc-summary .p50-line { border-color: #22c55e; top: 50%; }
-.mc-summary .p95-line { border-color: #3b82f6; top: 5%; }
-
-/* AI Disclaimer */
-.ai-disclaimer {
-  margin-top: 1rem;
-  padding: 0.5rem;
-  border-top: 1px solid #ddd;
-  font-size: 0.8rem;
-  color: #666;
-}
-
-
-
-function fmtCurrency(n, currency = 'TRY') {
-  return new Intl.NumberFormat('tr-TR', { 
-    style: 'currency', 
-    currency, 
-    maximumFractionDigits: 0 
-  }).format(n ?? 0);
-}
-
-function fmtPct(v) {
-  return (v == null ? '—' : (v >= 0 ? '+' : '') + v.toFixed(2) + '%');
-}
-
-function drawHistogram(ctx, histogram, p5, p50, p95, maxValue) {
-  const bins = histogram.bins;
-  const counts = histogram.counts;
-  const barCount = bins.length - 1;
-  const barWidth = (ctx.canvas.width - 100) / barCount;
-  
-  // Find max count for scaling
-  const maxCount = Math.max(...counts);
-  
-  // Draw bars
-  for (let i = 0; i < barCount; i++) {
-    const x = 50 + i * barWidth;
-    const barHeight = (counts[i] / maxCount) * (ctx.canvas.height - 60);
-    ctx.fillStyle = '#3b82f6';
-    ctx.fillRect(x, ctx.canvas.height - barHeight - 30, barWidth - 2, barHeight);
+async function loadNarrative(simResult) {
+  const box = $('#aiNarrative');
+  box.replaceChildren(el('div', 'ai-empty', 'AI anlatısı yükleniyor…'));
+  try {
+    const r = await api('/api/simulation/narrative', { method: 'POST', body: { simulation_result: simResult } });
+    box.replaceChildren();
+    box.appendChild(el('div', 'ai-content', r.narrative || '—'));
+    box.appendChild(el('div', 'ai-disclaimer', '⚠️ Bu AI analizi yatırım tavsiyesi değildir. Kararlarınız kendi araştırmanıza dayanmalıdır.'));
+  } catch (e) {
+    box.replaceChildren(el('div', 'ai-empty', 'AI risk anlatısı kullanılamıyor (' + e.message + '). OPENROUTER_API_KEY tanımlayın.'));
   }
-  
-  // Draw percentile lines
-  const scaleX = (val) => 50 + ((val - bins[0]) / (bins[binCount] - bins[0])) * (ctx.canvas.width - 100);
-  
-  ctx.strokeStyle = '#ef4444';
-  ctx.setLineDash([5, 5]);
-  ctx.beginPath();
-  ctx.moveTo(scaleX(p5), 10);
-  ctx.lineTo(scaleX(p5), ctx.canvas.height - 30);
-  ctx.stroke();
-  
-  ctx.strokeStyle = '#22c55e';
-  ctx.beginPath();
-  ctx.moveTo(scaleX(p50), 10);
-  ctx.lineTo(scaleX(p50), ctx.canvas.height - 30);
-  ctx.stroke();
-  
-  ctx.strokeStyle = '#3b82f6';
-  ctx.beginPath();
-  ctx.moveTo(scaleX(p95), 10);
-  ctx.lineTo(scaleX(p95), ctx.canvas.height - 30);
-  ctx.stroke();
-  
-  ctx.setLineDash([]);
-  
-  // Labels
-  ctx.fillStyle = '#ef4444';
-  ctx.fillText('p5: ' + fmtCurrency(p5), scaleX(p5) + 5, 20);
-  ctx.fillStyle = '#22c55e';
-  ctx.fillText('p50: ' + fmtCurrency(p50), scaleX(p50) + 5, 20);
-  ctx.fillStyle = '#3b82f6';
-  ctx.fillText('p95: ' + fmtCurrency(p95), scaleX(p95) + 5, 20);
 }
 
+async function runStressTest() {
+  const pvValue = (window._lastSnapshot && window._lastSnapshot.total_value) || parseFloat($('#stressValue').value || '0') || 100000;
+  const days = parseInt($('#simDays').value, 10) || 126;
+  $('#btnStress').disabled = true;
+  const wrap = $('#stressResult');
+  wrap.replaceChildren(el('div', 'mc-empty', 'Stres testi çalıştırılıyor…'));
+  try {
+    const r = await api('/api/simulation/stress-test', {
+      method: 'POST',
+      body: { portfolio_value: pvValue, days, n_simulations: 1000 },
+    });
+    wrap.replaceChildren();
+    const table = el('table', 'data-table');
+    const head = el('tr');
+    for (const h of ['Senaryo', 'Beklenen', 'p5', 'p50', 'p95', 'Etki']) head.appendChild(el('th', '', h));
+    table.appendChild(head);
+    for (const [name, v] of Object.entries(r.stressed_values || {})) {
+      const tr = el('tr', name === r.worst_case_name ? 'stress-worst' : '');
+      tr.appendChild(el('td', '', v.description || name));
+      tr.appendChild(el('td', '', fmtTL(v.expected_value)));
+      tr.appendChild(el('td', '', fmtTL(v.p5)));
+      tr.appendChild(el('td', '', fmtTL(v.p50)));
+      tr.appendChild(el('td', '', fmtTL(v.p95)));
+      tr.appendChild(el('td', '', fmtPct((v.loss_pct || 0) * 100)));
+      table.appendChild(tr);
+    }
+    wrap.appendChild(table);
+    wrap.appendChild(el('p', 'kv-empty', 'En kötü senaryo: ' + (r.worst_case_name || '—')));
+  } catch (e) {
+    wrap.replaceChildren(el('div', 'mc-empty', 'Stres testi: ' + e.message));
+  } finally {
+    $('#btnStress').disabled = false;
+  }
+}
 
+/* ── para birimi seçicisi ────────────────────────────────────────── */
+function setCurrency(cur) {
+  window._currency = cur;
+  document.querySelectorAll('.value-display').forEach((node) => {
+    const val = parseFloat(node.dataset.value);
+    if (!isNaN(val)) node.textContent = fmtCurrency(val, cur);
+  });
+}
+
+/* ── boot ────────────────────────────────────────────────────────── */
 (async function boot() {
+  if (!(await refreshToken())) return;
+
+  $('#btnSnapshot').addEventListener('click', loadSnapshot);
+  $('#snapshotDate').addEventListener('change', loadSnapshot);
+  $('#btnTT').addEventListener('click', runTimeTravel);
+  $('#btnShowDecisionForm').addEventListener('click', () => {
+    $('#decisionModal').hidden = false;
+    $('#decisionForm').reset();
+  });
+  $('#btnCloseModal').addEventListener('click', () => { $('#decisionModal').hidden = true; });
+  $('#btnCancelModal').addEventListener('click', () => { $('#decisionModal').hidden = true; });
+  $('#decisionForm').addEventListener('submit', (e) => { e.preventDefault(); createDecision(new FormData(e.target)); });
+  $('#txForm').addEventListener('submit', addTransaction);
+  $('#shadowForm').addEventListener('submit', addShadowPosition);
+  $('#btnCfCompare').addEventListener('click', runCounterfactual);
+  $('#btnSimRun').addEventListener('click', runMonteCarlo);
+  $('#btnStress').addEventListener('click', runStressTest);
+  $('#currencySelect').addEventListener('change', (e) => setCurrency(e.target.value));
+  $('#btnLogout').addEventListener('click', toLogin);
+
+  const d = new Date().toISOString().slice(0, 10);
+  $('#snapshotDate').value = d;
+
   await checkHealth();
   await loadSnapshot();
   await loadSentimentSummary();
   await loadDecisions();
-  // Tarih değişince snapshot'ı otomatik yenile
-  setInterval(checkHealth, 30_000);
-// Currency selector change handler
-$('#currencySelect').addEventListener('change', function(e) {
-  window._currency = e.target.value;
-  // Update all displayed values
-  document.querySelectorAll('.value-display').forEach(el => {
-    const val = parseFloat(el.dataset.value);
-    if (!isNaN(val)) {
-      el.textContent = fmtCurrency(val, window._currency);
-    }
-  });
-  // Update chart if exists
-  if (window._mcChart) {
-    // Would need to redraw with new currency
-  }
-});
-
-window._currency = 'TRY';
-
+  await loadTransactions();
+  await loadShadowPositions();
+  setInterval(checkHealth, 30000);
 })();

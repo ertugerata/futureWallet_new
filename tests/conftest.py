@@ -27,6 +27,8 @@ os.environ["POCKETBASE_EMAIL"] = "test_admin@futurewallet.test"
 os.environ["POCKETBASE_PASSWORD"] = "TestPass123!@Pass"
 os.environ["POCKETBASE_URL"] = f"http://127.0.0.1:{DEFAULT_PORT}"
 os.environ["DEBUG"] = "true"
+# Testler dış AI servislerine dokunmamalı: anahtar ambient env'den sızmasın
+os.environ["OPENROUTER_API_KEY"] = ""
 os.environ["ALLOWED_HOSTS"] = "localhost,127.0.0.1,testserver"
 os.environ["ALLOWED_ORIGINS"] = "http://localhost:8000"
 

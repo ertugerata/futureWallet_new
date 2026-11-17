@@ -447,12 +447,21 @@ app = FastAPI(
 
 
 async def _add_security_headers(request: Request, call_next):
-    """Tüm yanıtlara güvenlik başlıkları ekle (Prompt 2)."""
+    """Tüm yanıtlara güvenlik başlıkları ekle (Prompt 2).
+
+    connect-src: PB JWT akışı için PocketBase origin'i zorunlu (P14); API çağrıları 'self'.
+    """
+    from urllib.parse import urlsplit
+
+    pb = urlsplit(config.POCKETBASE_URL)
+    pb_origin = f"{pb.scheme}://{pb.netloc}" if pb.scheme and pb.netloc else ""
+    connect_src = f"connect-src 'self' {pb_origin};" if pb_origin else "connect-src 'self';"
     response = await call_next(request)
     response.headers["Content-Security-Policy"] = (
         "default-src 'self'; "
         "script-src 'self' https://cdn.jsdelivr.net; "
         "style-src 'self'; "
+        f"{connect_src} "
         "img-src 'self' data:; "
         "object-src 'none'; "
         "base-uri 'none'"
@@ -715,6 +724,25 @@ def create_decision_endpoint(
     track_shadow=True ve action=SELL → HELD_INSTEAD gölge pozisyonu otomatik oluşturulur (Prompt 12)."""
     user_id = _extract_user_id(request)
 
+    shadow_qty: float | None = None
+    shadow_price: float | None = None
+    if body.track_shadow and body.action.upper() == "SELL" and body.transaction_id:
+        # P10: gölge, bağlı SELL işleminin gerçek miktar/fiyatıyla açılır
+        try:
+            tx = get_client().collection("transactions").get_one(body.transaction_id)
+        except Exception:
+            raise HTTPException(400, "transaction_id geçersiz veya bulunamadı")
+        if (
+            str(getattr(tx, "user", "")) != user_id
+            or str(getattr(tx, "asset_symbol", "")).upper() != body.asset_symbol
+            or str(getattr(tx, "type", "")).upper() != "SELL"
+        ):
+            raise HTTPException(
+                400, "transaction_id bu kullanıcının aynı sembollü SELL işlemine ait değil"
+            )
+        shadow_qty = float(getattr(tx, "quantity", 0) or 0)
+        shadow_price = float(getattr(tx, "price", 0) or 0)
+
     try:
         result = svc_create_decision(
             user_id=user_id,
@@ -729,14 +757,15 @@ def create_decision_endpoint(
         )
 
         # track_shadow: SELL kararında HELD_INSTEAD gölge pozisyonu oluştur
+        # shortcut: transaction_id yoksa eski davranış (miktar 1.0, giriş=target_price)
         if body.track_shadow and body.action.upper() == "SELL":
             create_shadow_position(
                 user_id=user_id,
                 decision_id=result["id"],
                 asset_symbol=body.asset_symbol,
                 shadow_type="HELD_INSTEAD",
-                entry_price=body.target_price,
-                quantity=1.0,
+                entry_price=shadow_price if shadow_price is not None else body.target_price,
+                quantity=shadow_qty if shadow_qty is not None else 1.0,
                 entry_date=body.decision_date,
             )
 
@@ -881,7 +910,15 @@ def generate_retrospective_endpoint(decision_id: str, request: Request):
     if existing is None or existing.get("user") != user_id:
         raise HTTPException(status_code=404, detail="Karar bulunamadı")
 
-    return svc_generate_ai_retrospective(decision_id)
+    result = svc_generate_ai_retrospective(decision_id)
+    # P8 hata semantiği: servis yapılandırılmış döndürür → uç HTTP koduna eşlenir
+    if result.get("retrospective") is None and result.get("error"):
+        if result.get("api_available") is False:
+            raise HTTPException(503, result["error"])
+        raise HTTPException(502, result["error"])
+    if result.get("retrospective") is None and result.get("api_available") is False:
+        raise HTTPException(503, "AI servisi kullanılabilir değil (OPENROUTER_API_KEY eksik)")
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -1213,12 +1250,18 @@ NarrativeRequest.model_rebuild()
 
 @app.post("/api/simulation/narrative", dependencies=[Depends(get_current_user)])
 def narrative_endpoint(body: NarrativeRequest):
-    """Monte Carlo / stres test sonucu için Türkçe risk anlatısı."""
+    """Monte Carlo / stres test sonucu için Türkçe risk anlatısı (502/503 semantiği)."""
+    from services.ai_service import AIGenerationError, AIUnavailableError
+
     try:
         result = srv_generate_risk_narrative(
             simulation_result=body.simulation_result,
-            context=body.portfolio_context,
+            portfolio_context=body.portfolio_context,
         )
         return {"narrative": result}
+    except AIUnavailableError as e:
+        raise HTTPException(503, str(e))
+    except AIGenerationError as e:
+        raise HTTPException(502, str(e))
     except Exception as e:
         raise HTTPException(500, str(e))

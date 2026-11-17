@@ -9,6 +9,8 @@ from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
+import config
+
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 TEMPLATE_DIR = PROJECT_ROOT / "web_app" / "templates"
 STATIC_DIR = PROJECT_ROOT / "web_app" / "static"
@@ -30,11 +32,20 @@ def mount_web(app):
 
     @app.get("/web/", response_class=HTMLResponse)
     async def web_dashboard(request: Request):
-        """Ana dashboard sayfası: 4 panel + Chart.js ile API entegrasyonu."""
+        """Ana dashboard sayfası: paneller + Chart.js ile API entegrasyonu."""
         return templates.TemplateResponse(
             request,
             "dashboard.html",
-            {"request": request},
+            {"request": request, "pb_base": config.POCKETBASE_URL},
+        )
+
+    @app.get("/web/login", response_class=HTMLResponse)
+    async def web_login(request: Request):
+        """PocketBase kullanıcı girişi (PB JWT → sessionStorage.pb_token)."""
+        return templates.TemplateResponse(
+            request,
+            "login.html",
+            {"request": request, "pb_base": config.POCKETBASE_URL},
         )
 
     @app.get("/web/decisions/new", response_class=HTMLResponse)
@@ -43,5 +54,5 @@ def mount_web(app):
         return templates.TemplateResponse(
             request,
             "decision_form.html",
-            {"request": request},
+            {"request": request, "pb_base": config.POCKETBASE_URL},
         )

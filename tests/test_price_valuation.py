@@ -8,6 +8,7 @@ from __future__ import annotations
 from datetime import date
 from unittest.mock import patch
 
+import pytest
 from fastapi import status
 
 from services.price_service import get_price_on
@@ -68,3 +69,31 @@ def test_price_service_weekend_lookback(pb_admin) -> None:
     # Pazar günü sorgulandığında cuma gününün fiyatı dönmeli
     price = get_price_on("MOCK_STOCK", "stock_tr", sunday, lookback_days=3)
     assert price == 320.0
+
+
+# ---------------------------------------------------------------------------
+# Time-travel kabul senaryosu (hızlı kontrol 8): 5 BTC 30k → 60k = %100 PnL
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.pb
+def test_time_travel_double_price_yields_100_pct_pnl(pb_clean, make_user) -> None:
+    from datetime import date
+
+    from services.ledger_service import add_transaction, time_travel_portfolio
+
+    uid, _, _ = make_user("tt_accept@test.local")
+    t0 = date(2026, 1, 5)
+    t1 = date(2026, 6, 5)
+    add_transaction(
+        user_id=uid, asset_symbol="BTC", tx_type="BUY", quantity=5, price=1.0, timestamp=t0
+    )
+
+    def price_fn(sym, atype, on_date):
+        return 30000.0 if on_date <= t0 else 60000.0
+
+    r = time_travel_portfolio(user_id=uid, t_start=t0, t_target=t1, price_fn=price_fn)
+    assert r["value_at_start"] == 5 * 30000.0
+    assert r["value_at_target"] == 5 * 60000.0
+    assert r["pnl"] == 150000.0
+    assert r["pnl_pct"] == 100.0

@@ -100,3 +100,86 @@ def test_shadow_position_user_isolation(api_client, make_user, pb_clean):
         headers={"Authorization": f"Bearer {token_b}"},
     )
     assert del_b.status_code == status.HTTP_404_NOT_FOUND
+
+
+# ---------------------------------------------------------------------------
+# P10: track_shadow gerçek transaction miktar/fiyatı
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.pb
+def test_track_shadow_uses_linked_transaction_quantity_and_price(
+    api_client, pb_clean, auth_headers
+) -> None:
+    headers = auth_headers
+    buy = api_client.post(
+        "/api/transactions",
+        json={"asset_symbol": "BTC", "tx_type": "BUY", "quantity": 2.0, "price": 50000.0},
+        headers=headers,
+    )
+    assert buy.status_code == 201
+    sell = api_client.post(
+        "/api/transactions",
+        json={"asset_symbol": "BTC", "tx_type": "SELL", "quantity": 2.0, "price": 60000.0},
+        headers=headers,
+    )
+    assert sell.status_code == 201
+    sell_tx_id = sell.json()["id"]
+
+    dec = api_client.post(
+        "/api/decisions",
+        json={
+            "asset_symbol": "BTC",
+            "action": "SELL",
+            "rationale": "gölge test",
+            "sentiment": "STRATEGIC",
+            "transaction_id": sell_tx_id,
+            "track_shadow": True,
+        },
+        headers=headers,
+    )
+    assert dec.status_code == 201
+    dec_id = dec.json()["id"]
+
+    sp = api_client.get(
+        "/api/counterfactual/shadow-positions",
+        params={"decision_id": dec_id},
+        headers=headers,
+    )
+    assert sp.status_code == 200
+    positions = sp.json()
+    assert len(positions) == 1
+    assert positions[0]["quantity"] == 2.0, "gölge miktarı SELL işleminin gerçek miktarı olmalı"
+    assert positions[0]["entry_price"] == 60000.0, (
+        "gölge girişi SELL işleminin gerçek fiyatı olmalı"
+    )
+
+
+@pytest.mark.pb
+def test_track_shadow_rejects_foreign_transaction_link(
+    api_client, pb_clean, auth_headers, make_user
+) -> None:
+    headers = auth_headers
+    _, token_b, _ = make_user("cf_foreign_tx@test.local", "Pass12345!2")
+    b_headers = {"Authorization": f"Bearer {token_b}"}
+    tx = api_client.post(
+        "/api/transactions",
+        json={"asset_symbol": "ETH", "tx_type": "BUY", "quantity": 1.0, "price": 3000.0},
+        headers=b_headers,
+    )
+    assert tx.status_code == 201
+    b_tx_id = tx.json()["id"]
+
+    dec = api_client.post(
+        "/api/decisions",
+        json={
+            "asset_symbol": "ETH",
+            "action": "SELL",
+            "rationale": "bağlı değil",
+            "sentiment": "STRATEGIC",
+            "transaction_id": b_tx_id,
+            "track_shadow": True,
+        },
+        headers=headers,
+    )
+    assert dec.status_code == 400

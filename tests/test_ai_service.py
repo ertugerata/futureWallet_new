@@ -12,6 +12,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 import pytest
+from fastapi import status
 
 from services.ai_service import (
     AIGenerationError,
@@ -95,3 +96,55 @@ def test_openrouter_all_models_fail(monkeypatch):
                 api_key="test-key",
                 models=["model-1", "model-2"],
             )
+
+
+# ---------------------------------------------------------------------------
+# P14 E2E bulgusu: /api/simulation/narrative uç nokta sözleşmesi
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.pb
+def test_narrative_endpoint_503_without_api_key(api_client, auth_headers) -> None:
+    """Anahtar yokken narrative ucu 500 değil 503 döner (P8 semantiği)."""
+    resp = api_client.post(
+        "/api/simulation/narrative",
+        json={"simulation_result": {"p5": 1, "p50": 2, "p95": 3}},
+        headers=auth_headers,
+    )
+    assert resp.status_code == status.HTTP_503_SERVICE_UNAVAILABLE, resp.text
+
+
+@pytest.mark.pb
+def test_retrospective_endpoint_503_without_api_key(api_client, test_db, auth_headers) -> None:
+    """Anahtar yokken retrospective ucu 200+error değil 503 döner (P8 semantiği)."""
+    dec = api_client.post(
+        "/api/decisions",
+        json={
+            "asset_symbol": "BTC",
+            "action": "BUY",
+            "rationale": "retro 503",
+            "sentiment": "FOMO",
+        },
+        headers=auth_headers,
+    )
+    assert dec.status_code == 201
+    resp = api_client.post(f"/api/decisions/{dec.json()['id']}/retrospective", headers=auth_headers)
+    assert resp.status_code == status.HTTP_503_SERVICE_UNAVAILABLE, resp.text
+
+
+@pytest.mark.pb
+def test_narrative_endpoint_200_with_mocked_ai(api_client, auth_headers, monkeypatch) -> None:
+    monkeypatch.setattr(
+        "api.app.srv_generate_risk_narrative",
+        lambda **kw: "Test anlatısı — yatırım tavsiyesi değildir.",
+    )
+    resp = api_client.post(
+        "/api/simulation/narrative",
+        json={
+            "simulation_result": {"p5": 1, "p50": 2, "p95": 3},
+            "portfolio_context": {"total": 2},
+        },
+        headers=auth_headers,
+    )
+    assert resp.status_code == status.HTTP_200_OK
+    assert "anlatısı" in resp.json()["narrative"]

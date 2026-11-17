@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="pb-base" content="{{ pb_base }}">
+  <title>FutureWallet – Giriş</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <main class="login-wrap">
+    <div class="card login-card">
+      <div class="brand">
+        <span class="logo">📊</span>
+        <div>
+          <h1>FutureWallet</h1>
+          <p>Karar Destek Paneli</p>
+        </div>
+      </div>
+      <form id="loginForm" class="login-form">
+        <div class="form-row">
+          <label for="email">E-posta</label>
+          <input type="email" id="email" name="identity" required autocomplete="username" placeholder="user@ornek.com">
+        </div>
+        <div class="form-row">
+          <label for="password">Parola</label>
+          <input type="password" id="password" name="password" required autocomplete="current-password">
+        </div>
+        <button type="submit" class="btn btn-primary" id="btnLogin">Giriş Yap</button>
+        <p class="login-error" id="loginError" hidden></p>
+      </form>
+      <p class="login-note">Kimlik doğrulama PocketBase kullanıcı hesabıyladır (PB JWT). Hesabınız yoksa PocketBase admin panelinden oluşturulmalıdır.</p>
+    </div>
+    <footer class="disclaimer">Bu platform ve AI çıktıları yatırım tavsiyesi niteliğinde değildir.</footer>
+  </main>
+  <script src="/static/login.js"></script>
+</body>
+</html>

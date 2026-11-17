@@ -628,7 +628,8 @@ def compare_to_benchmark(
                 batch=1,
                 query_params={
                     "filter": client.filter(
-                        f"date <= {{:dt}} && {col} != ''", {"dt": dt.isoformat()}
+                        f"date <= {{:dt}} && {col} != ''",
+                        {"dt": f"{dt.isoformat()} 23:59:59.999Z"},
                     ),
                     "sort": "-date",
                     "per_page": 1,
@@ -671,6 +672,14 @@ def compare_to_benchmark(
                 "price_end": s_end,
                 "return_pct": round((s_end - s_start) / s_start, 6),
             }
+
+    # P11: alpha = portföy getirisi − benchmark getirisi (mevcut benchmarklar için)
+    p_ret = out["portfolio_return_pct"]
+    out["alpha"] = {
+        key: round(p_ret - val["return_pct"], 6)
+        for key, val in out.items()
+        if isinstance(val, dict) and val.get("return_pct") is not None
+    }
 
     return out
 

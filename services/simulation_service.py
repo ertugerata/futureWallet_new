@@ -567,6 +567,10 @@ def generate_risk_narrative(
     """
     try:
         from services.ai_service import (
+            AIGenerationError,
+            AIUnavailableError,
+        )
+        from services.ai_service import (
             generate_risk_narrative as ai_generate_risk_narrative,
         )
 
@@ -575,5 +579,7 @@ def generate_risk_narrative(
             context=portfolio_context,
             api_key=api_key,
         )
+    except (AIGenerationError, AIUnavailableError):
+        raise  # P8 hata semantiği uç noktaya tipli taşınmalı (502/503)
     except Exception as exc:
         raise RuntimeError(f"AI Risk Anlatısı generation failed: {exc}") from exc
