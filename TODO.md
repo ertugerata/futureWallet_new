@@ -1,6 +1,6 @@
 # FutureWallet – TODO & Sprint Takip Listesi (v5 – 2026-11-17 doğrulanmış durum)
 
-> **Kaynak & Dayanak:** `FUTUREWALLET_DUZELTME_PROMPTLARI.md` (v3); durum tespiti Graphify bilgi grafiği (`graphify-out/`, commit `45b1fcbe` + working tree) ve gerçek PocketBase (v0.40.6) test koşusu ile yapıldı.
+> **Kaynak & Dayanak:** Durum tespiti Graphify bilgi grafiği (`graphify-out/`) ve gerçek PocketBase (v0.40.6) test koşusu ile yapıldı. Kapanan v3 denetiminin ham prompt dosyaları (`FUTUREWALLET_DUZELTME_PROMPTLARI.md`, `SPRINT_PLANI_KALANLAR.md`, `GUNCEL_IS_PLANI.md`) 2026-11-17'de arşivden kaldırıldı — geçmişleri git log'da.
 > **Temel İlke (Prompt 0):** Yalnızca gerçek PocketBase entegrasyon testinden geçen maddeler `[x]` yapılabilir.
 > **Doğrulama kanıtı:** `pytest tests` → **101/101 geçti** (tek oturum, gerçek PB sunucusu ile; P10+P11+P14 + P9-currency + EXPIRED-e2e + review-minörleri + PB şema-bütünlüğü turları dahil); `ruff check .` ve `ruff format --check .` temiz; `mypy api services config.py web_app` (gevşek mod) hatasız; `python -c "import api.app"` başarılı (CI'da ayrı duman adımı). P14 + para birimi seçicisinin MC `currency` alanına bağlanması canlı tarayıcı E2E ile doğrulandı (gerçek PB + uvicorn).
 

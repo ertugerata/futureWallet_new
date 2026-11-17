@@ -162,7 +162,7 @@ docker compose down
 
 ## 🧪 Test ve Kalite Kontrolleri
 
-Proje kurallarına göre (`FUTUREWALLET_DUZELTME_PROMPTLARI.md` Prompt 0):
+Proje kurallarına göre (`TODO.md` Temel İlke, Prompt 0):
 - Kod değişiklikleri **gerçek PocketBase v0.40.6** instance'ına karşı doğrulanmalıdır.
 - MagicMock veya sahte in-memory SQLite veritabanı PocketBase entegrasyonu için kanıt sayılmaz.
 
