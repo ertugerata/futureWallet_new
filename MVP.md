@@ -3,7 +3,7 @@
 > **Sürüm:** 2.0
 > **Mimari:** PocketBase (DB/Auth) + FastAPI (Hesaplama) + OpenRouter (LLM)
 > **Tarih:** Kasım 2026
-> **Uygulama Durumu (2026-11-16):** Sprint 1–3 tamamlandı ve gerçek PocketBase v0.40.6 testleriyle doğrulandı (68/68; ayrıntı `TODO.md` v4). Sprint 4'ün web giriş akışı (P14) ve son küçük maddeler (track_shadow miktarı, dinamik currency, scheduler/outcome birim testleri) açık.
+> **Uygulama Durumu (2026-11-17):** Sprint 1–3 tamamlandı ve gerçek PocketBase v0.40.6 testleriyle doğrulandı (76/76; ayrıntı `TODO.md` v4). Sprint 4'ün web giriş akışı (P14) ve son küçük maddeler (track_shadow miktarı, dinamik currency, scheduler/outcome birim testleri) açık.
 
 ---
 

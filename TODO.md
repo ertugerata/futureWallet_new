@@ -2,7 +2,7 @@
 
 > **Kaynak & Dayanak:** `FUTUREWALLET_DUZELTME_PROMPTLARI.md` (v3); durum tespiti Graphify bilgi grafiği (`graphify-out/`, commit `45b1fcbe` + working tree) ve gerçek PocketBase (v0.40.6) test koşusu ile yapıldı.
 > **Temel İlke (Prompt 0):** Yalnızca gerçek PocketBase entegrasyon testinden geçen maddeler `[x]` yapılabilir.
-> **Doğrulama kanıtı:** `pytest tests` → **68/68 geçti** (tek oturum, gerçek PB sunucusu ile; final-review fix pass sonrası); `ruff check .` ve `ruff format --check .` temiz; `mypy api services config.py` (gevşek mod) hatasız; `python -c "import api.app"` başarılı.
+> **Doğrulama kanıtı:** `pytest tests` → **76/76 geçti** (tek oturum, gerçek PB sunucusu ile; final-review fix pass: DoS limitleri, chunked 64 KB, günlük makro job, nakit cüzdanı düzeltmeleri — commit `e1baf9c`); `ruff check .` ve `ruff format --check .` temiz; `mypy api services config.py` (gevşek mod) hatasız; `python -c "import api.app"` başarılı.
 
 ---
 
@@ -48,7 +48,7 @@
 - [x] Dış servisler için izole mock'lar (AI/HTTP); PB'yi taklit eden MagicMock kalmadı.
 - [x] SQLAlchemy/SQLite tabanlı fixture ve testler silindi.
 - [x] GitHub Actions: `pb_bin` önbellek adımı + `pytest -m pb` adımı.
-- **Kabul Kriteri:** ✅ `pytest -m pb` gerçek PB'ye karşı koşuyor; tam suite 68/68 geçti.
+- **Kabul Kriteri:** ✅ `pytest -m pb` gerçek PB'ye karşı koşuyor; tam suite 76/76 geçti.
 
 ### ✅ Prompt 3: PB Şema, Erişim Kuralları ve Migration
 - [x] `pb_migrations/` repoda (users güncellemesi + macro_data, price_history, transactions, decisions, shadow_portfolios).

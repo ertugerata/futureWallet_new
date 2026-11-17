@@ -2,7 +2,7 @@
 
 > **Kaynak & Dayanak:** `FUTUREWALLET_DUZELTME_PROMPTLARI.md` (v3), `TODO.md` (v4) ve `docs/superpowers/plans/2026-11-16-futurewallet-completion.md`.
 > **Temel Kural (Prompt 0):** Yalnızca **gerçek PocketBase (v0.40.6)** entegrasyon testini geçen maddeler tamamlandı (`[x]`) sayılır.
-> **Bu dokümanın durumu:** v3'teki "her şey kırık" analizi geçersizdir. Güncel doğrulama: `pytest tests/` → **68/68 geçti** (tek oturum, gerçek PB); `ruff check .` + `ruff format --check .` temiz; `mypy api services config.py` (gevşek) hatasız. Commits: `af9d5e1`, `b5fca94`, `5a63210`.
+> **Bu dokümanın durumu:** v3'teki "her şey kırık" analizi geçersizdir. Güncel doğrulama: `pytest tests/` → **76/76 geçti** (tek oturum, gerçek PB); `ruff check .` + `ruff format --check .` temiz; `mypy api services config.py` (gevşek) hatasız. Commits: `af9d5e1`, `b5fca94`, `5a63210`, `47b77f4`, `e1baf9c` (final-review fix pass: simülasyon hücre bütçeleri, chunked 64 KB limiti, günlük makro job, CASH cüzdanı semantiği).
 
 ---
 
