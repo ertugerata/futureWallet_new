@@ -63,6 +63,12 @@ def create_shadow_position(
     asset_type: str | None = None,
 ) -> dict[str, Any]:
     """Bir karar için gölge pozisyon oluşturur (PB shadow_portfolios)."""
+    # Sahiplik: karar yoksa ya da bu kullanıcıya ait değilse reddedilir (review minörü #1);
+    # aksi halde PB relation'ı sessiz düşürüp yetkisiz bağ kurabiliyordu.
+    dec = get_decision(decision_id)
+    if dec is None or dec.get("user") != user_id:
+        raise ValueError("decision geçersiz veya bu kullanıcıya ait değil")
+
     if entry_date is None:
         entry_date = date.today()
     if asset_type is None:

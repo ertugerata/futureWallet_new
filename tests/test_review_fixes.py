@@ -92,3 +92,86 @@ def test_prune_rate_limits_drops_expired(pb_server) -> None:
     assert ("u1", "d1") not in _RETRO_RATE_LIMITS
     assert ("u1", "d2") in _RETRO_RATE_LIMITS
     _RETRO_RATE_LIMITS.clear()
+
+
+# ---------------------------------------------------------------------------
+# Ertelenen review minörleri: shadow-create sahipliği + PB record ID doğrulaması
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.pb
+def test_shadow_position_rejects_foreign_decision(api_client, make_user, pb_clean) -> None:
+    """Başka kullanıcının kararıyla shadow-positions create → 400 (sahiplik kontrolü)."""
+    _, token_b, _ = make_user("own_b@test.local", "Pass12345!")
+    _, token_a, _ = make_user("own_a@test.local", "Pass12345!")
+    dec = api_client.post(
+        "/api/decisions",
+        json={"asset_symbol": "ETH", "action": "SELL", "sentiment": "STRATEGIC"},
+        headers={"Authorization": f"Bearer {token_b}"},
+    )
+    assert dec.status_code == status.HTTP_201_CREATED
+    resp = api_client.post(
+        "/api/counterfactual/shadow-positions",
+        json={
+            "decision_id": dec.json()["id"],
+            "asset_symbol": "ETH",
+            "shadow_type": "BOUGHT_INSTEAD",
+            "entry_price": 3000.0,
+            "quantity": 1.0,
+        },
+        headers={"Authorization": f"Bearer {token_a}"},
+    )
+    assert resp.status_code == status.HTTP_400_BAD_REQUEST
+
+
+@pytest.mark.pb
+def test_shadow_position_rejects_missing_decision(api_client, make_user, pb_clean) -> None:
+    """Biçimli ama var olmayan karar ID'si → 400 (PB sessiz düşürme/500 yerine)."""
+    _, token, _ = make_user("own_missing@test.local", "Pass12345!")
+    resp = api_client.post(
+        "/api/counterfactual/shadow-positions",
+        json={
+            "decision_id": "abc123def456ghi",
+            "asset_symbol": "ETH",
+            "shadow_type": "HELD_INSTEAD",
+            "entry_price": 100.0,
+            "quantity": 1.0,
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == status.HTTP_400_BAD_REQUEST
+
+
+@pytest.mark.pb
+def test_invalid_pb_ids_rejected_422(api_client, auth_headers) -> None:
+    """PB record ID formatı girdide doğrulanır: path/query/body → 422."""
+    bad = "NOT-VALID-ID"
+    assert (
+        api_client.get(f"/api/decisions/{bad}", headers=auth_headers).status_code
+        == status.HTTP_422_UNPROCESSABLE_ENTITY
+    )
+    assert (
+        api_client.get(
+            "/api/counterfactual",
+            params={"decision_id": bad},
+            headers=auth_headers,
+        ).status_code
+        == status.HTTP_422_UNPROCESSABLE_ENTITY
+    )
+    assert (
+        api_client.post(
+            "/api/counterfactual/shadow-positions",
+            json={
+                "decision_id": bad,
+                "asset_symbol": "ETH",
+                "shadow_type": "HELD_INSTEAD",
+            },
+            headers=auth_headers,
+        ).status_code
+        == status.HTTP_422_UNPROCESSABLE_ENTITY
+    )
+    # Olumlu kontrol: biçimli ama olmayan transaction ID doğrulamadan geçer → 404
+    assert (
+        api_client.delete("/api/transactions/zzz000111222333", headers=auth_headers).status_code
+        == status.HTTP_404_NOT_FOUND
+    )

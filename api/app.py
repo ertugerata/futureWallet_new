@@ -19,7 +19,7 @@ import time
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import date, timedelta
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 try:
     from apscheduler.schedulers.background import BackgroundScheduler
@@ -28,7 +28,7 @@ try:
 except ImportError:
     _APSCHEDULER_AVAILABLE = False
 
-from fastapi import Depends, FastAPI, HTTPException, Query, Request
+from fastapi import Depends, FastAPI, HTTPException, Path, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, field_validator
@@ -200,6 +200,11 @@ def check_retrospective_rate_limit(
 # Pydantic request / response model'leri
 # ---------------------------------------------------------------------------
 
+# PB autogenerate record ID biçimi ([a-z0-9]{15}); girdi doğrulaması uçlardan
+# önce yapılır — servise/DB'ye biçimsiz ID inmez (review minörü #2).
+PB_ID_PATTERN = r"^[a-z0-9]{15}$"
+PbId = Annotated[str, Path(pattern=PB_ID_PATTERN)]
+
 
 class DecisionCreateRequest(BaseModel):
     asset_symbol: str = Field(
@@ -232,7 +237,9 @@ class DecisionCreateRequest(BaseModel):
         False,
         description="True → SELL kararında HELD_INSTEAD gölge pozisyonu otomatik oluştur",
     )
-    transaction_id: str | None = Field(None, max_length=36, description="İşlem ID (opsiyonel)")
+    transaction_id: str | None = Field(
+        None, pattern=PB_ID_PATTERN, description="İşlem ID (opsiyonel)"
+    )
 
     @field_validator("sentiment", mode="before")
     @classmethod
@@ -260,7 +267,7 @@ DecisionCreateRequest.model_rebuild()
 
 # ShadowPositionCreateRequest (Prompt 12: gölge pozisyon oluşturma)
 class ShadowPositionCreateRequest(BaseModel):
-    decision_id: str = Field(..., description="İlgili karar ID")
+    decision_id: str = Field(..., pattern=PB_ID_PATTERN, description="İlgili karar ID")
     asset_symbol: str = Field(
         pattern=r"^[A-Z0-9.=^\-/]{1,20}$",
         max_length=20,
@@ -822,7 +829,7 @@ def decisions_stats_endpoint(request: Request):
 
 
 @app.get("/api/decisions/{decision_id}", dependencies=[Depends(get_current_user)])
-def get_decision_endpoint(decision_id: str, request: Request):
+def get_decision_endpoint(decision_id: PbId, request: Request):
     """ID ile tek karar. PB decisions collection'undan."""
     user_id = _extract_user_id(request)
     dec = svc_get_decision(decision_id)
@@ -833,7 +840,7 @@ def get_decision_endpoint(decision_id: str, request: Request):
 
 @app.put("/api/decisions/{decision_id}", dependencies=[Depends(get_current_user)])
 def update_decision_endpoint(
-    decision_id: str,
+    decision_id: PbId,
     body: DecisionUpdateRequest,
     request: Request,
 ):
@@ -857,7 +864,7 @@ def update_decision_endpoint(
 
 
 @app.post("/api/decisions/{decision_id}/close", dependencies=[Depends(get_current_user)])
-def close_decision_endpoint(decision_id: str, request: Request):
+def close_decision_endpoint(decision_id: PbId, request: Request):
     """Kararı REVIEWED yap. PB decisions collection'unda."""
     user_id = _extract_user_id(request)
     existing = svc_get_decision(decision_id)
@@ -874,7 +881,7 @@ def close_decision_endpoint(decision_id: str, request: Request):
     "/api/decisions/{decision_id}/target-check",
     dependencies=[Depends(get_current_user)],
 )
-def decision_target_check_endpoint(decision_id: str, request: Request):
+def decision_target_check_endpoint(decision_id: PbId, request: Request):
     """Kararın hedef fiyat/vade gerçekleşme kontrolü. PB decisions collection'undan."""
     user_id = _extract_user_id(request)
     existing = svc_get_decision(decision_id)
@@ -891,7 +898,7 @@ def decision_target_check_endpoint(decision_id: str, request: Request):
     "/api/decisions/{decision_id}/evaluate",
     dependencies=[Depends(get_current_user)],
 )
-def evaluate_decision_endpoint(decision_id: str, request: Request):
+def evaluate_decision_endpoint(decision_id: PbId, request: Request):
     """Kararın sonucunu ölçer: outcome_price, outcome_return_pct, target_hit (Prompt 13)."""
     user_id = _extract_user_id(request)
     existing = svc_get_decision(decision_id)
@@ -907,7 +914,7 @@ def evaluate_decision_endpoint(decision_id: str, request: Request):
     "/api/decisions/{decision_id}/retrospective",
     dependencies=[Depends(check_retrospective_rate_limit)],
 )
-def generate_retrospective_endpoint(decision_id: str, request: Request):
+def generate_retrospective_endpoint(decision_id: PbId, request: Request):
     """Bir karar için AI post-mortem (retrospektif) oluşturur. PB decisions collection'unda kaydeder."""
     user_id = _extract_user_id(request)
     existing = svc_get_decision(decision_id)
@@ -933,7 +940,7 @@ def generate_retrospective_endpoint(decision_id: str, request: Request):
 @app.get("/api/counterfactual", dependencies=[Depends(get_current_user)])
 def counterfactual_endpoint(
     request: Request,
-    decision_id: str = Query(..., description="Karar ID"),
+    decision_id: str = Query(..., pattern=PB_ID_PATTERN, description="Karar ID"),
     as_of: date | None = Query(None, description="ISO YYYY-MM-DD. Yoksa bugün."),
 ):
     """What-If senaryosu: decision_id ile gölge portföy kıyaslaması (PB)."""
@@ -979,7 +986,7 @@ def create_shadow_position_endpoint(
 @app.get("/api/counterfactual/shadow-positions", dependencies=[Depends(get_current_user)])
 def list_shadow_positions_endpoint(
     request: Request,
-    decision_id: str | None = Query(None, description="Karar ID filter"),
+    decision_id: str | None = Query(None, pattern=PB_ID_PATTERN, description="Karar ID filter"),
     asset_symbol: str | None = Query(None, description="Varlık sembolü filter"),
 ):
     """Gölge pozisyon listesi (filter ile)."""
@@ -995,7 +1002,7 @@ def list_shadow_positions_endpoint(
     "/api/counterfactual/shadow-positions/{position_id}",
     dependencies=[Depends(get_current_user)],
 )
-def delete_shadow_position_endpoint(position_id: str, request: Request):
+def delete_shadow_position_endpoint(position_id: PbId, request: Request):
     """Gölge pozisyonunu sil (PB shadow_portfolios)."""
     user_id = _extract_user_id(request)
     client = get_client()
@@ -1012,7 +1019,7 @@ def delete_shadow_position_endpoint(position_id: str, request: Request):
 
 
 @app.delete("/api/decisions/{decision_id}", dependencies=[Depends(get_current_user)])
-def delete_decision_endpoint(decision_id: str, request: Request):
+def delete_decision_endpoint(decision_id: PbId, request: Request):
     """Kararı sil (bağlı gölge pozisyonlar cascade silinir; transaction etkilenmez)."""
     user_id = _extract_user_id(request)
     existing = svc_get_decision(decision_id)
@@ -1170,7 +1177,7 @@ def list_transactions_endpoint(
 
 @app.delete("/api/transactions/{transaction_id}", dependencies=[Depends(get_current_user)])
 def delete_transaction_endpoint(
-    transaction_id: str,
+    transaction_id: PbId,
     request: Request,
 ):
     """İşlem kaydını voided yap (soft delete)."""
