@@ -34,14 +34,19 @@ from services.pb import get_client
 logger = logging.getLogger(__name__)
 
 
-def _parse_pb_date(value: str | None) -> date | None:
-    """PB DateTime/Timestamp string → datetime.date."""
+def _parse_pb_date(value: Any) -> date | None:
+    """PB DateTime/Timestamp string ("YYYY-MM-DD[ HH:MM:SS(.mmmZ)]") veya datetime → date.
+
+    Eski hali boşluklu PB formatını ve datetime nesnesi olan `created` alanını None'a
+    düşürüyordu; EXPIRED job'ı bu yüzden hiç karar bulamıyordu (test_expiry_e2e).
+    """
     if not value:
         return None
+    date_getter = getattr(value, "date", None)
+    if callable(date_getter):
+        return date_getter()
     try:
-        if "T" in str(value):
-            return date.fromisoformat(str(value).split("T")[0])
-        return date.fromisoformat(str(value))
+        return date.fromisoformat(str(value).replace(" ", "T").split("T")[0])
     except (ValueError, TypeError):
         return None
 
@@ -390,10 +395,12 @@ def evaluate_decision(
 
     outcome_p = get_price_on(sym, atype, target_d)
 
-    # Giriş fiyatı (varsa karar tarihindeki fiyat, yoksa target_price)
+    # Giriş fiyatı: karar tarihindeki fiyat (decision_date; yoksa created), yoksa target_price.
+    # created temele düşülünce geçmiş kararların P&L'i bugün-çekimi dış fiyattan hesaplanıyordu.
     entry_p = None
-    if dec.get("date"):
-        entry_p = get_price_on(sym, atype, dec["date"])
+    entry_basis = dec.get("decision_date") or dec.get("date")
+    if entry_basis:
+        entry_p = get_price_on(sym, atype, entry_basis)
     if entry_p is None:
         entry_p = dec.get("target_price") or outcome_p
 
