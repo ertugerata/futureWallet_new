@@ -29,6 +29,7 @@ services:
       - "127.0.0.1:8000:8000"
     environment:
       - POCKETBASE_URL=http://pocketbase:8090
+      - POCKETBASE_PUBLIC_URL=${POCKETBASE_PUBLIC_URL:-http://127.0.0.1:8080}
       - POCKETBASE_EMAIL=${POCKETBASE_EMAIL:?required}
       - POCKETBASE_PASSWORD=${POCKETBASE_PASSWORD:?required}
       - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-}
@@ -40,7 +41,7 @@ services:
       - TCMB_API_KEY=${TCMB_API_KEY:-}
       - FRED_API_KEY=${FRED_API_KEY:-}
       - DEBUG=${DEBUG:-false}
-      - APP_HOST=127.0.0.1
+      - APP_HOST=0.0.0.0
       - APP_PORT=8000
     restart: unless-stopped
     depends_on:

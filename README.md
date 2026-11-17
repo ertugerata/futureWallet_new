@@ -98,7 +98,8 @@ Hassas anahtarlar ve ortam değişkenleri `.env` dosyası üzerinden yapılandı
 
 | Değişken | Açıklama | Varsayılan | Zorunlu mu? |
 |---|---|---|---|
-| `POCKETBASE_URL` | PocketBase sunucu URL'si | `http://localhost:8080` | Hayır (compose bunu ağ içi değere sabitler) |
+| `POCKETBASE_URL` | PocketBase sunucu URL'si (servis→PB) | `http://localhost:8080` | Hayır (compose bunu ağ içi değere sabitler) |
+| `POCKETBASE_PUBLIC_URL` | Tarayıcının eriştiği PB adresi (login fetch + CSP `connect-src`) | `""` → `POCKETBASE_URL` ile aynı | Docker Compose'ta önerilir (compose default `http://127.0.0.1:8080`) |
 | `POCKETBASE_EMAIL` | PocketBase superuser e-postası | - | Evet (eksikse `config.py` RuntimeError) |
 | `POCKETBASE_PASSWORD` | PocketBase superuser parolası | - | Evet (eksikse `config.py` RuntimeError) |
 | `ALLOWED_ORIGINS` | CORS izinli origin listesi (virgüllü) | `""` (yalnızca same-origin) | Hayır |
@@ -147,7 +148,7 @@ docker compose up -d --build
 
 ### Konteyner Mimarisi
 - `pocketbase`: PocketBase v0.40.6 servisi (`127.0.0.1:8080:8090`). Veritabanı verisi adlandırılmış Docker volume'ünde (`pb_data`) kalıcı saklanır; migration'lar imajla gelir.
-- `futurewallet`: FastAPI hesaplama servisi (`127.0.0.1:8000:8000`). `POCKETBASE_URL=http://pocketbase:8090` compose içinde ağ-internal olarak verilir; host `.env`'inden yalnız credential/anahtarlar okunur (`${VAR:?required}` fail-closed).
+- `futurewallet`: FastAPI hesaplama servisi (`127.0.0.1:8000:8000`). Servis→PB trafiği ağ-internal `POCKETBASE_URL=http://pocketbase:8090`; tarayıcı→PB (login + CSP `connect-src`) `POCKETBASE_PUBLIC_URL` üzerinden yürür — compose varsayılanı `http://127.0.0.1:8080`, `.env` ile ezilebilir. Uvicorn container içinde `0.0.0.0:8000`'e bind olur (port yayını host'ta yalnız `127.0.0.1`'e bağlıdır).
 
 Günlükleri takip etmek için:
 ```bash

@@ -460,7 +460,7 @@ async def _add_security_headers(request: Request, call_next):
     """
     from urllib.parse import urlsplit
 
-    pb = urlsplit(config.POCKETBASE_URL)
+    pb = urlsplit(config.pb_browser_url())
     pb_origin = f"{pb.scheme}://{pb.netloc}" if pb.scheme and pb.netloc else ""
     connect_src = f"connect-src 'self' {pb_origin};" if pb_origin else "connect-src 'self';"
     response = await call_next(request)

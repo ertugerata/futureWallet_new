@@ -37,6 +37,17 @@ ALLOWED_HOSTS: str = environ.get("ALLOWED_HOSTS", "localhost,127.0.0.1")
 #   - Varsayılan: localhost:8080 (local); Docker içinde http://pocketbase:8090.
 POCKETBASE_URL: str = environ.get("POCKETBASE_URL", "http://localhost:8080")
 
+# POCKETBASE_PUBLIC_URL: tarayıcının (host'tan) eriştiği aynı PB adresi.
+#   - Boşsa POCKETBASE_URL ile aynı varsayılır (tek-host kurulum).
+#   - Docker Compose'ta POCKETBASE_URL ağ-internal (http://pocketbase:8090) olduğu
+#     için login fetch'i ve CSP connect-src bu harici adresi kullanmak zorundadır.
+POCKETBASE_PUBLIC_URL: str = environ.get("POCKETBASE_PUBLIC_URL", "")
+
+
+def pb_browser_url() -> str:
+    """Tarayıcı tarafı PB base'i (pb_base template + CSP connect-src)."""
+    return POCKETBASE_PUBLIC_URL or POCKETBASE_URL
+
 # POCKETBASE_EMAIL / POCKETBASE_PASSWORD: PB admin credential'ı (kollek. yönetim).
 # PB admin credentials – must be provided via environment (no defaults).
 _raw_email = environ.get("POCKETBASE_EMAIL")

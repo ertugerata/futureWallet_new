@@ -36,7 +36,7 @@ def mount_web(app):
         return templates.TemplateResponse(
             request,
             "dashboard.html",
-            {"request": request, "pb_base": config.POCKETBASE_URL},
+            {"request": request, "pb_base": config.pb_browser_url()},
         )
 
     @app.get("/web/login", response_class=HTMLResponse)
@@ -45,7 +45,7 @@ def mount_web(app):
         return templates.TemplateResponse(
             request,
             "login.html",
-            {"request": request, "pb_base": config.POCKETBASE_URL},
+            {"request": request, "pb_base": config.pb_browser_url()},
         )
 
     @app.get("/web/decisions/new", response_class=HTMLResponse)
@@ -54,5 +54,5 @@ def mount_web(app):
         return templates.TemplateResponse(
             request,
             "decision_form.html",
-            {"request": request, "pb_base": config.POCKETBASE_URL},
+            {"request": request, "pb_base": config.pb_browser_url()},
         )
