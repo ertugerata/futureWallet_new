@@ -77,6 +77,13 @@ jobs:
           path: pb_bin
           key: pb-bin-${{ hashFiles('tests/conftest.py') }}
 
+      - name: Import smoke check
+        env:
+          POCKETBASE_URL: http://127.0.0.1:8090
+          POCKETBASE_EMAIL: ci@futurewallet.test
+          POCKETBASE_PASSWORD: ci-dummy-password
+        run: python -c "import api.app"
+
       - name: Run pytest
         run: pytest --tb=short -v
 
