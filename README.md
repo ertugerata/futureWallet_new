@@ -36,7 +36,7 @@ Projenin hedef mimarisi üç ana katmandan oluşur:
 - **Zamanlama:** APScheduler (lifespan içinde; `ENABLE_SCHEDULER=false` ile kapatılabilir)
 - **AI & Doğal Dil Yorumlama:** OpenRouter API (Fallback zinciri: Claude, Gemini, DeepSeek)
 - **Piyasa Verisi:** yfinance, ccxt, TCMB EVDS API, FRED API
-- **Web Arayüzü:** HTML5, Jinja2, Chart.js, Vanilla JS (giriş akışı ve CSP temizliği P14 kapsamında — bkz. `TODO.md`)
+- **Web Arayüzü:** HTML5, Jinja2, Chart.js, Vanilla JS (PB JWT giriş akışı + CSP temizliği tamam — P14; dinamik USD/TRY currency P9 açık maddesi)
 
 ---
 
