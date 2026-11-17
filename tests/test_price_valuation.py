@@ -97,3 +97,104 @@ def test_time_travel_double_price_yields_100_pct_pnl(pb_clean, make_user) -> Non
     assert r["value_at_target"] == 5 * 60000.0
     assert r["pnl"] == 150000.0
     assert r["pnl_pct"] == 100.0
+
+
+# ---------------------------------------------------------------------------
+# P9: Dinamik currency (varlık tabanı) — sabit "TRY" yerine USD/TRY seçimi
+# ---------------------------------------------------------------------------
+
+
+def test_base_currency_mapping() -> None:
+    from services.asset_types import base_currency
+
+    assert base_currency("THYAO.IS") == "TRY"
+    assert base_currency("GARAN") == "TRY"
+    assert base_currency("BTC/USDT") == "USD"
+    assert base_currency("GC=F") == "USD"
+    assert base_currency("TRY") == "TRY"
+    assert base_currency("USDT") == "USD"
+
+
+def test_infer_portfolio_currency_majority() -> None:
+    from services.asset_types import infer_portfolio_currency
+
+    assert infer_portfolio_currency([]) == "TRY"
+    assert infer_portfolio_currency(["BTC", "ETH"]) == "USD"
+    assert infer_portfolio_currency(["THYAO.IS", "GARAN"]) == "TRY"
+    assert infer_portfolio_currency(["BTC", "THYAO.IS"]) == "TRY"
+    assert infer_portfolio_currency(["BTC", "ETH", "THYAO.IS"]) == "USD"
+
+
+@pytest.mark.pb
+def test_value_series_currency_usd_for_crypto_portfolio(api_client, pb_clean, make_user) -> None:
+    """Sadece BTC tutan portföy → currency USD (sabit TRY olmamalı)."""
+    from datetime import timedelta
+
+    _, token, _ = make_user("vs_usd@test.local")
+    headers = {"Authorization": f"Bearer {token}"}
+    r = api_client.post(
+        "/api/transactions",
+        json={"asset_symbol": "BTC", "tx_type": "BUY", "quantity": 1.0, "price": 50000.0},
+        headers=headers,
+    )
+    assert r.status_code == status.HTTP_201_CREATED
+
+    end = date.today()
+    start = end - timedelta(days=2)
+    with patch("services.multi_asset_manager.AssetManager.get_price", return_value=None):
+        resp = api_client.get(
+            "/api/portfolio/value-series",
+            params={"start_date": start.isoformat(), "end_date": end.isoformat(), "step": "daily"},
+            headers=headers,
+        )
+    assert resp.status_code == status.HTTP_200_OK
+    assert resp.json()["currency"] == "USD"
+
+
+@pytest.mark.pb
+def test_value_series_currency_try_for_bist_portfolio(api_client, pb_clean, make_user) -> None:
+    """Sadece BIST tutan portföy → currency TRY."""
+    from datetime import timedelta
+
+    _, token, _ = make_user("vs_try@test.local")
+    headers = {"Authorization": f"Bearer {token}"}
+    r = api_client.post(
+        "/api/transactions",
+        json={"asset_symbol": "THYAO.IS", "tx_type": "BUY", "quantity": 100.0, "price": 250.0},
+        headers=headers,
+    )
+    assert r.status_code == status.HTTP_201_CREATED
+    end = date.today()
+    start = end - timedelta(days=1)
+    with patch("services.multi_asset_manager.AssetManager.get_price", return_value=None):
+        resp = api_client.get(
+            "/api/portfolio/value-series",
+            params={"start_date": start.isoformat(), "end_date": end.isoformat()},
+            headers=headers,
+        )
+    assert resp.status_code == status.HTTP_200_OK
+    assert resp.json()["currency"] == "TRY"
+
+
+@pytest.mark.pb
+def test_value_series_cash_bucket_does_not_force_usd(api_client, pb_clean, make_user) -> None:
+    """Sadeca nakit (CASH kovası) → sembol sinyali yok → currency TRY."""
+    from datetime import timedelta
+
+    _, token, _ = make_user("vs_cash@test.local")
+    headers = {"Authorization": f"Bearer {token}"}
+    r = api_client.post(
+        "/api/transactions",
+        json={"asset_symbol": "BTC", "tx_type": "CASH_IN", "quantity": 5000.0, "price": 1.0},
+        headers=headers,
+    )
+    assert r.status_code == status.HTTP_201_CREATED
+    end = date.today()
+    start = end - timedelta(days=1)
+    resp = api_client.get(
+        "/api/portfolio/value-series",
+        params={"start_date": start.isoformat(), "end_date": end.isoformat()},
+        headers=headers,
+    )
+    assert resp.status_code == status.HTTP_200_OK
+    assert resp.json()["currency"] == "TRY"

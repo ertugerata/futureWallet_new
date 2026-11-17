@@ -20,6 +20,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+from services.asset_types import infer_portfolio_currency
 from services.multi_asset_manager import AssetManager
 
 # ---------------------------------------------------------------------------
@@ -352,7 +353,7 @@ def monte_carlo_simulation(
     }
 
     data_quality = "estimated" if missing_data_warning else "ok"
-    currency = "TRY"
+    currency = infer_portfolio_currency(asset_symbols)
 
     return {
         "days": days,

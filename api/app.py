@@ -37,7 +37,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 logger = logging.getLogger("futurewallet")
 from config import ALLOWED_HOSTS, ALLOWED_ORIGINS, DEBUG
-from services.asset_types import _guess_asset_type
+from services.asset_types import _guess_asset_type, infer_portfolio_currency
 from services.benchmark_service import (
     compare_to_benchmark as srv_compare_to_benchmark,
 )
@@ -630,7 +630,7 @@ def portfolio_value_series(
             "end_value": float,
             "min_value": float,
             "max_value": float,
-            "currency": "TRY"
+            "currency": "TRY" | "USD" (varlık tabanına göre dinamik, P9)
         }
     """
     user_id = _extract_user_id(request)
@@ -664,11 +664,15 @@ def portfolio_value_series(
             f"Nokta sayısı ({len(dates)}) sınırı aştı (maksimum 400). Lütfen step parametresini büyütün veya aralığı daraltın.",
         )
 
-    # Her tarihte snapshot al
+    # Her tarihte snapshot al; nakit kovası dışında tutulan sembolleri biriktir (P9 currency)
     series = []
+    syms: set[str] = set()
     for d in dates:
         snap = srv_get_portfolio_snapshot(user_id=user_id, as_of=d)
         series.append({"date": d.isoformat(), "value": snap["total_value"]})
+        syms.update(h["asset_symbol"] for h in snap["holdings"] if h.get("type") != "cash")
+
+    currency = infer_portfolio_currency(sorted(syms))
 
     if not series:
         return {
@@ -677,7 +681,7 @@ def portfolio_value_series(
             "end_value": 0,
             "min_value": 0,
             "max_value": 0,
-            "currency": "TRY",
+            "currency": currency,
         }
 
     values = [s["value"] for s in series]
@@ -687,7 +691,7 @@ def portfolio_value_series(
         "end_value": values[-1],
         "min_value": min(values),
         "max_value": max(values),
-        "currency": "TRY",
+        "currency": currency,
     }
 
 

@@ -89,6 +89,7 @@ def test_singular_covariance_does_not_crash(monkeypatch) -> None:
     )
     assert res["data_quality"] == "estimated"
     assert res["percentile_values"]["portfolio"]["p50"] > 0
+    assert res["currency"] == "USD"  # P9: BTC tabanı → USD (sabit TRY değil)
 
 
 def test_cholesky_multivariate_reproducible_and_ordered(monkeypatch) -> None:
