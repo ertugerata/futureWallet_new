@@ -44,6 +44,8 @@ requests>=2.31.0
 pyasn1>=0.6.5
 # setuptools: PYSEC-2026-3447, GHSA-xmj3-9gf7-h52w
 setuptools>=84.1.0
+# soupsieve (beautifulsoup4 transitive): CVE-2026-126190/126191/126193
+soupsieve>=4.0.0
 
 # Test / development (Prompt 0, 15)
 pytest>=8.0.0
