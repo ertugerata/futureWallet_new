@@ -1,8 +1,8 @@
-# FutureWallet – TODO & Sprint Takip Listesi (v4 – 2026-11-16 doğrulanmış durum)
+# FutureWallet – TODO & Sprint Takip Listesi (v5 – 2026-11-17 doğrulanmış durum)
 
 > **Kaynak & Dayanak:** `FUTUREWALLET_DUZELTME_PROMPTLARI.md` (v3); durum tespiti Graphify bilgi grafiği (`graphify-out/`, commit `45b1fcbe` + working tree) ve gerçek PocketBase (v0.40.6) test koşusu ile yapıldı.
 > **Temel İlke (Prompt 0):** Yalnızca gerçek PocketBase entegrasyon testinden geçen maddeler `[x]` yapılabilir.
-> **Doğrulama kanıtı:** `pytest tests` → **91/91 geçti** (tek oturum, gerçek PB sunucusu ile; P10+P11+P14 turları dahil); `ruff check .` ve `ruff format --check .` temiz; `mypy api services config.py web_app` (gevşek mod) hatasız; `python -c "import api.app"` başarılı. P14 ayrıca canlı tarayıcı E2E ile doğrulandı (gerçek PB + uvicorn).
+> **Doğrulama kanıtı:** `pytest tests` → **100/100 geçti** (tek oturum, gerçek PB sunucusu ile; P10+P11+P14 + P9-currency + EXPIRED-e2e + review-minörleri turları dahil); `ruff check .` ve `ruff format --check .` temiz; `mypy api services config.py web_app` (gevşek mod) hatasız; `python -c "import api.app"` başarılı (CI'da ayrı duman adımı). P14 + para birimi seçicisinin MC `currency` alanına bağlanması canlı tarayıcı E2E ile doğrulandı (gerçek PB + uvicorn).
 
 ---
 
@@ -18,11 +18,11 @@
 | Test Altyapısı | Gerçek PB binary fixture'ları; PB'yi taklit eden MagicMock yok (yalnızca dış AI/HTTP mock'ları) | [x] Tamamlandı |
 | Ledger | 409 yetersiz stok, kullanıcı bazlı kilit, ortalama maliyet, unrealized PnL, `cash_received` (DIVIDEND) | [x] Tamamlandı |
 | AI Servisi | OpenRouter fallback zinciri + 502/503 semantiği + prompt injection etiketi | [x] Tamamlandı |
-| Zamanlayıcı | APScheduler lifespan'a entegre, `ENABLE_SCHEDULER` ile kapatılabilir, EXPIRED otomatik job'ı | [x] Tamamlandı |
+| Zamanlayıcı | APScheduler lifespan'a entegre, `ENABLE_SCHEDULER` ile kapatılabilir; EXPIRED job'ı uçtan uca PB testli (`tests/test_expiry_e2e.py`) | [x] Tamamlandı |
 | Benchmark | `_upsert_to_pb`/`_get_pb_price` düzeltmeleri + `gold_try_gram` şema migration'ı + `refresh_macro` job'ı + `alpha` çıktısı; tek-kayıt/gold/alpha birim testleri geçiyor | [x] Tamamlandı |
 | Monte Carlo / Stres | Kabul testleri yazıldı ve geçiyor; singular kovaryans çökmesi ve boş portföye NaN üreten hatalar düzeltildi; 3/6/12 ay tek çağrıda | [x] Tamamlandı |
-| Web Arayüzü | PB login akışı + Bearer JWT + `auth-refresh` canlı tarayıcı E2E ile doğrulandı; innerHTML yok, inline style/script yok, Chart.js SRI, CSP `connect-src` PB origin'i içeriyor | [x] Tamamlandı |
-| Temizlik & Bağımlılıklar | `futurewallet.db`, `db.py`, `sanitize_symbols.py`, `future_price.py` silindi; `google-genai`/`schedule`/`sqlalchemy`/`pytest-mock` requirements'tan çıkarıldı, kilit uv ile yenilendi; dokümanlar v4; CI 5/5 yeşil (run `44056500353`) | [x] Tamamlandı |
+| Web Arayüzü | PB login akışı + Bearer JWT + `auth-refresh` canlı tarayıcı E2E ile doğrulandı; innerHTML yok, inline style/script yok, Chart.js SRI, CSP `connect-src` PB origin'i içeriyor; MC `currency` alanı para birimi seçicisini otomatik USD/TRY bağlıyor | [x] Tamamlandı |
+| Temizlik & Bağımlılıklar | `futurewallet.db`, `db.py`, `sanitize_symbols.py`, `future_price.py` silindi; `google-genai`/`schedule`/`sqlalchemy`/`pytest-mock` requirements'tan çıkarıldı, kilit uv ile yenilendi; dokümanlar v5; CI 5/5 yeşil (run `44056500353`) | [x] Tamamlandı |
 
 ---
 
@@ -38,7 +38,7 @@
 - [x] SQLAlchemy `from db import` kaldırıldı; `db.py` silindi.
 - [x] `lifespan` fail-closed (PB credential zorunluluğu `config.py` import'unda), koleksiyon doğrulama + migration koşumu, `/health` `pb: ok|down` alanı.
 - [x] `pocketbase==0.17.3`, `apscheduler`, `httpx` sabitlendi; `requirements.txt` pip-compile kilidi.
-- [ ] CI'ya ayrıca `python -c "import api.app"` duman adımı ekle (pytest zaten import ediyor; öncelik düşük).
+- [x] CI'da ayrıca `python -c "import api.app"` duman adımı var (test job'ı, dummy PB env ile — 2026-11-17).
 - **Kabul Kriteri:** ✅ `import api.app` ve `pytest --collect-only` 0 hata; `ruff check .` temiz.
 
 ### ✅ Prompt 2: Gerçek PocketBase ile Test Altyapısı
@@ -98,7 +98,7 @@
 - **Kabul Kriteri:** ✅ 2 BUY + 1 SELL ortalama maliyet testi, aşan SELL 409, void snapshot dışı, stats 200, DIVIDEND `cash_received` — hepsi test suite'inde geçiyor.
 
 ### ✅ Prompt 8: AI Servisi: OpenRouter + Hata Semantiği
-- [ ] `google-genai` paketi `requirements.in`/`requirements.txt`'den çıkarılacak (kod artık kullanmıyor; bağımlılık çöpü — Prompt 15 ile birlikte).
+- [x] `google-genai` paketi `requirements.in`/`requirements.txt`'den çıkarıldı (P15 turunda üretilen kilitte yalnız kaldırma notu satırı duruyor; bağımlılık yok).
 - [x] OpenRouter istemcisi: `OPENROUTER_API_KEY`, `OPENROUTER_BASE_URL`, `OPENROUTER_MODELS` fallback zinciri.
 - [x] Zaman aşımı / 5xx / 429 → sonraki model; tümü düşerse 502; anahtar yoksa 503 (`AIUnavailableError`).
 - [x] Uç nokta eşlemesi (P14 E2E'de bulundu): `/retrospective` ve `/simulation/narrative` yapılandırılmış `api_available:false`/`error` sözlüklerini artık **503/502 HTTP** kodlarına çeviriyor (test: `test_retrospective_endpoint_503_without_api_key`, `test_narrative_endpoint_503_without_api_key`).
@@ -106,14 +106,14 @@
 - [x] Retrospektif bağlamı (karar tarihi/vade fiyatı, duygu) + başarıda `status: REVIEWED` güncellemesi.
 - **Kabul Kriteri:** ✅ Fallback/502/503 testleri (`tests/test_ai_service.py`) geçiyor.
 
-### 🟠 Prompt 9: Price Service, Time-Travel ve Value-Series — tek eksik para birimi
+### ✅ Prompt 9: Price Service, Time-Travel ve Value-Series — tamamlandı
 - [x] `price_service` sözdizimi/imza düzeltmeleri; PB cache `list_all` ile.
 - [x] `get_price_on(symbol, asset_type, on_date)`: PB → yfinance → ccxt; hafta sonu/tatil önceki iş günü; yoksa `None` + `missing_prices`.
 - [x] Ledger `price_fn` imzası `(symbol, asset_type, on_date)`.
 - [x] Time-travel hesapları (`value_at_start`/`value_at_target`/nominal-yüzde PnL).
 - [x] `/api/portfolio/value-series`: 400 nokta limiti (422), gerçek 7 günlük haftalık adım, `timedelta` importlu.
 - [x] `/api/portfolio/real-valuation`: `nominal_end` yoksa `date_to` snapshot'ı kullanılıyor.
-- [ ] **Para birimi dinamik değil:** `value-series` yanıtında `"currency": "TRY"` sabit; `simulation_service` dinamik `currency` üretiyor. Varlık tabanına göre USD/TRY seçimi bağlanmalı (P14 seçiciyle de bağlantılı).
+- [x] **Para birimi dinamik:** `services/asset_types.py` `base_currency`/`infer_portfolio_currency` (BIST/TL → TRY, diğer tabanlar → USD; karışık sepette çoğunluk, eşitlik/boş → TRY, `shortcut:` notlu); `value-series` tutulan sembollerden, Monte Carlo `asset_symbols`'dan `currency` üretiyor — `tests/test_price_valuation.py` 5 yeni test + `test_singular_covariance` USD assertion'ı.
 - **Kabul Kriteri:** ✅ value-series 422 limiti testte; cache isabeti dış çağı kırpıyor.
 
 ### 🟡 Prompt 10: Gölge Portföy — ✅ tamamlandı
@@ -157,7 +157,7 @@
 - [x] CSP uyumu: inline `<script>` ve inline `style=` tamamen kaldırıldı (`decision_form` sayfası `static/decision_form.js`'e taşındı); Chart.js SRI (`sha384-e6nUZ...`) ile yükleniyor; `connect-src`'e PocketBase origin'i eklendi (PB JWT akışı buna muhtaçtı — canlı testte CSP ilk başta login fetch'ini bloke etti, bulunup düzeltildi).
 - [x] Sunucu verisi artık `innerHTML` ile değil DOM API (`textContent`/`createElement`/`replaceChildren`) ile basılıyor; `app.js` sıfırdan yazıldı (eski dosya JS içinde gömülü CSS blokları yüzünden sözdizimi hatası içeriyordu).
 - [x] Paneller: Snapshot + **Time-Travel** (T_start/T_target), Karar Günlüğü (AI Retrospektif / Kapat / Sil butonları, `textContent` ile güvenli AI gösterimi, duygu özet kartı, outcome kolonu), Gölge Portföy ("Ne olurdu?" kıyaslaması + manuel BOUGHT_INSTEAD ekleme + silme), **İşlem Ekleme + İşlem Geçmişi (void)**, Monte Carlo (40 kutu canvas histogram + p5/p50/p95 kartları), Stres Testi (senaryo tablosu + en kötü vurgusu), AI risk anlatısı.
-- [ ] USD/TRY seçicisi **istemci tarafında** çalışıyor (tüm `.value-display` alanları yeniden biçimleniyor); API `currency` alanına dinamik bağlama P9'un açık maddesine (sabit TRY) bağımlı.
+- [x] USD/TRY seçicisi API `currency` alanına bağlı: Monte Carlo cevabındaki `currency` `#currencySelect`'i ve `window._currency`'yi otomatik ayarlayıp tüm `.value-display` alanlarını yeniden biçimliyor (alan yoksa eski davranış korunur). Canlı tarayıcı E2E: `assets=BTC` simülasyonu → seçici USD, kartlar `$` formatında, konsol hatası yok.
 - [x] "Yatırım tavsiyesi değildir" uyarısı dashboard ve karar sayfası altbilgilerinde + AI anlatısı altında.
 - **Kabul Kriteri:** ✅ E2E (gerçek PB + tarayıcı): token'sız → `/web/login`; giriş → dashboard verili; işlem ekleme snapshot'ı günceller (nakit kovası 5500 = 2×250 temettü + 5000 CASH_IN doğru); MC 200 + histogram + stres tablosu (`market_crash` en kötü); AI'sız 503'in dürüst mesajı; çıkış → token temizlendi; konsol hatası yok.
 
@@ -185,13 +185,15 @@
 [x] 8. Time-travel 5 BTC 30k→60k %100 PnL senaryo testi geçiyor (`test_time_travel_double_price_yields_100_pct_pnl`).
 [x] 9. OpenRouter fallback 502/503 semantiği testli.
 [x] 10. market_crash %50 kalıcı şok testi geçiyor.
-[ ] 11. EXPIRED zamanlayıcı job'ı PB üzerinde uçtan uca test edilmedi.
+[x] 11. EXPIRED job'ı PB üzerinde uçtan uca testli (`tests/test_expiry_e2e.py`: price_history cache seed → `auto_close_expired_decisions()` → EXPIRED + outcome_price/%20; vadesi gelmemiş karar OPEN kalıyor).
 [x] 12. Web UI login → dashboard akışı CSP/konsol hatası olmadan tarayıcıda doğrulandı (P14).
-[ ] 13. P1–P13 kabul testlerinin tamamı geçiyor (91/91); kalan: EXPIRED job uçtan uca testi, P9 dinamik currency.
+[x] 13. P1–P14 kabul testlerinin tamamı geçiyor (100/100, 2026-11-17; kalan madde yok).
 ```
 
 ## 🔜 Öncelik Sırası
 
-1. **P9 dinamik currency** (`value-series`/API `currency` sabit TRY; P14 seçicisinin API alanına bağlanması bunu bekliyor).
-2. **EXPIRED zamanlayıcı job'ının uçtan uca PB testi** (hızlı kontrol 11; `refresh_macro` job'ı artık var ve kayıt testiyle doğrulanmış durumda).
-3. İki ertelenmiş review minörü: shadow-positions create karar sahiplik kontrolü; PB kayıt ID'leri için `^[a-z0-9]{15}$` girdi doğrulaması.
+Kalan iş yok — üç madde de 2026-11-17 turunda kapandı (`feat/mvp-remaining-work`, plan: `docs/plans/2026-11-17-mvp-remaining-work.md`):
+
+1. ~~P9 dinamik currency~~ → `base_currency`/`infer_portfolio_currency` + value-series/MC/web-çıkışı bağlama.
+2. ~~EXPIRED job uçtan uca PB testi~~ → `tests/test_expiry_e2e.py`; test iki sessiz hatayı buldu ve düzeltildi: `_parse_pb_date` boşluklu PB timestamp/`created` datetime karşısında None'a düşüyordu (job hiçbir karar göremiyordu) ve `evaluate_decision` giriş temeli olarak `created` kullanıyordu (geçmiş kararların P&L'i bugünkü dış fiyattan hesaplanıyordu — `decision_date` temele alındı).
+3. ~~Review minörleri~~ → shadow-positions create karar sahipliği (yabancı/olmayan karar → 400); PB kayıt ID'leri `^[a-z0-9]{15}$` path/query/body doğrulaması (biçimsiz → 422, servise inmez).

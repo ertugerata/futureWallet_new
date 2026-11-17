@@ -3,7 +3,7 @@
 > **Sürüm:** 2.0
 > **Mimari:** PocketBase (DB/Auth) + FastAPI (Hesaplama) + OpenRouter (LLM)
 > **Tarih:** Kasım 2026
-> **Uygulama Durumu (2026-11-17):** Sprint 1–4 tamamlandı: API + web arayüzü (PB JWT giriş dahil) gerçek PocketBase v0.40.6 üzerinde 91/91 test ve canlı tarayıcı E2E ile doğrulandı (ayrıntı `TODO.md` v4). Açık kalanlar: P9 dinamik currency (API `currency` alanları sabit TRY), EXPIRED job'ının uçtan uca tetikleme testi ve iki hygiene minörü — bkz. `TODO.md` Öncelik Sırası.
+> **Uygulama Durumu (2026-11-17):** Sprint 1–4 ve tüm kalan maddeler tamamlandı: API + web arayüzü (PB JWT giriş dahil) gerçek PocketBase v0.40.6 üzerinde 100/100 test ve canlı tarayıcı E2E ile doğrulandı (ayrıntı `TODO.md` v5). Kapanan son tur: dinamik USD/TRY `currency` (value-series + Monte Carlo + web seçici bağlama), EXPIRED job'ının uçtan uca PB testi (iki sessiz hatayı buldu ve düzeltti), shadow-create karar sahipliği ve PB record ID girdi doğrulaması.
 
 ---
 
@@ -193,7 +193,7 @@ FutureWallet/
 
 | Aşama / Sprint | Görev Tanımı | Tahmini Süre |
 | :--- | :--- | :--- |
-| **Sprint 1** ✅ | **Güvenlik, Altyapı & PocketBase Geçişi:** Auth/JWT katmanı, CSP/ALLOWED_ORIGINS, PB koleksiyon şemaları, SQLAlchemy → PB senkron Client migrasyonu, docker-compose tanımları, asset_symbol regex doğrulaması (Pydantic field_validator). *(web UI innerHTML→textContent temizliği Sprint 4/P14'e taşındı — henüz açık.)* | 1 Hafta |
+| **Sprint 1** ✅ | **Güvenlik, Altyapı & PocketBase Geçişi:** Auth/JWT katmanı, CSP/ALLOWED_ORIGINS, PB koleksiyon şemaları, SQLAlchemy → PB senkron Client migrasyonu, docker-compose tanımları, asset_symbol regex doğrulaması (Pydantic field_validator). *(web UI innerHTML→textContent temizliği Sprint 4/P14'te tamamlandı.)* | 1 Hafta |
 | **Sprint 2** ✅ | **Reel Değerleme, Benchmark & Gölge Portföy:** Fiyat servisi (yfinance + ccxt + PB cache), time-travel endpoint, EVDS/TÜFE entegrasyonu, Gram Altın formülü, benchmark endpoint, gölge portföy otomatik oluşturma (karar anında HELD_INSTEAD/BOUGHT_INSTEAD), POST/GET/DELETE shadow-positions endpoint'leri, fırsat maliyeti hesabı. | 1 Hafta |
 | **Sprint 3** ✅ | **OpenRouter AI & Makro Simülasyon:** OpenRouter client (fallback zinciri: claude-3.5-sonnet → gemini-2.0-flash → deepseek-r1), model fallback, karar retrospektifi endpoint, Monte Carlo (drift düzeltmeli GBM), histogram (40 kutu), POST /api/simulation/stress-test, POST /api/simulation/narrative, AI risk anlatısı endpoint. | 1 Hafta |
-| **Sprint 4** ⚠️ | **Web Arayüzü & Yayına Hazırlık:** requirements kilidi + pip-audit + Docker tamam; PB login akışı, USD/TRY dinamik seçici, histogram çizgileri ve CSP temizliği (P14) açık. | 1 Hafta |
+| **Sprint 4** ✅ | **Web Arayüzü & Yayına Hazırlık:** requirements kilidi + pip-audit + Docker; PB login akışı, histogram çizgileri ve CSP temizliği (P14) canlı tarayıcı E2E ile doğrulandı; USD/TRY para birimi seçicisi Monte Carlo API `currency` alanına dinamik bağlı (P9). | 1 Hafta |
