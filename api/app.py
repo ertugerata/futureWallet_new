@@ -168,12 +168,23 @@ def reset_rate_limits() -> None:
     _RETRO_RATE_LIMITS.clear()
 
 
+def _prune_rate_limits(now: int | None = None) -> None:
+    """Süresi dolmuş sayaç anahtarlarını atar — anahtar kullanıcı/karar ID'sinden türetilir,
+    harita sınırsız büyümesin (review #6)."""
+    now = int(time.time()) if now is None else now
+    for k, entry in list(_RETRO_RATE_LIMITS.items()):
+        if now >= entry["reset_at"]:
+            _RETRO_RATE_LIMITS.pop(k, None)
+
+
 def check_retrospective_rate_limit(
     request: Request, current: CurrentUser = Depends(get_current_user)
 ) -> None:
     """Retrospektif: kullanıcı + karar başına 60 sn'de 1 istek (Prompt 6)."""
     decision_id = request.path_params.get("decision_id", "")
     now = int(time.time())
+    if len(_RETRO_RATE_LIMITS) > 1024:
+        _prune_rate_limits(now)
     key = (current.id, decision_id)
     entry = _RETRO_RATE_LIMITS.get(key)
     if entry is not None and now < entry["reset_at"]:
@@ -382,6 +393,16 @@ import config
 _scheduler: "BackgroundScheduler | None" = None
 
 
+def _run_daily_macro_refresh() -> None:
+    """Günlük macro_data yenileme job gövdesi (hatalar loglanır, scheduler'ı düşürmez)."""
+    from services.benchmark_service import fetch_and_save_macro_data
+
+    try:
+        fetch_and_save_macro_data(user_id="")
+    except Exception as exc:
+        logger.error("Günlük makro veri çekimi başarısız: %s", exc)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global _scheduler
@@ -396,6 +417,14 @@ async def lifespan(app: FastAPI):
             "interval",
             hours=24,
             id="expire_decisions",
+            replace_existing=True,
+        )
+        # P11: günlük makro/benchmark veri çekimi (review #3)
+        _scheduler.add_job(
+            _run_daily_macro_refresh,
+            "interval",
+            hours=24,
+            id="refresh_macro",
             replace_existing=True,
         )
         _scheduler.start()
@@ -437,7 +466,11 @@ MAX_BODY_SIZE = 64 * 1024  # 64 KB limit (Prompt 6 DoS protection)
 
 
 async def _limit_request_size(request: Request, call_next):
-    """64 KB istek gövdesi limiti middleware'i (Prompt 6)."""
+    """64 KB istek gövdesi limiti middleware'i (Prompt 6).
+
+    Content-Length varsa head-of-line kontrol; yoksa (chunked) gövde akıştan sayılır —
+    başlık-trust tek başına bypass edilemez (review #2).
+    """
     content_length = request.headers.get("content-length")
     if content_length:
         try:
@@ -451,6 +484,20 @@ async def _limit_request_size(request: Request, call_next):
                 status_code=400,
                 content={"detail": "Geçersiz Content-Length başlığı"},
             )
+    elif request.headers.get("transfer-encoding") == "chunked" and request.method in (
+        "POST",
+        "PUT",
+        "PATCH",
+    ):
+        body = b""
+        async for chunk in request.stream():
+            body += chunk
+            if len(body) > MAX_BODY_SIZE:
+                return JSONResponse(
+                    status_code=413,
+                    content={"detail": "Payload Too Large: İstek gövdesi 64 KB sınırını aşıyor"},
+                )
+        request._body = body
     return await call_next(request)
 
 
@@ -978,6 +1025,14 @@ def monte_carlo_endpoint(
         raise HTTPException(400, "En fazla 7 percentil belirtebilirsiniz.")
 
     user_id = _extract_user_id(request)
+    max_horizon = 252 if days is None else days
+    cells = simulations * max_horizon * max(1, len(asset_list))
+    if cells > 10_000_000:
+        raise HTTPException(
+            422,
+            f"Simülasyon hücre bütçesi aşıldı ({cells} hücre; en fazla 10M). "
+            "Gün/simülasyon sayısını azaltın veya horizon'u tek days ile verin.",
+        )
     if days is None:
         # Prompt 12: 3/6/12 ay tek çağrıda
         horizons = {
@@ -1120,7 +1175,7 @@ class StressTestRequest(BaseModel):
         None, description="Özel şoklar (key=senaryo adı, value=şok büyüklüğü)"
     )
     days: int = Field(252, ge=1, le=756, description="Gün sayısı")
-    n_simulations: int = Field(1000, ge=100, le=200000, description="Patika sayısı")
+    n_simulations: int = Field(1000, ge=100, le=20000, description="Patika sayısı (maks 20.000)")
 
 
 StressTestRequest.model_rebuild()
@@ -1129,6 +1184,11 @@ StressTestRequest.model_rebuild()
 @app.post("/api/simulation/stress-test", dependencies=[Depends(get_current_user)])
 def stress_test_endpoint(body: StressTestRequest):
     """Makro şok senaryoları altında portföy değerlerini simüle eder."""
+    if body.n_simulations * body.days > 20_000_000:
+        raise HTTPException(
+            422,
+            f"Simülasyon hücre bütçesi aşıldı ({body.n_simulations}×{body.days}); en fazla 20M hücre.",
+        )
     try:
         result = srv_stress_test(
             portfolio_value=body.portfolio_value,

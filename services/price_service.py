@@ -24,7 +24,11 @@ def _load_from_cache(symbol: str, on_date: date) -> Optional[float]:
         client = get_admin_client()
         date_str = on_date.isoformat()
         records = client.collection("price_history").get_full_list(
-            query_params={"filter": f'symbol = "{symbol}" && date ~ "{date_str}"'}
+            query_params={
+                "filter": client.filter(
+                    "symbol = {:symbol} && date ~ {:date}", {"symbol": symbol, "date": date_str}
+                )
+            }
         )
         if records:
             return float(records[0].price)

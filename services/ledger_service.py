@@ -87,17 +87,33 @@ def _build_holdings_from_transactions(
                     holdings[sym]["quantity"] * holdings[sym]["average_cost"]
                 )
 
-        elif tx_type == "DIVIDEND":
-            # Temettü: nakit akışı veya gelir
-            if sym not in holdings:
-                holdings[sym] = {
-                    "asset_symbol": sym,
+        elif tx_type in ("DIVIDEND", "CASH_IN"):
+            # Nakit girişleri sembolden bağımsız tek CASH kovasında toplanır;
+            # temettü tutarı hisse adedine eklenmez (review #5)
+            cash = holdings.setdefault(
+                "CASH",
+                {
+                    "asset_symbol": "CASH",
                     "quantity": 0.0,
                     "type": "cash",
                     "total_cost": 0.0,
                     "average_cost": 0.0,
-                }
-            holdings[sym]["quantity"] += quantity
+                },
+            )
+            cash["quantity"] += quantity
+
+        elif tx_type == "CASH_OUT":
+            cash = holdings.setdefault(
+                "CASH",
+                {
+                    "asset_symbol": "CASH",
+                    "quantity": 0.0,
+                    "type": "cash",
+                    "total_cost": 0.0,
+                    "average_cost": 0.0,
+                },
+            )
+            cash["quantity"] = max(0.0, cash["quantity"] - quantity)
 
     return holdings
 
@@ -161,9 +177,21 @@ def get_portfolio_snapshot(
         mgr = AssetManager()
         price_fn = lambda sym, atype: mgr.get_price(sym, atype)
 
+    # cash_received yalnız DIVIDEND girişlerinin toplamıdır; CASH_IN nakit kovasına girer ama
+    # temettü sayılmaz (review #4/#5)
+    client = get_client()
+    as_of_div = (as_of + timedelta(days=1)).isoformat() + " 00:00:00.000Z"
+    div_filter = client.filter(
+        "user = {:user_id} && type = {:tx_type} && voided = false && timestamp <= {:as_of}",
+        {"user_id": user_id, "tx_type": "DIVIDEND", "as_of": as_of_div},
+    )
+    dividend_records = client.collection("transactions").get_full_list(
+        query_params={"filter": div_filter}
+    )
+    cash_received = float(sum(_tx_get(r, "quantity", 0) or 0 for r in dividend_records))
+
     total_value = 0.0
     total_cost = 0.0
-    cash_received = 0.0
     holdings_list = []
 
     for sym, h in holdings.items():
@@ -172,8 +200,7 @@ def get_portfolio_snapshot(
             continue
         atype = h.get("type", _guess_asset_type(sym))
         if atype == "cash":
-            # DIVIDEND birikimi nominal nakit; fiyat araması yapılmaz (Prompt 7)
-            cash_received += qty
+            # Nakit kovası nominal 1.0'dan değerlenir; fiyat araması yapılmaz (Prompt 7)
             current_price = 1.0
         else:
             current_price = price_fn(sym, atype) or 0.0
@@ -302,13 +329,20 @@ def add_transaction(
     asset_symbol_upper = asset_symbol.upper()
 
     with _user_locks[user_id]:
-        if tx_type_upper == "SELL":
+        if tx_type_upper in ("SELL", "CASH_OUT"):
             current_holdings = _get_holdings_at_date(user_id, timestamp)
-            current_qty = current_holdings.get(asset_symbol_upper, {}).get("quantity", 0.0)
-            if quantity > current_qty:
-                raise InsufficientBalanceError(
-                    f"Yetersiz stok: {asset_symbol_upper} eldeki miktar={current_qty}, satılmak istenen={quantity}"
-                )
+            if tx_type_upper == "SELL":
+                current_qty = current_holdings.get(asset_symbol_upper, {}).get("quantity", 0.0)
+                if quantity > current_qty:
+                    raise InsufficientBalanceError(
+                        f"Yetersiz stok: {asset_symbol_upper} eldeki miktar={current_qty}, satılmak istenen={quantity}"
+                    )
+            else:
+                balance = current_holdings.get("CASH", {}).get("quantity", 0.0)
+                if quantity > balance:
+                    raise InsufficientBalanceError(
+                        f"Yetersiz bakiye: nakit={balance}, çekilmek istenen={quantity}"
+                    )
 
         client = get_client()
         transactions = client.collection("transactions")

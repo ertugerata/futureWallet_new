@@ -160,9 +160,9 @@ def pb_admin(pb_server):
 @pytest.fixture(autouse=True)
 def pb_clean(pb_server) -> None:
     """Delete all records from each required collection before each test."""
-    from api.app import _RETRO_RATE_LIMITS
+    from api.app import reset_rate_limits
 
-    _RETRO_RATE_LIMITS.clear()
+    reset_rate_limits()
 
     client = get_admin_client()
     for col_name in REQUIRED_COLLECTIONS:

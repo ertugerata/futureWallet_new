@@ -2,7 +2,7 @@
 
 > **Kaynak & Dayanak:** `FUTUREWALLET_DUZELTME_PROMPTLARI.md` (v3); durum tespiti Graphify bilgi grafiği (`graphify-out/`, commit `45b1fcbe` + working tree) ve gerçek PocketBase (v0.40.6) test koşusu ile yapıldı.
 > **Temel İlke (Prompt 0):** Yalnızca gerçek PocketBase entegrasyon testinden geçen maddeler `[x]` yapılabilir.
-> **Doğrulama kanıtı:** `pytest tests` → **62/62 geçti** (tek oturum, gerçek PB sunucusu ile); `ruff check .` ve `ruff format --check .` temiz; `mypy api services config.py` (gevşek mod) hatasız; `python -c "import api.app"` başarılı; `pytest -m pb` 9 PB testini seçiyor.
+> **Doğrulama kanıtı:** `pytest tests` → **68/68 geçti** (tek oturum, gerçek PB sunucusu ile; final-review fix pass sonrası); `ruff check .` ve `ruff format --check .` temiz; `mypy api services config.py` (gevşek mod) hatasız; `python -c "import api.app"` başarılı.
 
 ---
 
@@ -48,7 +48,7 @@
 - [x] Dış servisler için izole mock'lar (AI/HTTP); PB'yi taklit eden MagicMock kalmadı.
 - [x] SQLAlchemy/SQLite tabanlı fixture ve testler silindi.
 - [x] GitHub Actions: `pb_bin` önbellek adımı + `pytest -m pb` adımı.
-- **Kabul Kriteri:** ✅ `pytest -m pb` (9 test) gerçek PB'ye karşı koşuyor; tam suite 62/62 geçti.
+- **Kabul Kriteri:** ✅ `pytest -m pb` gerçek PB'ye karşı koşuyor; tam suite 68/68 geçti.
 
 ### ✅ Prompt 3: PB Şema, Erişim Kuralları ve Migration
 - [x] `pb_migrations/` repoda (users güncellemesi + macro_data, price_history, transactions, decisions, shadow_portfolios).
@@ -129,7 +129,7 @@
 - [x] `gold_try_gram = (GC=F_USD / 31.1035) × USDTRY` hesaplaması serviste.
 - [x] APScheduler lifespan'de; günlük benchmark + `auto_close_expired_decisions`; `ENABLE_SCHEDULER=false` ile kapanıyor.
 - [x] `/api/portfolio/benchmarks` portföy/altın/S&P/TÜFE + alpha döndürüyor (`_get_pb_price` hatası bu turda düzeltildi — önceden hep boştu).
-- [ ] **Kabul kriteri birim testi eksik:** `gold_try_gram` ve alpha için deterministik birim testi yazılmalı (upsert tek kayıt testi PB ile zaten kapsanıyor).
+- [ ] **Kabul kriteri birim testleri eksik:** `gold_try_gram`, alpha ve `_upsert_to_pb` tek-kayıt davranışı için deterministik testler yazılmalı.
 
 ### ✅ Prompt 12: Monte Carlo ve Stres Testi
 - [x] `stress_test` `session` parametresi kaldırıldı; uçlar JWT kimliğiyle.

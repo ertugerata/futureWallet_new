@@ -66,10 +66,11 @@ Projenin hedef mimarisi üç ana katmandan oluşur:
 
    Migration'lar (`pb_migrations/`) uygulandığında 6 koleksiyon (`users`, `transactions`, `decisions`, `shadow_portfolios`, `macro_data`, `price_history`) oluşur; API bunu açılışta doğrular.
 
-3. **Python sanal ortamı kurun ve bağımlılıkları yükleyin** (repo kuralı: `uv`):
+3. **Python sanal ortamı kurun ve bağımlılıkları yükleyin** (repo kuralı: `uv` — `bin/uv` gitignore'dadır; yoksa kurun):
    ```bash
-   ./bin/uv venv
-   ./bin/uv pip install -r requirements.txt
+   curl -LsSf https://astral.sh/uv/install.sh | sh   # uv yoksa
+   uv venv
+   uv pip install -r requirements.txt
    ```
 
 4. **Çevre değişkenlerini ayarlayın:**

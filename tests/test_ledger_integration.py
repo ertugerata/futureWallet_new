@@ -110,6 +110,61 @@ def test_dividend_cash_received_in_snapshot(api_client, pb_clean, auth_headers) 
 
 
 @pytest.mark.pb
+def test_dividend_on_held_symbol_credits_cash_not_shares(
+    api_client, pb_clean, auth_headers
+) -> None:
+    """Satılan sembole gelen temettü hisse adedini ŞİŞİRMEMELİ (review #5)."""
+    headers = auth_headers
+    api_client.post(
+        "/api/transactions",
+        json={"asset_symbol": "THYAO.IS", "tx_type": "BUY", "quantity": 100.0, "price": 250.0},
+        headers=headers,
+    )
+    r = api_client.post(
+        "/api/transactions",
+        json={"asset_symbol": "THYAO.IS", "tx_type": "DIVIDEND", "quantity": 250.0, "price": 1.0},
+        headers=headers,
+    )
+    assert r.status_code == status.HTTP_201_CREATED
+
+    snap = api_client.get("/api/portfolio/snapshot", headers=headers).json()
+    thyao = next(h for h in snap["holdings"] if h["asset_symbol"] == "THYAO.IS")
+    assert thyao["quantity"] == 100.0, "temettü hisse sayısına eklenmemeli"
+    assert snap["cash_received"] == 250.0
+    cash = [h for h in snap["holdings"] if h["type"] == "cash"]
+    assert sum(h["quantity"] for h in cash) == 250.0
+
+
+@pytest.mark.pb
+def test_cash_in_out_balance_and_409(api_client, pb_clean, auth_headers) -> None:
+    """CASH_OUT yetersiz bakiyede 409; CASH_IN snapshot nakdine girer (review #4)."""
+    headers = auth_headers
+    api_client.post(
+        "/api/transactions",
+        json={"asset_symbol": "CASH", "tx_type": "CASH_IN", "quantity": 500.0, "price": 1.0},
+        headers=headers,
+    )
+    # 800 > 500 bakiye → 409
+    resp = api_client.post(
+        "/api/transactions",
+        json={"asset_symbol": "CASH", "tx_type": "CASH_OUT", "quantity": 800.0, "price": 1.0},
+        headers=headers,
+    )
+    assert resp.status_code == status.HTTP_409_CONFLICT
+
+    ok = api_client.post(
+        "/api/transactions",
+        json={"asset_symbol": "CASH", "tx_type": "CASH_OUT", "quantity": 300.0, "price": 1.0},
+        headers=headers,
+    )
+    assert ok.status_code == status.HTTP_201_CREATED
+
+    snap = api_client.get("/api/portfolio/snapshot", headers=headers).json()
+    cash = sum(h["quantity"] for h in snap["holdings"] if h["type"] == "cash")
+    assert cash == 200.0
+
+
+@pytest.mark.pb
 def test_decisions_stats_route_not_404(api_client, pb_clean, auth_headers) -> None:
     headers = auth_headers
 

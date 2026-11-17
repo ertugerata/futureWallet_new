@@ -205,6 +205,16 @@ def _percentile_values(paths: np.ndarray, percentiles: list[int]) -> dict[str, f
 # ---------------------------------------------------------------------------
 
 
+def _check_cell_budget(
+    n_simulations: int, days: int, n_assets: int = 1, limit: int = 20_000_000
+) -> None:
+    """Hücre bütçesi: yol×gün×varlık bellek DoS'unu servis seviyesinde sınırla (review #1)."""
+    if n_simulations * days * max(1, n_assets) > limit:
+        raise ValueError(
+            f"Simülasyon hücre bütçesi aşıldı ({n_simulations}×{days}×{max(1, n_assets)}); maks {limit // 1_000_000}M."
+        )
+
+
 def monte_carlo_simulation(
     user_id: str = "unknown",
     asset_list: list[dict] | None = None,
@@ -232,11 +242,12 @@ def monte_carlo_simulation(
     if percentiles is None:
         percentiles = [5, 50, 95]
 
-    if n_simulations > 200_000:
-        raise ValueError(f"n_simulations={n_simulations} → maksimum 200,000 (Prompt 3).")
-
     if asset_list is None:
         asset_list = []
+
+    if n_simulations > 200_000:
+        raise ValueError(f"n_simulations={n_simulations} → maksimum 200,000 (Prompt 3).")
+    _check_cell_budget(n_simulations, days, len(asset_list))
 
     asset_symbols = [a["symbol"] for a in asset_list]
 
@@ -454,6 +465,8 @@ def stress_test(
     Returns:
         StressTestResult dict.
     """
+    _check_cell_budget(n_simulations, days)
+
     scenarios = DEFAULT_STRESS_SCENARIOS.copy()
     if shocks:
         for name, magnitude in shocks.items():
