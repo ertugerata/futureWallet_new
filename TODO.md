@@ -48,7 +48,7 @@
 - [x] Dış servisler için izole mock'lar (AI/HTTP); PB'yi taklit eden MagicMock kalmadı.
 - [x] SQLAlchemy/SQLite tabanlı fixture ve testler silindi.
 - [x] GitHub Actions: `pb_bin` önbellek adımı + `pytest -m pb` adımı.
-- **Kabul Kriteri:** ✅ `pytest -m pb` gerçek PB'ye karşı koşuyor; tam suite 91/91 geçti.
+- **Kabul Kriteri:** ✅ `pytest -m pb` gerçek PB'ye karşı koşuyor; tam suite 101/101 geçti.
 
 ### ✅ Prompt 3: PB Şema, Erişim Kuralları ve Migration
 - [x] `pb_migrations/` repoda (users güncellemesi + macro_data, price_history, transactions, decisions, shadow_portfolios).
@@ -187,7 +187,7 @@
 [x] 10. market_crash %50 kalıcı şok testi geçiyor.
 [x] 11. EXPIRED job'ı PB üzerinde uçtan uca testli (`tests/test_expiry_e2e.py`: price_history cache seed → `auto_close_expired_decisions()` → EXPIRED + outcome_price/%20; vadesi gelmemiş karar OPEN kalıyor).
 [x] 12. Web UI login → dashboard akışı CSP/konsol hatası olmadan tarayıcıda doğrulandı (P14).
-[x] 13. P1–P14 kabul testlerinin tamamı geçiyor (100/100, 2026-11-17; kalan madde yok).
+[x] 13. P1–P14 kabul testlerinin tamamı geçiyor (101/101, 2026-11-17; kalan madde yok).
 ```
 
 ## 🔜 Öncelik Sırası
