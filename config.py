@@ -48,6 +48,7 @@ def pb_browser_url() -> str:
     """Tarayıcı tarafı PB base'i (pb_base template + CSP connect-src)."""
     return POCKETBASE_PUBLIC_URL or POCKETBASE_URL
 
+
 # POCKETBASE_EMAIL / POCKETBASE_PASSWORD: PB admin credential'ı (kollek. yönetim).
 # PB admin credentials – must be provided via environment (no defaults).
 _raw_email = environ.get("POCKETBASE_EMAIL")
