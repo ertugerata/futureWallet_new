@@ -12,10 +12,10 @@ from __future__ import annotations
 
 import logging
 import threading
-from collections import defaultdict
+from collections import OrderedDict
 from collections.abc import Callable
 from datetime import date, timedelta
-from typing import Any
+from typing import Any, Optional
 
 from services.asset_types import _guess_asset_type
 from services.enums import TransactionType
@@ -24,8 +24,28 @@ from services.pb import admin_create, admin_update, get_client
 
 logger = logging.getLogger(__name__)
 
-# Kullanıcı bazlı concurrency kilidi
-_user_locks: dict[str, threading.Lock] = defaultdict(threading.Lock)
+
+# Kullanıcı bazlı concurrency kilidi (LRU cache - P6: sınırlı boyut)
+_MAX_USER_LOCKS = 1024
+_user_locks: OrderedDict[str, threading.Lock] = OrderedDict()
+_user_locks_lock = threading.Lock()
+
+
+def _get_user_lock(user_id: str) -> threading.Lock:
+    """Kullanıcı kilidini al (LRU eviction)."""
+    with _user_locks_lock:
+        if user_id in _user_locks:
+            # Move to end (most recently used)
+            _user_locks.move_to_end(user_id)
+            return _user_locks[user_id]
+
+        if len(_user_locks) >= _MAX_USER_LOCKS:
+            # Evict least recently used
+            _user_locks.popitem(last=False)
+
+        lock = threading.Lock()
+        _user_locks[user_id] = lock
+        return lock
 
 
 class InsufficientBalanceError(Exception):
@@ -328,7 +348,7 @@ def add_transaction(
 
     asset_symbol_upper = asset_symbol.upper()
 
-    with _user_locks[user_id]:
+    with _get_user_lock(user_id):
         if tx_type_upper in ("SELL", "CASH_OUT"):
             current_holdings = _get_holdings_at_date(user_id, timestamp)
             if tx_type_upper == "SELL":
@@ -438,3 +458,273 @@ def void_transaction(
         raise ValueError("İşlem bulunamadı")
 
     return {"status": "voided", "transaction_id": transaction_id}
+
+
+# ---------------------------------------------------------------------------
+# 6. get_portfolio_snapshots (bulk - P5: N+1 elimination)
+# ---------------------------------------------------------------------------
+
+
+def get_portfolio_snapshots(
+    user_id: str,
+    dates: list[date],
+    price_fn: Callable[[str, str, date], Optional[float]] | None = None,
+) -> dict[date, PortfolioSnapshot]:
+    """
+    Birden fazla tarih için portföy snapshot'larını toplu hesaplar (N+1 elimination).
+    
+    Args:
+        user_id: Kullanıcı ID
+        dates: Hesaplanacak tarihler (sıralı olmalı)
+        price_fn: Fiyat fonksiyonu (symbol, asset_type, on_date) -> price
+                  None ise get_price_on kullanılır
+    
+    Returns:
+        Dict[date -> PortfolioSnapshot]
+    """
+    if not dates:
+        return {}
+
+    # Ensure dates are sorted
+    dates = sorted(dates)
+    start_date = dates[0]
+    end_date = dates[-1]
+
+    # Tüm işlemleri BİR KEZ çek (as_of en büyük tarih için)
+    from services.pb import get_admin_client
+    admin = get_admin_client()
+
+    filter_expr = admin.filter(
+        "user = {:user_id} && voided = false && timestamp <= {:end}",
+        {"user_id": user_id, "end": (end_date + timedelta(days=1)).isoformat() + " 00:00:00.000Z"}
+    )
+    records = admin.collection("transactions").get_full_list(
+        query_params={"filter": filter_expr, "sort": "timestamp"}
+    )
+
+    # İşlemleri tarihe göre grupla
+    from collections import defaultdict
+    txs_by_date: dict[date, list[Any]] = defaultdict(list)
+    for r in records:
+        ts_str = str(getattr(r, "timestamp", ""))
+        try:
+            ts_date = date.fromisoformat(
+                ts_str.split("T", maxsplit=1)[0].split(" ", maxsplit=1)[0]
+            )
+            txs_by_date[ts_date].append(r)
+        except Exception:
+            pass
+
+    # Dividend records for cash_received (toplu çek)
+    div_filter = admin.filter(
+        "user = {:user_id} && type = {:tx_type} && voided = false && timestamp <= {:end}",
+        {"user_id": user_id, "tx_type": "DIVIDEND", "end": (end_date + timedelta(days=1)).isoformat() + " 00:00:00.000Z"}
+    )
+    div_records = admin.collection("transactions").get_full_list(query_params={"filter": div_filter})
+    div_by_date: dict[date, list[Any]] = defaultdict(list)
+    for r in div_records:
+        ts_str = str(getattr(r, "timestamp", ""))
+        try:
+            ts_date = date.fromisoformat(
+                ts_str.split("T", maxsplit=1)[0].split(" ", maxsplit=1)[0]
+            )
+            div_by_date[ts_date].append(r)
+        except Exception:
+            pass
+
+    # Fiyat fonksiyonu
+    if price_fn is None:
+        from services.asset_types import _guess_asset_type
+        from services.price_service import get_price_on as _get_price_on
+
+        # Sembolleri topla (tüm tarihler için)
+        all_symbols: set[str] = set()
+        temp_holdings = _build_holdings_from_transactions(records)
+        for sym, h in temp_holdings.items():
+            if h.get("type") != "cash":
+                all_symbols.add(sym)
+
+        # Bulk price fetch
+        asset_types = {s: h.get("type", _guess_asset_type(s)) for s, h in temp_holdings.items() if h.get("type") != "cash"}
+        if all_symbols:
+            from services.price_service import get_prices_bulk
+            bulk_prices = get_prices_bulk(
+                symbols=sorted(all_symbols),
+                asset_types=asset_types,
+                start_date=dates[0],
+                end_date=dates[-1],
+            )
+        else:
+            bulk_prices = {}
+
+        def price_fn(sym: str, atype: str, on_date: date) -> Optional[float]:
+            # Önce bulk cache'den dene
+            if sym in bulk_prices and on_date in bulk_prices[sym]:
+                return bulk_prices[sym][on_date]
+            # Sonra get_price_on
+            return _get_price_on(sym, atype, on_date)
+    else:
+        # Custom price_fn verilmişse wrapper
+        def price_fn(sym: str, atype: str, on_date: date) -> Optional[float]:
+            return price_fn(sym, atype, on_date)
+
+    # CASH dividend toplamları tarihlerine göre
+    cash_received_by_date: dict[date, float] = {}
+    for d, divs in div_by_date.items():
+        cash_received_by_date[d] = float(sum(_tx_get(r, "quantity", 0) or 0 for r in divs))
+
+    # Cumulative cash_received
+    cum_cash_received = 0.0
+    sorted_div_dates = sorted(cash_received_by_date.keys())
+    div_idx = 0
+
+    # Snapshot'ları hesapla
+    results: dict[date, PortfolioSnapshot] = {}
+    current_holdings: dict[str, AssetHolding] = {}
+
+    date_idx = 0
+    current_date = dates[0] if dates else start_date
+
+    # Tüm tarihler için işlemleri işle (incremental)
+    # İlk önce start_date'e kadar olan tüm işlemleri uygula
+    all_tx_dates = sorted(txs_by_date.keys())
+    for tx_date in all_tx_dates:
+        if tx_date > dates[-1]:
+            break
+        for tx in txs_by_date[tx_date]:
+            _apply_transaction(current_holdings, tx)
+
+    # Şimdi her istenen tarih için snapshot al
+    # Holdings'ları kopyalayıp tarihler arası değişen işlemleri uygula
+    holdings_at_date: dict[date, dict[str, AssetHolding]] = {}
+
+    # Incremental approach: process dates in order, applying txs between dates
+    tx_dates_sorted = sorted(txs_by_date.keys())
+    tx_idx = 0
+    prev_date = dates[0] - timedelta(days=1)
+
+    for target_date in dates:
+        # Apply transactions between prev_date and target_date
+        while tx_idx < len(tx_dates_sorted) and tx_dates_sorted[tx_idx] <= target_date:
+            tx_date = tx_dates_sorted[tx_idx]
+            for tx in txs_by_date[tx_date]:
+                _apply_transaction(current_holdings, tx)
+            tx_idx += 1
+
+        # Snapshot için holdings kopyala
+        holdings_copy = {}
+        for sym, h in current_holdings.items():
+            if h["quantity"] > 0:
+                holdings_copy[sym] = h.copy()
+
+        # Cash received up to this date
+        cum_cash = sum(cash_received_by_date[d] for d in cash_received_by_date if d <= target_date)
+
+        # Snapshot hesapla
+        total_value = 0.0
+        total_cost = 0.0
+        holdings_list = []
+
+        for sym, h in holdings_copy.items():
+            qty = h["quantity"]
+            if qty <= 0:
+                continue
+            atype = h.get("type", _guess_asset_type(sym))
+            if atype == "cash":
+                current_price = 1.0
+            else:
+                current_price = price_fn(sym, atype, target_date) or 0.0
+            val = qty * current_price
+            cost = h.get("total_cost", 0.0)
+            unrealized_pnl = val - cost
+            unrealized_pnl_pct = (unrealized_pnl / cost * 100.0) if cost > 0 else 0.0
+
+            total_value += val
+            total_cost += cost
+            holdings_list.append({
+                "asset_symbol": sym,
+                "quantity": qty,
+                "current_price": current_price,
+                "current_value": val,
+                "average_cost": h.get("average_cost", 0.0),
+                "total_cost": cost,
+                "unrealized_pnl": unrealized_pnl,
+                "unrealized_pnl_pct": unrealized_pnl_pct,
+                "type": atype,
+            })
+
+        pnl = total_value - total_cost
+        pnl_pct = (pnl / total_cost * 100.0) if total_cost > 0 else 0.0
+
+        results[target_date] = {
+            "as_of": target_date.isoformat(),
+            "holdings": holdings_list,
+            "total_value": total_value,
+            "total_cost": total_cost,
+            "cash_received": cum_cash,
+            "pnl": pnl,
+            "pnl_pct": pnl_pct,
+        }
+
+    return results
+
+
+def _apply_transaction(holdings: dict[str, AssetHolding], tx: Any) -> None:
+    """Tek bir işlemi holdings'a uygula."""
+    if _tx_get(tx, "voided", False):
+        return
+
+    sym = str(_tx_get(tx, "asset_symbol", "")).upper()
+    tx_type = str(_tx_get(tx, "type", "BUY")).upper()
+    quantity = float(_tx_get(tx, "quantity", 0) or 0)
+    price = float(_tx_get(tx, "price", 0) or 0)
+    fee = float(_tx_get(tx, "fee", 0) or 0)
+
+    if tx_type == "BUY":
+        if sym not in holdings:
+            holdings[sym] = {
+                "asset_symbol": sym,
+                "quantity": 0.0,
+                "type": _guess_asset_type(sym),
+                "average_cost": 0.0,
+                "total_cost": 0.0,
+            }
+        h = holdings[sym]
+        cost_basis = quantity * price + fee
+        h["total_cost"] += cost_basis
+        h["quantity"] += quantity
+        if h["quantity"] > 0:
+            h["average_cost"] = h["total_cost"] / h["quantity"]
+
+    elif tx_type == "SELL":
+        if sym in holdings:
+            holdings[sym]["quantity"] = max(0.0, holdings[sym]["quantity"] - quantity)
+            holdings[sym]["total_cost"] = (
+                holdings[sym]["quantity"] * holdings[sym]["average_cost"]
+            )
+
+    elif tx_type in ("DIVIDEND", "CASH_IN"):
+        cash = holdings.setdefault(
+            "CASH",
+            {
+                "asset_symbol": "CASH",
+                "quantity": 0.0,
+                "type": "cash",
+                "total_cost": 0.0,
+                "average_cost": 0.0,
+            },
+        )
+        cash["quantity"] += quantity
+
+    elif tx_type == "CASH_OUT":
+        cash = holdings.setdefault(
+            "CASH",
+            {
+                "asset_symbol": "CASH",
+                "quantity": 0.0,
+                "type": "cash",
+                "total_cost": 0.0,
+                "average_cost": 0.0,
+            },
+        )
+        cash["quantity"] = max(0.0, cash["quantity"] - quantity)
