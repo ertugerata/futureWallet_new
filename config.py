@@ -68,10 +68,7 @@ POCKETBASE_PASSWORD: str = _raw_password
 
 OPENROUTER_API_KEY: str = environ.get("OPENROUTER_API_KEY", "")
 OPENROUTER_BASE_URL: str = environ.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
-OPENROUTER_MODELS: str = environ.get(
-    "OPENROUTER_MODELS",
-    "anthropic/claude-3.5-sonnet,google/gemini-2.0-flash-001,deepseek/deepseek-r1",
-)
+OPENROUTER_MODELS: str = environ.get("OPENROUTER_MODELS", "")
 
 # ---------------------------------------------------------------------------
 # Zamanlayıcı (APScheduler - Prompt 11, 13)

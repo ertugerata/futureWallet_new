@@ -29,7 +29,7 @@ from services.enums import (
     STATUS_ALLOWED,
 )
 from services.multi_asset_manager import AssetManager
-from services.pb import get_client
+from services.pb import admin_create, admin_delete, admin_update, get_admin_client, get_client
 
 logger = logging.getLogger(__name__)
 
@@ -81,11 +81,19 @@ def create_decision(
         if sentiment_upper not in SENTIMENT_ALLOWED:
             raise ValueError(f"sentiment: {sentiment!r} — allowed: {SENTIMENT_ALLOWED}")
 
-    client = get_client()
-    decisions = client.collection("decisions")
+    # Transaction ownership check (P3: karar-transaction ilişkisi sahiplik doğrulama)
+    if transaction_id:
+        client = get_client()
+        try:
+            tx = client.collection("transactions").get_one(transaction_id)
+            if getattr(tx, "user", None) != user_id:
+                raise PermissionError("Transaction does not belong to user")
+        except PermissionError:
+            raise
+        except Exception:
+            raise ValueError("Transaction not found")
 
     data: dict[str, Any] = {
-        "user": user_id,
         "asset_symbol": asset_symbol.upper(),
         "action": action_upper,
         "rationale": rationale,
@@ -98,7 +106,7 @@ def create_decision(
     if transaction_id:
         data["transaction"] = transaction_id
 
-    record = decisions.create(data)
+    record = admin_create("decisions", data, user_id)
     return decision_to_dict(record)
 
 
@@ -185,17 +193,14 @@ def list_decisions(
 
 
 def update_decision(
+    user_id: str,
     decision_id: str,
     rationale: str | None = None,
     sentiment: str | None = None,
     target_price: float | None = None,
     target_date: date | None = None,
-    status: str | None = None,
 ) -> dict | None:
-    """Karar alanlarını günceller."""
-    client = get_client()
-    decisions = client.collection("decisions")
-
+    """Karar alanlarını günceller (sadece kullanıcı alanları: rationale, sentiment, target_price, target_date)."""
     body: dict[str, Any] = {}
     if rationale is not None:
         body["rationale"] = rationale
@@ -208,27 +213,32 @@ def update_decision(
         body["target_price"] = target_price
     if target_date is not None:
         body["target_date"] = target_date.isoformat() if target_date else None
-    if status is not None:
-        status_upper = status.upper()
-        if status_upper not in STATUS_ALLOWED:
-            raise ValueError(f"status: {status!r} — allowed: {STATUS_ALLOWED}")
-        body["status"] = status_upper
 
     try:
-        updated = decisions.update(decision_id, body)
+        updated = admin_update("decisions", decision_id, body, user_id)
         return decision_to_dict(updated)
+    except PermissionError:
+        raise
     except Exception:
         return None
 
 
 # ---------------------------------------------------------------------------
-# 5. close_decision
+# 5. close_decision (sistem endpoint'i - status yazar)
 # ---------------------------------------------------------------------------
 
 
-def close_decision(decision_id: str) -> dict | None:
-    """Kararı REVIEWED durumuna taşır."""
-    return update_decision(decision_id, status="REVIEWED")
+def close_decision(user_id: str, decision_id: str) -> dict | None:
+    """Kararı REVIEWED durumuna taşır (sistem yazması)."""
+    try:
+        updated = admin_update("decisions", decision_id, {"status": "REVIEWED"}, user_id)
+        return decision_to_dict(updated)
+    except PermissionError:
+        raise
+    except Exception:
+        return None
+
+
 
 
 # ---------------------------------------------------------------------------
@@ -307,13 +317,25 @@ def get_status_summary(user_id: str | None = None) -> dict[str, int]:
 # ---------------------------------------------------------------------------
 
 
-def delete_decision(decision_id: str) -> bool:
-    """Bir kararı siler (Prompt 13)."""
-    client = get_client()
+def delete_decision(user_id: str, decision_id: str) -> bool:
+    """Bir kararı siler (bağlı gölge pozisyonlar da silinir)."""
     try:
-        client.collection("decisions").delete(decision_id)
+        # Önce bağlı gölge pozisyonları sil (admin client ile)
+        admin = get_admin_client()
+        shadows = admin.collection("shadow_portfolios").get_full_list(
+            query_params={"filter": f"decision = '{decision_id}'"}
+        )
+        for sp in shadows:
+            if getattr(sp, "user", None) == user_id:
+                admin.collection("shadow_portfolios").delete(sp.id)
+
+        # Sonra kararı sil
+        admin_delete("decisions", decision_id, user_id)
         return True
-    except Exception:
+    except PermissionError:
+        raise
+    except Exception as exc:
+        logger.error("Karar silinemedi (%s): %s", decision_id, exc)
         return False
 
 
@@ -379,6 +401,7 @@ def get_decisions_due_for_review() -> list[dict]:
 
 
 def evaluate_decision(
+    user_id: str,
     decision_id: str,
     as_of: date | None = None,
 ) -> dict[str, Any] | None:
@@ -386,6 +409,10 @@ def evaluate_decision(
     dec = get_decision(decision_id)
     if not dec:
         return None
+
+    # Verify ownership
+    if dec.get("user") != user_id:
+        raise PermissionError("Decision not owned by user")
 
     target_d = as_of or dec.get("target_date") or date.today()
     sym = dec.get("asset_symbol", "")
@@ -396,7 +423,6 @@ def evaluate_decision(
     outcome_p = get_price_on(sym, atype, target_d)
 
     # Giriş fiyatı: karar tarihindeki fiyat (decision_date; yoksa created), yoksa target_price.
-    # created temele düşülünce geçmiş kararların P&L'i bugün-çekimi dış fiyattan hesaplanıyordu.
     entry_p = None
     entry_basis = dec.get("decision_date") or dec.get("date")
     if entry_basis:
@@ -426,9 +452,10 @@ def evaluate_decision(
 
     if update_fields:
         try:
-            client = get_client()
-            client.collection("decisions").update(decision_id, update_fields)
-            dec.update(update_fields)
+            updated = admin_update("decisions", decision_id, update_fields, user_id)
+            dec.update(decision_to_dict(updated))
+        except PermissionError:
+            raise
         except Exception as exc:
             logger.error("Karar sonucu kaydedilemedi (%s): %s", decision_id, exc)
 
@@ -439,13 +466,44 @@ def auto_close_expired_decisions(days_before: int = 0) -> list[dict]:
     """Hedef tarihleri dolmuş ama REVIEWED yapılmamış kararları EXPIRED yapar ve sonuçları doldurur."""
     cutoff = date.today() - timedelta(days=days_before)
     closed: list[dict] = []
-    for d in list_decisions(status="OPEN"):
-        if d["target_date"] is not None and d["target_date"] < cutoff:
-            evaluate_decision(d["id"], as_of=d["target_date"])
-            updated = update_decision(d["id"], status="EXPIRED")
+
+    # Admin client ile tüm OPEN kararları çek (user client listRule sadece kendi kararlarını görür)
+    admin = get_admin_client()
+    records = admin.collection("decisions").get_full_list(
+        query_params={"filter": "status = 'OPEN'", "sort": "target_date"}
+    )
+
+    for record in records:
+        target_date = record.target_date
+        if target_date is None:
+            continue
+        # target_date is string "YYYY-MM-DD HH:MM:SS.mmmZ"
+        try:
+            target_d = date.fromisoformat(str(target_date).split(" ")[0])
+        except Exception:
+            continue
+        if target_d >= cutoff:
+            continue
+
+        user_id = record.user
+        dec_id = record.id
+
+        # Evaluate outcome
+        evaluate_decision(user_id, dec_id, as_of=target_d)
+
+        # Set status to EXPIRED (system write)
+        try:
+            admin_update("decisions", dec_id, {"status": "EXPIRED"}, user_id)
+            # Refresh the decision dict
+            updated = get_decision(dec_id)
             if updated:
                 closed.append(updated)
+        except Exception as exc:
+            logger.error("Karar EXPIRED yapılamadı (%s): %s", dec_id, exc)
+
     return closed
+
+
 
 
 def generate_ai_retrospective(

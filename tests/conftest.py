@@ -167,6 +167,12 @@ def pb_clean(pb_server) -> None:
     reset_rate_limits()
 
     client = get_admin_client()
+    # Disable PB rate limiter for tests (enabled by migration 1794054598)
+    try:
+        client.settings.update({"rateLimits": {"enabled": False}})
+    except Exception:
+        pass
+
     for col_name in REQUIRED_COLLECTIONS:
         try:
             col = client.collection(col_name)
@@ -174,7 +180,6 @@ def pb_clean(pb_server) -> None:
                 delete_record(col, rec.id)
         except Exception:
             pass
-
 
 @pytest.fixture
 def test_db(pb_clean):

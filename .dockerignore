@@ -20,9 +20,9 @@ __pycache__/
 .env.production
 
 # Veritabanı dosyaları (oluşan DB'ler Docker build'a girmemeli)
-*.db
-*.sqlite
-*.sqlite3
+**/*.db
+**/*.sqlite
+**/*.sqlite3
 
 # Python wheel cache
 pip-cache/
@@ -38,3 +38,28 @@ temp/
 htmlcov/
 dist/
 build/
+
+# Yerel PocketBase verisi ve binary'ler (Docker build context'ine girmemeli)
+pb_data/
+pb_bin/
+pb_test_data*/
+
+# Test ve dokümantasyon
+tests/
+docs/
+graphify-out/
+
+# Cache dizinleri
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# GitHub workflows
+.github/
+
+# Markdown dosyaları (README.md hariç)
+*.md
+!README.md
+
+# Docker Compose dosyaları
+docker-compose*.yml

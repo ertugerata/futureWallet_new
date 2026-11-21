@@ -51,9 +51,6 @@ from services.counterfactual_service import (
     what_if_scenario,
 )
 from services.decision_service import (
-    auto_close_expired_decisions as svc_auto_close_expired,
-)
-from services.decision_service import (
     check_decision_target as svc_check_decision_target,
 )
 from services.decision_service import (
@@ -66,6 +63,9 @@ from services.decision_service import (
     decision_to_dict,
     get_sentiment_summary,
     get_status_summary,
+)
+from services.decision_service import (
+    delete_decision as svc_delete_decision,
 )
 from services.decision_service import (
     evaluate_decision as svc_evaluate_decision,
@@ -308,9 +308,6 @@ class DecisionUpdateRequest(BaseModel):
     )
     target_price: float | None = Field(None, gt=0)
     target_date: date | None = Field(None, description="Yeni hedef tarih")
-    status: Literal["OPEN", "REVIEWED", "EXPIRED", "CLOSED"] | None = Field(
-        None, description="OPEN | REVIEWED | EXPIRED | CLOSED"
-    )
 
     @field_validator("sentiment", mode="before")
     @classmethod
@@ -332,9 +329,14 @@ class DecisionUpdateRequest(BaseModel):
 
     @field_validator("target_date", mode="before")
     @classmethod
-    def empty_date_to_none(cls, v: Any) -> date | None:
+    def normalize_target_date(cls, v: str | date | None) -> date | None:
         if v is None or v == "":
             return None
+        if isinstance(v, str):
+            try:
+                return datetime.strptime(v, "%Y-%m-%d").date()
+            except ValueError:
+                raise ValueError("target_date must be YYYY-MM-DD")
         return v
 
 
@@ -395,6 +397,9 @@ def _check_pb_connection() -> bool:
         return False
 
 
+import os
+from datetime import datetime, timezone
+
 import config
 
 _scheduler: "BackgroundScheduler | None" = None
@@ -410,6 +415,17 @@ def _run_daily_macro_refresh() -> None:
         logger.error("Günlük makro veri çekimi başarısız: %s", exc)
 
 
+def _run_expire_decisions() -> None:
+    """Vadesi geçmiş kararları EXPIRED yapma job'u (hatalar loglanır, scheduler'ı düşürmez)."""
+    from services.decision_service import auto_close_expired_decisions
+
+    try:
+        closed = auto_close_expired_decisions()
+        logger.info("expire_decisions job: %d karar EXPIRED yapıldı", len(closed))
+    except Exception as exc:
+        logger.error("expire_decisions job başarısız: %s", exc)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global _scheduler
@@ -418,24 +434,43 @@ async def lifespan(app: FastAPI):
     await _init_pocketbase()
     # APScheduler: periyodik görevler (Prompt 11, 13)
     if config.ENABLE_SCHEDULER and _APSCHEDULER_AVAILABLE:
-        _scheduler = BackgroundScheduler()
-        _scheduler.add_job(
-            svc_auto_close_expired,
-            "interval",
-            hours=24,
-            id="expire_decisions",
-            replace_existing=True,
-        )
-        # P11: günlük makro/benchmark veri çekimi (review #3)
-        _scheduler.add_job(
-            _run_daily_macro_refresh,
-            "interval",
-            hours=24,
-            id="refresh_macro",
-            replace_existing=True,
-        )
-        _scheduler.start()
-        logger.info("APScheduler başlatıldı.")
+        # Çok worker koruması: yalnızca tek worker veya SCHEDULER_LEADER=true olan süreçte başlat
+        web_concurrency = int(os.environ.get("WEB_CONCURRENCY", "1"))
+        is_leader = os.environ.get("SCHEDULER_LEADER", "").lower() == "true"
+        if web_concurrency > 1 and not is_leader:
+            logger.warning(
+                "WEB_CONCURRENCY=%d (>1) ve SCHEDULER_LEADER değil; APScheduler başlatılmıyor. "
+                "Sadece bir süreçte SCHEDULER_LEADER=true ile çalıştırın.",
+                web_concurrency,
+            )
+        else:
+            _scheduler = BackgroundScheduler()
+            first_run = datetime.now(timezone.utc) + timedelta(seconds=30)
+            _scheduler.add_job(
+                _run_expire_decisions,
+                "interval",
+                hours=24,
+                id="expire_decisions",
+                replace_existing=True,
+                next_run_time=first_run,
+                coalesce=True,
+                max_instances=1,
+                misfire_grace_time=300,
+            )
+            # P11: günlük makro/benchmark veri çekimi (review #3)
+            _scheduler.add_job(
+                _run_daily_macro_refresh,
+                "interval",
+                hours=24,
+                id="refresh_macro",
+                replace_existing=True,
+                next_run_time=first_run,
+                coalesce=True,
+                max_instances=1,
+                misfire_grace_time=300,
+            )
+            _scheduler.start()
+            logger.info("APScheduler başlatıldı (ilk çalışma ~30 sn sonra).")
     yield
     if _scheduler is not None and _scheduler.running:
         _scheduler.shutdown(wait=False)
@@ -454,9 +489,10 @@ app = FastAPI(
 
 
 async def _add_security_headers(request: Request, call_next):
-    """Tüm yanıtlara güvenlik başlıkları ekle (Prompt 2).
+    """Tüm yanıtlara güvenlik başlıkları ekle (Prompt 2, 6).
 
     connect-src: PB JWT akışı için PocketBase origin'i zorunlu (P14); API çağrıları 'self'.
+    script-src: Chart.js yerel olarak servis edilir (static/vendor/).
     """
     from urllib.parse import urlsplit
 
@@ -466,15 +502,25 @@ async def _add_security_headers(request: Request, call_next):
     response = await call_next(request)
     response.headers["Content-Security-Policy"] = (
         "default-src 'self'; "
-        "script-src 'self' https://cdn.jsdelivr.net; "
+        "script-src 'self'; "
         "style-src 'self'; "
         f"{connect_src} "
         "img-src 'self' data:; "
         "object-src 'none'; "
-        "base-uri 'none'"
+        "base-uri 'none'; "
+        "frame-ancestors 'none'; "
+        "form-action 'self'"
     )
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["Referrer-Policy"] = "no-referrer"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+    # HTTPS arkasında HSTS (env kontrollü)
+    if config.DEBUG is False:
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    # API yanıtlarında cache kontrol
+    if request.url.path.startswith("/api/"):
+        response.headers["Cache-Control"] = "no-store"
     return response
 
 
@@ -645,7 +691,33 @@ def portfolio_value_series(
     if start_date > end_date:
         raise HTTPException(400, "start_date end_date'ten büyük olamaz")
 
-    # Tarih aralığını step'e göre filtrele
+    # Minimum start date (prevent year 1 dates)
+    if start_date.year < 1900:
+        raise HTTPException(422, "start_date 1900 veya sonrası olmalıdır")
+
+    # Maximum range: 20 years
+    max_end = date(start_date.year + 20, start_date.month, start_date.day)
+    if end_date > max_end:
+        raise HTTPException(422, "Tarih aralığı en fazla 20 yıl olabilir")
+
+    # Nokta sayısını döngüden ÖNCE hesapla (P5: DoS koruması)
+    day_delta = (end_date - start_date).days
+    if step == "daily":
+        point_count = day_delta + 1
+    elif step == "weekly":
+        point_count = day_delta // 7 + 1
+    elif step == "monthly":
+        point_count = (end_date.year - start_date.year) * 12 + (end_date.month - start_date.month) + 1
+    else:
+        raise HTTPException(422, "step parametresi: daily | weekly | monthly olmalıdır")
+
+    if point_count > 400:
+        raise HTTPException(
+            422,
+            f"Nokta sayısı ({point_count}) sınırı aştı (maksimum 400). Lütfen step parametresini büyütün veya aralığı daraltın.",
+        )
+
+    # Tarih aralığını step'e göre filtrele (artık güvenli)
     dates = []
     current = start_date
     if step == "weekly":
@@ -655,7 +727,6 @@ def portfolio_value_series(
     elif step == "monthly":
         while current <= end_date:
             dates.append(current)
-            # Bir sonraki ayın ilk günü veya ~30 gün
             if current.month == 12:
                 current = date(current.year + 1, 1, min(current.day, 28))
             else:
@@ -664,12 +735,6 @@ def portfolio_value_series(
         while current <= end_date:
             dates.append(current)
             current += timedelta(days=1)
-
-    if len(dates) > 400:
-        raise HTTPException(
-            422,
-            f"Nokta sayısı ({len(dates)}) sınırı aştı (maksimum 400). Lütfen step parametresini büyütün veya aralığı daraltın.",
-        )
 
     # Her tarihte snapshot al; nakit kovası dışında tutulan sembolleri biriktir (P9 currency)
     series = []
@@ -851,12 +916,12 @@ def update_decision_endpoint(
         raise HTTPException(status_code=404, detail="Karar bulunamadı")
 
     dec = svc_update_decision(
+        user_id,
         decision_id,
         rationale=body.rationale,
         sentiment=body.sentiment,
         target_price=body.target_price,
         target_date=body.target_date,
-        status=body.status,
     )
     if dec is None:
         raise HTTPException(status_code=404, detail="Karar bulunamadı")
@@ -871,7 +936,7 @@ def close_decision_endpoint(decision_id: PbId, request: Request):
     if existing is None or existing.get("user") != user_id:
         raise HTTPException(status_code=404, detail="Karar bulunamadı")
 
-    dec = svc_close_decision(decision_id)
+    dec = svc_close_decision(user_id, decision_id)
     if dec is None:
         raise HTTPException(status_code=404, detail="Karar bulunamadı")
     return decision_to_dict(dec)
@@ -904,7 +969,7 @@ def evaluate_decision_endpoint(decision_id: PbId, request: Request):
     existing = svc_get_decision(decision_id)
     if existing is None or existing.get("user") != user_id:
         raise HTTPException(status_code=404, detail="Karar bulunamadı")
-    result = svc_evaluate_decision(decision_id)
+    result = svc_evaluate_decision(user_id, decision_id)
     if result is None:
         raise HTTPException(status_code=404, detail="Karar bulunamadı")
     return result
@@ -916,10 +981,17 @@ def evaluate_decision_endpoint(decision_id: PbId, request: Request):
 )
 def generate_retrospective_endpoint(decision_id: PbId, request: Request):
     """Bir karar için AI post-mortem (retrospektif) oluşturur. PB decisions collection'unda kaydeder."""
+    from services.ai_service import _check_ai_rate_limit
+
     user_id = _extract_user_id(request)
     existing = svc_get_decision(decision_id)
     if existing is None or existing.get("user") != user_id:
         raise HTTPException(status_code=404, detail="Karar bulunamadı")
+
+    # AI hız sınırı (ekstra: per-user dakika/gün)
+    allowed, retry_after = _check_ai_rate_limit(user_id, "retrospective")
+    if not allowed:
+        raise HTTPException(status_code=429, detail="AI hız sınırı aşıldı", headers={"Retry-After": str(retry_after)})
 
     result = svc_generate_ai_retrospective(decision_id)
     # P8 hata semantiği: servis yapılandırılmış döndürür → uç HTTP koduna eşlenir
@@ -1005,15 +1077,12 @@ def list_shadow_positions_endpoint(
 def delete_shadow_position_endpoint(position_id: PbId, request: Request):
     """Gölge pozisyonunu sil (PB shadow_portfolios)."""
     user_id = _extract_user_id(request)
-    client = get_client()
     try:
-        sp = client.collection("shadow_portfolios").get_one(position_id)
-        if getattr(sp, "user", None) != user_id:
-            raise HTTPException(status_code=404, detail="Gölge pozisyon bulunamadı")
-        client.collection("shadow_portfolios").delete(position_id)
+        from services.pb import admin_delete
+        admin_delete("shadow_portfolios", position_id, user_id)
         return {"status": "deleted", "position_id": position_id}
-    except HTTPException:
-        raise
+    except PermissionError:
+        raise HTTPException(status_code=404, detail="Gölge pozisyon bulunamadı")
     except Exception:
         raise HTTPException(status_code=404, detail="Gölge pozisyon bulunamadı")
 
@@ -1026,11 +1095,15 @@ def delete_decision_endpoint(decision_id: PbId, request: Request):
     if existing is None or existing.get("user") != user_id:
         raise HTTPException(status_code=404, detail="Karar bulunamadı")
     try:
-        client = get_client()
-        decisions_coll = client.collection("decisions")
-        decisions_coll.delete(decision_id)
+        result = svc_delete_decision(user_id, decision_id)
+        if not result:
+            logger.error("svc_delete_decision returned False for decision %s", decision_id)
+            raise HTTPException(500, "Karar silinemedi")
         return {"status": "deleted", "decision_id": decision_id}
+    except PermissionError:
+        raise HTTPException(status_code=404, detail="Karar bulunamadı")
     except Exception as e:
+        logger.error("delete_decision_endpoint error: %s", e)
         raise HTTPException(500, str(e))
 
 
@@ -1175,7 +1248,24 @@ def list_transactions_endpoint(
         raise HTTPException(500, str(e))
 
 
+@app.get("/api/transactions/{transaction_id}", dependencies=[Depends(get_current_user)])
+def get_transaction_endpoint(transaction_id: PbId, request: Request):
+    """Tekil işlem kaydı (sahiplik kontrolü ile)."""
+    user_id = _extract_user_id(request)
+    try:
+        result = srv_get_transactions(user_id=user_id, limit=1)
+        for tx in result:
+            if tx["id"] == transaction_id:
+                return tx
+        raise HTTPException(404, "İşlem bulunamadı")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
 @app.delete("/api/transactions/{transaction_id}", dependencies=[Depends(get_current_user)])
+
 def delete_transaction_endpoint(
     transaction_id: PbId,
     request: Request,
@@ -1260,9 +1350,19 @@ NarrativeRequest.model_rebuild()
 
 
 @app.post("/api/simulation/narrative", dependencies=[Depends(get_current_user)])
-def narrative_endpoint(body: NarrativeRequest):
+def narrative_endpoint(request: Request, body: NarrativeRequest):
     """Monte Carlo / stres test sonucu için Türkçe risk anlatısı (502/503 semantiği)."""
-    from services.ai_service import AIGenerationError, AIUnavailableError
+    from services.ai_service import (
+        AIGenerationError,
+        AIUnavailableError,
+        _check_ai_rate_limit,
+    )
+
+    user_id = _extract_user_id(request)
+    # AI hız sınırı kontrolü
+    allowed, retry_after = _check_ai_rate_limit(user_id, "narrative")
+    if not allowed:
+        raise HTTPException(status_code=429, detail="AI hız sınırı aşıldı", headers={"Retry-After": str(retry_after)})
 
     try:
         result = srv_generate_risk_narrative(
@@ -1272,7 +1372,9 @@ def narrative_endpoint(body: NarrativeRequest):
         return {"narrative": result}
     except AIUnavailableError as e:
         raise HTTPException(503, str(e))
-    except AIGenerationError as e:
-        raise HTTPException(502, str(e))
+    except AIGenerationError:
+        # Her zaman güvenli genel mesaj; detay loglanmıştır
+        raise HTTPException(502, "AI sağlayıcısı geçici olarak yanıt vermedi")
     except Exception as e:
-        raise HTTPException(500, str(e))
+        logger.error("narrative_endpoint error: %s", e)
+        raise HTTPException(500, "İç sunucu hatası")

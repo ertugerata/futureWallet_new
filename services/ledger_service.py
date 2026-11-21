@@ -20,7 +20,7 @@ from typing import Any
 from services.asset_types import _guess_asset_type
 from services.enums import TransactionType
 from services.multi_asset_manager import AssetManager
-from services.pb import get_client
+from services.pb import admin_create, admin_update, get_client
 
 logger = logging.getLogger(__name__)
 
@@ -344,14 +344,10 @@ def add_transaction(
                         f"Yetersiz bakiye: nakit={balance}, çekilmek istenen={quantity}"
                     )
 
-        client = get_client()
-        transactions = client.collection("transactions")
-
         # ISO format tarih
         ts_str = f"{timestamp.isoformat()} 00:00:00.000Z"
 
         data = {
-            "user": user_id,
             "asset_symbol": asset_symbol_upper,
             "type": tx_type_upper,
             "quantity": quantity,
@@ -361,7 +357,7 @@ def add_transaction(
             "voided": False,
         }
 
-        record = transactions.create(data)
+        record = admin_create("transactions", data, user_id)
 
         return {
             "id": record.id,
@@ -434,16 +430,11 @@ def void_transaction(
     transaction_id: str,
 ) -> dict:
     """İşlem kaydını voided yap (soft delete)."""
-    client = get_client()
-    transactions = client.collection("transactions")
-
     try:
-        record = transactions.get_one(transaction_id)
+        admin_update("transactions", transaction_id, {"voided": True}, user_id)
+    except PermissionError:
+        raise PermissionError("Yetkisiz: bu işlem size ait değil")
     except Exception:
         raise ValueError("İşlem bulunamadı")
 
-    if getattr(record, "user", None) != user_id:
-        raise PermissionError("Yetkisiz: bu işlem size ait değil")
-
-    transactions.update(transaction_id, {"voided": True})
     return {"status": "voided", "transaction_id": transaction_id}
