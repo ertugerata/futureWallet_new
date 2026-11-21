@@ -104,3 +104,15 @@
 
 1. **P7 Kapsam kararları**: ENAG (Faz 2), Ev-Kira (EVDS housing index / Faz 2), VaR/CVaR (Monte Carlo kuyruk ort. / Faz 2).
 2. **P8 Otomatik retrospektif**: `AUTO_RETROSPECTIVE` flag + scheduler adımı (Faz 2).
+
+## ✅ Tamamlanan Faz 2 (P7 & P8)
+
+### P7 – MVP Kapsam / VaR-CVaR / Housing Index
+- [x] VaR/CVaR: Monte Carlo `risk` objesi (`var_95`, `var_99`, `cvar_95`, `cvar_99`)
+- [x] Housing Index: EVDS `KONUT_FIYAT_ENDEKSI` serisi + migration + benchmark karşılaştırma
+- [x] ENAG: Faz 2'ye ertelendi (kapsam dışı)
+
+### P8 – Otomatik Retrospektif
+- [x] `AUTO_RETROSPECTIVE` flag (default false) + `AUTO_RETROSPECTIVE_DAILY_LIMIT` (default 10)
+- [x] `_run_auto_retrospective()` scheduler job: EXPIRED+retrospektifsiz kararlar, per-user daily limit
+- [x] `AUTO_RETROSPECTIVE` flag ve user limitlerine saygılı
