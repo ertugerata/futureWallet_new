@@ -183,9 +183,11 @@ FutureWallet/
 ## 6. AI Servis Entegrasyonu (OpenRouter)
 
 * **Provider:** OpenRouter (`https://openrouter.ai/api/v1`)
-* **Modeller:** `anthropic/claude-3.5-sonnet`, `google/gemini-2.0-flash-001`, `deepseek/deepseek-r1`
-* **Fallback Zinciri:** Birincil model yanıt vermediğinde otomatik ikincil modele geçiş.
+* **Modeller:** `OPENROUTER_MODELS` ortam değişkeni ile yapılandırılır (virgülle ayrılmış). Örnek: `anthropic/claude-3.5-sonnet,google/gemini-2.0-flash-001,deepseek/deepseek-r1` — **sabit varsayılan yok, env ile ayarlanır**.
+* **Fallback Zinciri:** `OPENROUTER_MODELS` listesindeki sıra kullanılır; birincil model yanıt vermediğinde otomatik ikincil modele geçiş.
 * **Güvenlik Güvencesi:** Kullanıcı notları `<user_input>` etiketleri içinde verilerek prompt injection engellenir.
+* **Hız Sınırı:** Kullanıcı başına dakika/gün limitleri (env: `AI_MINUTE_LIMIT_PER_USER`, `AI_DAILY_LIMIT_PER_USER`); 429 + `Retry-After`.
+* **Hata Semantiği:** Sağlayıcı hatası → 502 "AI sağlayıcısı geçici olarak yanıt vermedi"; yapılandırma eksik → 503 "AI servisi kullanılabilir değil"; sağlayıcı yanıtı/anahtar **istemciye sızdırılmaz** (loglarda maske + 300 char kırpma).
 
 ---
 
@@ -195,5 +197,5 @@ FutureWallet/
 | :--- | :--- | :--- |
 | **Sprint 1** ✅ | **Güvenlik, Altyapı & PocketBase Geçişi:** Auth/JWT katmanı, CSP/ALLOWED_ORIGINS, PB koleksiyon şemaları, SQLAlchemy → PB senkron Client migrasyonu, docker-compose tanımları, asset_symbol regex doğrulaması (Pydantic field_validator). *(web UI innerHTML→textContent temizliği Sprint 4/P14'te tamamlandı.)* | 1 Hafta |
 | **Sprint 2** ✅ | **Reel Değerleme, Benchmark & Gölge Portföy:** Fiyat servisi (yfinance + ccxt + PB cache), time-travel endpoint, EVDS/TÜFE entegrasyonu, Gram Altın formülü, benchmark endpoint, gölge portföy otomatik oluşturma (karar anında HELD_INSTEAD/BOUGHT_INSTEAD), POST/GET/DELETE shadow-positions endpoint'leri, fırsat maliyeti hesabı. | 1 Hafta |
-| **Sprint 3** ✅ | **OpenRouter AI & Makro Simülasyon:** OpenRouter client (fallback zinciri: claude-3.5-sonnet → gemini-2.0-flash → deepseek-r1), model fallback, karar retrospektifi endpoint, Monte Carlo (drift düzeltmeli GBM), histogram (40 kutu), POST /api/simulation/stress-test, POST /api/simulation/narrative, AI risk anlatısı endpoint. | 1 Hafta |
+| **Sprint 3** ✅ | **OpenRouter AI & Makro Simülasyon:** OpenRouter client (fallback zinciri: `OPENROUTER_MODELS` env değişkeni ile yapılandırılır, örn. claude-3.5-sonnet → gemini-2.0-flash → deepseek-r1), model fallback, karar retrospektifi endpoint, Monte Carlo (drift düzeltmeli GBM), histogram (40 kutu), POST /api/simulation/stress-test, POST /api/simulation/narrative, AI risk anlatısı endpoint. | 1 Hafta |
 | **Sprint 4** ✅ | **Web Arayüzü & Yayına Hazırlık:** requirements kilidi + pip-audit + Docker; PB login akışı, histogram çizgileri ve CSP temizliği (P14) canlı tarayıcı E2E ile doğrulandı; USD/TRY para birimi seçicisi Monte Carlo API `currency` alanına dinamik bağlı (P9). | 1 Hafta |

@@ -18,7 +18,7 @@ from typing import Any
 from services.asset_types import guess_asset_type
 from services.decision_service import get_decision
 from services.multi_asset_manager import AssetManager
-from services.pb import get_client
+from services.pb import admin_create, get_client
 from services.price_service import get_price_on
 
 logger = logging.getLogger(__name__)
@@ -81,9 +81,7 @@ def create_shadow_position(
     if entry_price < 0 or quantity < 0:
         raise ValueError("entry_price ve quantity >= 0 olmalıdır")
 
-    client = get_client()
     data = {
-        "user": user_id,
         "decision": decision_id,
         "asset_symbol": asset_symbol.upper(),
         "shadow_type": shadow_type,
@@ -95,7 +93,7 @@ def create_shadow_position(
     if exit_date:
         data["exit_date"] = f"{exit_date.isoformat()} 00:00:00.000Z"
 
-    rec = client.collection("shadow_portfolios").create(data)
+    rec = admin_create("shadow_portfolios", data, user_id)
     return {
         "id": rec.id,
         "user": getattr(rec, "user", user_id),
