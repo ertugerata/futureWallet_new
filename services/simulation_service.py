@@ -352,6 +352,40 @@ def monte_carlo_simulation(
         "counts": [int(x) for x in hist],
     }
 
+    # VaR / CVaR hesaplama (P7)
+    # VaR: Value at Risk (kayıp perspektifinden - negatif getiri)
+    # CVaR: Conditional VaR (VaR'ı aşan kayıpların ortalaması)
+    var_95 = None
+    var_99 = None
+    cvar_95 = None
+    cvar_99 = None
+
+    if len(final_values) > 0:
+        initial = total_initial
+        # Loss = initial - final_value (pozitif = kayıp)
+        losses = initial - final_values
+        losses_sorted = np.sort(losses)
+
+        # VaR 95% = 5. percentile loss
+        var_95 = round(float(np.percentile(losses, 5)), 2)
+        # VaR 99% = 1. percentile loss
+        var_99 = round(float(np.percentile(losses, 1)), 2)
+
+        # CVaR 95% = losses beyond VaR 95% mean
+        var_95_threshold = np.percentile(losses, 5)
+        tail_losses_95 = losses[losses >= var_95_threshold]
+        if len(tail_losses_95) > 0:
+            cvar_95 = round(float(tail_losses_95.mean()), 2)
+
+        # CVaR 99% = losses beyond VaR 99% mean
+        var_99_threshold = np.percentile(losses, 1)
+        tail_losses_99 = losses[losses >= var_99_threshold]
+        if len(tail_losses_99) > 0:
+            cvar_99 = round(float(tail_losses_99.mean()), 2)
+    else:
+        # No final values case
+        var_95 = var_99 = cvar_95 = cvar_99 = None
+
     data_quality = "estimated" if missing_data_warning else "ok"
     currency = infer_portfolio_currency(asset_symbols)
 
@@ -368,6 +402,12 @@ def monte_carlo_simulation(
         "total_initial_value": round(total_initial, 2),
         "currency": currency,
         "data_quality": data_quality,
+        "risk": {
+            "var_95": var_95,
+            "var_99": var_99,
+            "cvar_95": cvar_95,
+            "cvar_99": cvar_99,
+        },
     }
 
 
