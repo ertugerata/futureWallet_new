@@ -1,7 +1,9 @@
 # 🚀 FutureWallet
+![Tests](https://img.shields.io/badge/Tests-113%2F113%20%2B%2010%20hardening-brightgreen)
+![Python](https://img.shields.io/badge/Python-3.11+-blue)
+![License](https://img.shields.io/badge/License-MIT-green)
 
 > **Bireysel Yatırımcılar İçin Akıllı Portföy, Karar Günlüğü ve Makro Simülasyon Sistemi**
-
 FutureWallet, geleneksel portföy takip uygulamalarının ötesine geçerek yatırımcıların **karar alma süreçlerini**, **reel satın alma güçlerini** ve **geleceğe yönelik makro senaryolarını** takip etmelerini sağlayan açık kaynaklı bir karar destek platformudur.
 
 ---
@@ -21,9 +23,9 @@ Piyasadaki uygulamalar yalnızca *"Şu an ne kadar paranız var?"* sorusuna yan�
 
 - 📜 **Event Sourcing & İşlem Defteri (Ledger):** Tüm alım, satım, temettü ve nakit hareketlerinin zaman damgalı kaydı. İstenen geçmiş tarihe dönük anlık portföy snapshot'ı alma.
 - 📓 **Karar Günlüğü (Decision Journal):** İşlem anında strateji notu ve duygu durumu kaydı (FOMO, STRATEGIC, PANIC, DIVIDEND, OPPORTUNITY). Vade sonunda AI destekli karar retrospektifi (Post-Mortem).
-- 📉 **Reel Değerleme & Benchmark Engine:** TÜİK TÜFE, US CPI, Gram Altın ve S&P 500 ile enflasyondan arındırılmış reel getiri ve alpha analizi.
+- 📉 **Reel Değerleme & Benchmark Engine:** TÜİK TÜFE, US CPI, Gram Altın, S&P 500 ve **Konut Fiyat Endeksi (EVDS)** ile enflasyondan arındırılmış reel getiri ve alpha analizi.
 - 🔀 **Gölge Portföy (Counterfactual Engine):** Alınmayan (BOUGHT_INSTEAD) veya erken satılan (HELD_INSTEAD) kararların alternatif senaryolarla fırsat maliyeti takibi.
-- 🎲 **Monte Carlo & Makro Stres Testi Motoru:** Varlık korelasyonlu geometrik Brownian hareketi (GBM), makro şok senaryoları (faiz, kur şoku, piyasa çöküşü) ve LLM destekli durum analizi. `currency` çıktısı varlık tabanına göre dinamik (BIST/TL → TRY, kripto/ABD/emtia → USD; karışık sepette çoğunluk).
+- 🎲 **Monte Carlo & Makro Stres Testi Motoru:** Varlık korelasyonlu geometrik Brownian hareketi (GBM), makro şok senaryoları (faiz, kur şoku, piyasa çöküşü) ve LLM destekli durum analizi. `currency` çıktısı varlık tabanına göre dinamik (BIST/TL → TRY, kripto/ABD/emtia → USD; karışık sepette çoğunluk). **VaR/CVaR (95/99) risk metrikleri** Monte Carlo çıktısında dahil.
 
 ---
 
@@ -110,7 +112,8 @@ Hassas anahtarlar ve ortam değişkenleri `.env` dosyası üzerinden yapılandı
 | `ENABLE_SCHEDULER` | APScheduler açık/kapalı | `true` | Hayır |
 | `TCMB_API_KEY` | TCMB EVDS API anahtarı | `""` | TÜFE benchmark için |
 | `FRED_API_KEY` | FRED API anahtarı | `""` | US CPI benchmark için |
-| `DEBUG` | Geliştirici modu; `/docs` ve `/openapi.json` bunu açar | `false` | Hayır |
+| `AUTO_RETROSPECTIVE` | Otomatik retrospektif aktif/pasif (EXPIRED kararlar için) | `false` | Hayır |
+| `AUTO_RETROSPECTIVE_DAILY_LIMIT` | Otomatik retrospektif günlük kullanıcı limiti | `10` | Hayır |
 | `APP_HOST` / `APP_PORT` | Uvicorn bind hedefi (`uvicorn` CLI kullanılıyorsa CLI geçerli) | `127.0.0.1` / `8000` | Hayır |
 
 > **Fail-Closed Güvenlik Notu:** `POCKETBASE_EMAIL`/`POCKETBASE_PASSWORD` boşsa uygulama import aşamasında RuntimeError ile başlar.
@@ -177,12 +180,11 @@ ruff format --check .
 mypy api services config.py web_app
 
 # Testleri çalıştırma (PocketBase binary'si tests/conftest.py tarafından
-# otomatik indirilir ve pb_bin/ içinde önbelleklenir) — mevcut durum: 101/101
+# otomatik indirilir ve pb_bin/ içinde önbelleklenir) — mevcut durum: 113/113 + 10 hardening
 pytest -q
 
-# Yalnızca PocketBase entegrasyon testleri
-pytest -m pb -q
-```
+# Hardening regresyon testleri (P8 formatında)
+pytest tests/test_hardening.py -q
 
 CI (`.github/workflows/ci.yml`) bu adımların tamamını + ayrı `python -c "import api.app"` duman adımı, `pip-audit` ve docker build'i koşar.
 
