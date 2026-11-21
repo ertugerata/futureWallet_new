@@ -56,20 +56,20 @@
 - [x] Hata sızıntısı kapatıldı: `AIGenerationError(public_message, detail)`; endpoint'ler **sabit güvenli mesaj** döner (`502: "AI sağlayıcısı geçici olarak yanıt vermedi"`, `503: "AI servisi kullanılabilir değil"`); detay loglanır (anahtar/URL maske, 300 char). `benchmarks/stress-test/narrative` 500/str(e) → genel mesaja çevrildi.
 - [x] Narrative girdisi: boyut (16 KB) ve derinlik kontrolü (P4 adım 4 notu, mevcut sanitizer yeterli).
 
-### P5 – Value-Series DoS (ORTA) – Kısmen
+### P5 – Value-Series DoS (ORTA) – Tamamlandı
 - [x] Nokta sayısı **döngüden ÖNCE** aritmetikle hesaplanır (daily/weekly/monthly); >400 → 422.
 - [x] Aralık sınırları: `start_date >= 1900`, max 20 yıl, `step` Literal doğrulaması.
 - [x] OverflowError önlendi (yıl 9999 hatası).
-- [ ] N+1 kaldırma (toplu snapshot + fiyat cache) — ORTA, ertelendi.
-- [ ] Value-series hız sınırı (dk 10) — ORTA, ertelendi.
+- [x] N+1 kaldırma: `get_portfolio_snapshots` toplu fonksiyon + `get_prices_bulk` fiyat cache; tek PB sorgusu + toplu fiyat çekimi.
+- [x] Value-series hız sınırı: dakikada 10 istek (`_check_ai_rate_limit`), 429 + `Retry-After`.
 
-### P6 – CSP / Health / Ölü Kod (ORTA) – Kısmen
+### P6 – CSP / Health / Ölü Kod (ORTA) – Tamamlandı
 - [x] CSP hardened (jsdelivr yok, Chart.js yerel, frame-ancestors/deny, HSTS, Permissions-Policy).
 - [x] `/health` gerçek PB check.
 - [x] `_init_pocketbase` subprocess migrate kısmı silindi (sadece `verify_collections`).
-- [ ] `_user_locks` LRU/WeakValueDictionary — ORTA, ertelendi (mevcut defaultdict testlerde büyümez).
-- [ ] Enum tekilleştirme (`services/enums.py` → Literal) — ORTA, ertelendi.
-- [ ] EVDS anahtar başlık/parametre doğrulama — ORTA, ertelendi.
+- [x] `_user_locks` LRU cache (`OrderedDict`, max 1024, thread-safe) — sınırlı boyut.
+- [x] Enum tekilleştirme: `services/enums.py` → `Literal[Enum.VALUE]` (Action, Sentiment, DecisionStatus, ShadowType, TransactionType).
+- [x] EVDS anahtar: TCMB EVDS API `key=` sorgu parametresi olarak doğrulandı (resmi dokümantasyona göre); HTTPS zorunlu, loglanmıyor.
 
 ### P7 – MVP Kapsam / Doküman Senkron (ORTA)
 - [x] `MVP.md`: OpenRouter modelleri "örnek / env ile ayarlanır" olarak güncellendi; PB write rules null notu eklendi.
@@ -102,9 +102,5 @@
 
 ## 🔜 Kalan / Ertelenen (ORTA / Faz 2)
 
-1. **P5 N+1 & hız sınırı**: `get_portfolio_snapshots` toplu fonksiyon + fiyat cache; value-series rate limit (dk 10).
-2. **P6 `_user_locks`**: LRU/WeakValueDictionary ile sınırlı boyut.
-3. **P6 Enum tekilleştirme**: `services/enums.py` → `Literal[*]` / Pydantic Enum.
-4. **P6 EVDS anahtar**: Resmî dokümana göre header/parametre doğrulama.
-5. **P7 Kapsam kararları**: ENAG (Faz 2), Ev-Kira (EVDS housing index / Faz 2), VaR/CVaR (Monte Carlo kuyruk ort. / Faz 2).
-6. **P8 Otomatik retrospektif**: `AUTO_RETROSPECTIVE` flag + scheduler adımı (Faz 2).
+1. **P7 Kapsam kararları**: ENAG (Faz 2), Ev-Kira (EVDS housing index / Faz 2), VaR/CVaR (Monte Carlo kuyruk ort. / Faz 2).
+2. **P8 Otomatik retrospektif**: `AUTO_RETROSPECTIVE` flag + scheduler adımı (Faz 2).

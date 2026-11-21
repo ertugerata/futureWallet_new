@@ -82,8 +82,16 @@ from services.decision_service import (
 from services.decision_service import (
     update_decision as svc_update_decision,
 )
+from services.enums import (
+    Action,
+    DecisionStatus,
+    Sentiment,
+    ShadowType,
+    TransactionType,
+)
 from services.ledger_service import (
     InsufficientBalanceError,
+    get_portfolio_snapshots,
     time_travel_portfolio,
 )
 from services.ledger_service import (
@@ -212,11 +220,11 @@ class DecisionCreateRequest(BaseModel):
         max_length=20,
         description="Varlık sembolü (örn: BTC, GC=F, THYAO.IS)",
     )
-    action: Literal["BUY", "SELL", "HOLD"]
+    action: Literal[Action.BUY, Action.SELL, Action.HOLD]
     rationale: str | None = Field(
         None, max_length=5000, description="Karar gerekçesi (max 5000 karakter)"
     )
-    sentiment: Literal["FOMO", "STRATEGIC", "PANIC", "DIVIDEND", "OPPORTUNITY"] | None = Field(
+    sentiment: Literal[Sentiment.FOMO, Sentiment.STRATEGIC, Sentiment.PANIC, Sentiment.DIVIDEND, Sentiment.OPPORTUNITY] | None = Field(
         None,
         description="FOMO | STRATEGIC | PANIC | DIVIDEND | OPPORTUNITY",
     )
@@ -273,7 +281,7 @@ class ShadowPositionCreateRequest(BaseModel):
         max_length=20,
         description="Varlık sembolü",
     )
-    shadow_type: Literal["HELD_INSTEAD", "BOUGHT_INSTEAD"] = Field(
+    shadow_type: Literal[ShadowType.HELD_INSTEAD, ShadowType.BOUGHT_INSTEAD] = Field(
         ..., description="HELD_INSTEAD | BOUGHT_INSTEAD"
     )
     entry_date: date | None = Field(None, description="Giriş tarihí (ISO YYYY-MM-DD; yoksa bugün)")
@@ -303,7 +311,7 @@ class DecisionUpdateRequest(BaseModel):
     rationale: str | None = Field(
         None, max_length=5000, description="Yeni gerekçе (max 5000 karakter)"
     )
-    sentiment: Literal["FOMO", "STRATEGIC", "PANIC", "DIVIDEND", "OPPORTUNITY"] | None = Field(
+    sentiment: Literal[Sentiment.FOMO, Sentiment.STRATEGIC, Sentiment.PANIC, Sentiment.DIVIDEND, Sentiment.OPPORTUNITY] | None = Field(
         None, description="FOMO | STRATEGIC | PANIC | DIVIDEND | OPPORTUNITY"
     )
     target_price: float | None = Field(None, gt=0)
@@ -344,10 +352,10 @@ DecisionUpdateRequest.model_rebuild()
 
 
 class DecisionsListRequest(BaseModel):
-    status: Literal["OPEN", "REVIEWED", "EXPIRED", "CLOSED"] | None = None
+    status: Literal[DecisionStatus.OPEN, DecisionStatus.REVIEWED, DecisionStatus.EXPIRED, DecisionStatus.CLOSED] | None = None
     sentiment: str | None = None
     asset_symbol: str | None = None
-    action: Literal["BUY", "SELL", "HOLD"] | None = None
+    action: Literal[Action.BUY, Action.SELL, Action.HOLD] | None = None
 
 
 DecisionsListRequest.model_rebuild()
@@ -666,7 +674,6 @@ def portfolio_real_valuation(
     result["current_market"] = get_current_market_prices()
     return result
 
-
 @app.get("/api/portfolio/value-series", dependencies=[Depends(get_current_user)])
 def portfolio_value_series(
     request: Request,
@@ -674,7 +681,7 @@ def portfolio_value_series(
     end_date: date = Query(..., description="Bitiş tarihi (ISO YYYY-MM-DD)"),
     step: str = Query("daily", description="daily | weekly | monthly"),
 ):
-    """Belirtilen tarih aralığında portföy değerleri serisi (Prompt 9).
+    """Belirtilen tarih aralığında portföy değerleri serisi (Prompt 9, P5: bulk snapshots).
 
     Returns:
         {
@@ -686,6 +693,8 @@ def portfolio_value_series(
             "currency": "TRY" | "USD" (varlık tabanına göre dinamik, P9)
         }
     """
+    from services.ai_service import _check_ai_rate_limit
+
     user_id = _extract_user_id(request)
 
     if start_date > end_date:
@@ -717,6 +726,11 @@ def portfolio_value_series(
             f"Nokta sayısı ({point_count}) sınırı aştı (maksimum 400). Lütfen step parametresini büyütün veya aralığı daraltın.",
         )
 
+    # Value-series rate limit (P5: dk 10)
+    allowed, retry_after = _check_ai_rate_limit(user_id, "value_series")
+    if not allowed:
+        raise HTTPException(status_code=429, detail="Value-series hız sınırı aşıldı", headers={"Retry-After": str(retry_after)})
+
     # Tarih aralığını step'e göre filtrele (artık güvenli)
     dates = []
     current = start_date
@@ -736,13 +750,17 @@ def portfolio_value_series(
             dates.append(current)
             current += timedelta(days=1)
 
-    # Her tarihte snapshot al; nakit kovası dışında tutulan sembolleri biriktir (P9 currency)
+    # Toplu snapshot hesapla (P5: N+1 elimination)
+    snapshots = get_portfolio_snapshots(user_id=user_id, dates=dates)
+
+    # Series oluştur; nakit kovası dışında tutulan sembolleri biriktir (P9 currency)
     series = []
     syms: set[str] = set()
     for d in dates:
-        snap = srv_get_portfolio_snapshot(user_id=user_id, as_of=d)
-        series.append({"date": d.isoformat(), "value": snap["total_value"]})
-        syms.update(h["asset_symbol"] for h in snap["holdings"] if h.get("type") != "cash")
+        snap = snapshots.get(d)
+        if snap:
+            series.append({"date": d.isoformat(), "value": snap["total_value"]})
+            syms.update(h["asset_symbol"] for h in snap["holdings"] if h.get("type") != "cash")
 
     currency = infer_portfolio_currency(sorted(syms))
 
@@ -1184,7 +1202,7 @@ class TransactionCreateRequest(BaseModel):
         max_length=20,
         description="Varlık sembolü",
     )
-    tx_type: Literal["BUY", "SELL", "DIVIDEND", "CASH_IN", "CASH_OUT"]
+    tx_type: Literal[TransactionType.BUY, TransactionType.SELL, TransactionType.DIVIDEND, TransactionType.CASH_IN, TransactionType.CASH_OUT]
     quantity: float = Field(gt=0, description="Miktar")
     price: float = Field(ge=0, description="Birim fiyat")
     fee: float = Field(ge=0, default=0.0, description="İşlem ücreti")

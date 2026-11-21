@@ -157,14 +157,15 @@ def get_current_market_prices() -> dict[str, float | None]:
 # 2. TÜİK TÜFE (TR enflasyon) – EVDS API (Prompt 11)
 # ---------------------------------------------------------------------------
 
-
 def _evds_fetch_turkey_cpi(
     start: date,
     end: date,
 ) -> pd.DataFrame | None:
     """TCMB EVDS API'sinden TÜFE (TUFE_G_0000000001) serisini çeker.
 
-    GET {EVDS_JSON_URL}?series=...&startDate=...&endDate=...&key={TCMB_API_KEY}
+    Kimlik doğrulama: TCMB EVDS API, API anahtarını sorgu parametresi olarak `key=`
+    bekler (resmi TCMB EVDS API dokümantasyonuna göre). Anahtar URL'de görünür,
+    bu nedenle HTTPS zorunludur ve anahtar loglanmamalıdır.
     """
     if not TCMB_API_KEY:
         return None
