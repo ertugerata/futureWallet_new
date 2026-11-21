@@ -76,6 +76,11 @@ OPENROUTER_MODELS: str = environ.get("OPENROUTER_MODELS", "")
 
 ENABLE_SCHEDULER: bool = environ.get("ENABLE_SCHEDULER", "true").lower() == "true"
 
+# P8: Otomatik retrospektif (EXPIRED kararlar için)
+AUTO_RETROSPECTIVE: bool = environ.get("AUTO_RETROSPECTIVE", "false").lower() == "true"
+# P8: Otomatik retrospektif günlük kullanıcı limiti
+AUTO_RETROSPECTIVE_DAILY_LIMIT: int = int(environ.get("AUTO_RETROSPECTIVE_DAILY_LIMIT", "10"))
+
 
 # ---------------------------------------------------------------------------
 # Piyasa Veri API'leri (benchmark_service için)

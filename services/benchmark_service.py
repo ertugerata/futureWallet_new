@@ -210,6 +210,103 @@ def _evds_fetch_turkey_cpi(
     return pd.DataFrame({"tr_cpi": values}, index=dates)
 
 
+# ---------------------------------------------------------------------------
+# 2b. EVDS Konut Fiyat Endeksi (Housing Price Index) – P7
+# ---------------------------------------------------------------------------
+
+
+# EVDS Konut Fiyat Endeksi serisi (TCMB EVDS)
+KONUT_FIYAT_SERIES = "KONUT_FIYAT_ENDEKSI"
+
+
+def _evds_fetch_housing_index(
+    start: date,
+    end: date,
+) -> pd.DataFrame | None:
+    """TCMB EVDS API'sinden Konut Fiyat Endeksi serisini çeker.
+
+    Kimlik doğrulama: TCMB EVDS API, API anahtarını sorgu parametresi olarak `key=`
+    bekler (resmi TCMB EVDS API dokümantasyonuna göre). Anahtar URL'de görünür,
+    bu nedenle HTTPS zorunludur ve anahtar loglanmamalıdır.
+    """
+    if not TCMB_API_KEY:
+        return None
+
+    params = {
+        "series": KONUT_FIYAT_SERIES,
+        "startDate": start.isoformat(),
+        "endDate": end.isoformat(),
+        "key": TCMB_API_KEY,
+    }
+
+    try:
+        resp = requests.get(EVDS_JSON_URL, params=params, timeout=20)
+        resp.raise_for_status()
+        data = resp.json()
+    except Exception:
+        return None
+
+    records = data.get("records", {})
+    series_data = records.get(KONUT_FIYAT_SERIES, {})
+    items = series_data.get("data", [])
+    if not items:
+        items = data.get("data", [])
+        if not items:
+            return None
+
+    dates: list = []
+    values: list = []
+    for item in items:
+        d = item.get("date")
+        v = item.get("value")
+        if d and v is not None:
+            try:
+                dates.append(datetime.strptime(d, "%Y-%m-%d").date())
+                values.append(float(v))
+            except (ValueError, TypeError):
+                continue
+
+    if not dates:
+        return None
+
+    return pd.DataFrame({"housing_index": values}, index=dates)
+
+
+def fetch_housing_index(
+    start: date,
+    end: date,
+    allow_estimate: bool = False,
+) -> pd.DataFrame:
+    """Türkiye Konut Fiyat Endeksi serisi (aylık).
+
+    allow_estimate=False ve veri yoksa ValueError.
+    """
+    evds = _evds_fetch_housing_index(start, end)
+    if evds is not None and not evds.empty:
+        return evds
+
+    if not allow_estimate:
+        raise ValueError(
+            "Konut Fiyat Endeksi verisi alınamadı: TCMB_API_KEY yapılandırılmamış "
+            "veya EVDS API erişilemez. ?allow_estimate=true ile izleyici seri istenebilir."
+        )
+
+    months = []
+    current = start.replace(day=1)
+    end_moment = end.replace(day=1)
+    while current <= end_moment:
+        months.append(current)
+        if current.month == 12:
+            current = current.replace(year=current.year + 1, month=1)
+        else:
+            current = current.replace(month=current.month + 1)
+
+    return pd.DataFrame(
+        {"housing_index": [100.0] * len(months), "data_quality": "estimated"},
+        index=months,
+    )
+
+
 def fetch_turkey_cpi(
     start: date,
     end: date,
@@ -358,12 +455,13 @@ def fetch_and_save_macro_data(
     save_gold_try_gram: bool = True,
     save_tr_cpi: bool = True,
     save_us_cpi: bool = True,
+    save_housing_index: bool = True,
 ) -> dict[str, int]:
     """Tüm makro verilerini çeker ve PB `macro_data` koleksiyonuna kaydeder.
 
     PB macro_data alanları:
       date, gold_usd, gold_try_gram, sp500, tr_cpi, us_cpi,
-      source, is_estimate
+      housing_index, source, is_estimate
     """
     if start is None:
         start = date.today().replace(year=date.today().year - 1)
@@ -376,6 +474,7 @@ def fetch_and_save_macro_data(
         "gold_try_gram": 0,
         "tr_cpi": 0,
         "us_cpi": 0,
+        "housing_index": 0,
     }
 
     client = get_client()
@@ -444,6 +543,20 @@ def fetch_and_save_macro_data(
                 us_df,
                 "us_cpi",
                 source="FRED",
+                is_estimate=False,
+            )
+        except ValueError:
+            pass
+
+    # Konut Fiyat Endeksi
+    if save_housing_index:
+        try:
+            hi_df = fetch_housing_index(start, end, allow_estimate=False)
+            stats["housing_index"] = _upsert_to_pb(
+                macro,
+                hi_df,
+                "housing_index",
+                source="EVDS/TÜİK",
                 is_estimate=False,
             )
         except ValueError:
@@ -595,8 +708,9 @@ def compare_to_benchmark(
     benchmark_gold: bool = True,
     benchmark_sp500: bool = True,
     benchmark_gold_try_gram: bool = True,
+    benchmark_housing_index: bool = True,
 ) -> dict:
-    """Portföy performansını Altın, Gram Altın TL ve S&P 500 ile kıyaslar.
+    """Portföy performansını Altın, Gram Altın TL, S&P 500 ve Konut Fiyat Endeksi ile kıyaslar.
 
     PB macro_data'den fiyatları çeker; yoksa yfinance'den çeker.
     """
@@ -610,6 +724,7 @@ def compare_to_benchmark(
         "gold_usd": {"price_start": None, "price_end": None, "return_pct": None},
         "gold_try_gram": {"price_start": None, "price_end": None, "return_pct": None},
         "sp500": {"price_start": None, "price_end": None, "return_pct": None},
+        "housing_index": {"price_start": None, "price_end": None, "return_pct": None},
     }
 
     def _get_pb_price(col: str, dt: date) -> float | None:
@@ -665,6 +780,16 @@ def compare_to_benchmark(
                 "return_pct": round((s_end - s_start) / s_start, 6),
             }
 
+    if benchmark_housing_index:
+        hi_start = _get_pb_price("housing_index", date_start)
+        hi_end = _get_pb_price("housing_index", date_end)
+        if hi_start and hi_end and hi_start > 0:
+            out["housing_index"] = {
+                "price_start": hi_start,
+                "price_end": hi_end,
+                "return_pct": round((hi_end - hi_start) / hi_start, 6),
+            }
+
     # P11: alpha = portföy getirisi − benchmark getirisi (mevcut benchmarklar için)
     p_ret = out["portfolio_return_pct"]
     out["alpha"] = {
@@ -674,6 +799,7 @@ def compare_to_benchmark(
     }
 
     return out
+
 
 
 # ---------------------------------------------------------------------------

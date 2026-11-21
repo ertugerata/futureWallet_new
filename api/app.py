@@ -433,9 +433,62 @@ def _run_expire_decisions() -> None:
     except Exception as exc:
         logger.error("expire_decisions job başarısız: %s", exc)
 
+def _run_auto_retrospective() -> None:
+    """EXPIRED ve retrospektifi olmayan kararlar için otomatik retrospektif üretir (P8)."""
+    if not config.AUTO_RETROSPECTIVE:
+        return
+
+    from services.decision_service import generate_ai_retrospective
+    from services.pb import get_admin_client
+
+    try:
+        admin = get_admin_client()
+        # EXPIRED ve retrospektifi olmayan kararları bul
+        records = admin.collection("decisions").get_full_list(
+            query_params={
+                "filter": "status = 'EXPIRED' && ai_retrospective = ''",
+                "sort": "target_date",
+            }
+        )
+
+        processed = 0
+        for record in records:
+            user_id = getattr(record, "user", None)
+            if not user_id:
+                continue
+
+            # Kullanıcı başına günlük limit kontrolü
+            from services.ai_service import _check_ai_rate_limit
+            allowed, _ = _check_ai_rate_limit(user_id, "auto_retrospective")
+            if not allowed:
+                logger.warning("Kullanıcı %s: otomatik retrospektif günlük limiti aşıldı", user_id)
+                continue
+
+            decision_id = getattr(record, "id", None)
+            if not decision_id:
+                continue
+
+            try:
+                result = generate_ai_retrospective(
+                    decision_id,
+                    api_key=config.OPENROUTER_API_KEY,
+                )
+                if result:
+                    processed += 1
+                    logger.info("Otomatik retrospektif üretildi: decision=%s user=%s", decision_id, user_id)
+                else:
+                    logger.warning("Otomatik retrospektif üretilemedi: decision=%s", decision_id)
+            except Exception as exc:
+                logger.error("Otomatik retrospektif hatası (decision=%s): %s", decision_id, exc)
+
+        logger.info("auto_retrospective job: %d retrospektif üretildi", processed)
+    except Exception as exc:
+        logger.error("auto_retrospective job başarısız: %s", exc)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+
     global _scheduler
     # Fail-closed: PB admin credential'ları config import'unda zorunlu (RuntimeError).
     # PocketBase koleksiyonlarını başlat
