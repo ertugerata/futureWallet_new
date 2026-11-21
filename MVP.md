@@ -15,7 +15,7 @@ Piyasadaki geleneksel varlık takip uygulamalarından farklı olarak FutureWalle
 
 ### Piyasadaki Uygulamalardan Farkı
 
-1. **Reel Büyüme (Inflation-Adjusted Worth):** Portföyü nominal değerinin yanı sıra TÜİK/ENAG TÜFE, US CPI, Gram Altın ve S&P 500 bazında reel satın alma gücüyle ölçer.
+1. **Reel Büyüme (Inflation-Adjusted Worth):** Portföyü nominal değerinin yanı sıra TÜİK TÜFE ve US CPI, Gram Altın ve S&P 500 bazında reel satın alma gücüyle ölçer.
 2. **Karar Günlüğü (Decision Journaling & Sentiment):** Alım/satım kararlarındaki psikolojiyi (FOMO, Panik, Stratejik vb.) kaydeder ve 3/6 ay sonra AI destekli kararlılık retrospektifi sunar.
 3. **Gölge Portföy (Counterfactual Engine):** "O hisseyi satmayıp tutsaydım ne olurdu?" sorusunu paralel bir gölge portföy ile yanıtlar.
 4. **Makro Simülasyon (Stress Testing & Monte Carlo):** Faiz artışı, kur şoku veya küresel durgunluk gibi makro senaryolar altında portföy risk haritasını çıkarır.
@@ -62,7 +62,7 @@ Piyasadaki geleneksel varlık takip uygulamalarından farklı olarak FutureWalle
 ### 3.4. Modül 4: Reel Satın Alma Gücü & Multi-Benchmark
 
 * **Nominal vs. Reel Getiri:** TÜİK TÜFE ve US CPI verileriyle enflasyondan arındırılmış net getiri (Real Return).
-* **Varlık Sepet Katsayısı:** Portföyün Gram Altın, S&P 500 ve Ortalama Ev/Kira katsayısı cinsinden değişimi.
+* **Varlık Sepet Katsayısı:** Portföyün Gram Altın, S&P 500 ve konut fiyat endeksi (EVDS) cinsinden değişimi; kira endeksi Faz 2.
 
 ### 3.5. Modül 5: Monte Carlo & AI Senaryo Motoru
 
@@ -111,7 +111,7 @@ FutureWallet/
 |  PocketBase Server    |        |  FastAPI Backend      |
 |  - REST API & WebSockets       |  - Ledger & Snapshot  |
 |  - Auth & RLS         |<------>|  - Real Valuation     |
-|  - SQLite Storage     |        |  - Monte Carlo & VaR  |
+|  - PocketBase Storage     |        |  - Monte Carlo & VaR  |
 +-----------------------+        |  - OpenRouter AI      |
                                  +-----------+-----------+
                                              |
@@ -175,7 +175,7 @@ FutureWallet/
 
 ### 5.4. `macro_data` & `price_history`
 
-* **macro_data:** Tarihsel TÜFE/CPI serileri (`date`, `gold_try`, `gold_usd`, `sp500`, `tr_cpi`, `us_cpi`).
+\* **macro_data:** Tarihsel TÜFE/CPI serileri (`date`, `gold_try_gram`, `gold_usd`, `sp500`, `tr_cpi`, `us_cpi`, `housing_index`, `source`, `is_estimate`).
 * **price_history:** Varlık sembollerinin günlük/tarihsel fiyat önbellekleri (cache).
 
 ---
@@ -199,3 +199,22 @@ FutureWallet/
 | **Sprint 2** ✅ | **Reel Değerleme, Benchmark & Gölge Portföy:** Fiyat servisi (yfinance + ccxt + PB cache), time-travel endpoint, EVDS/TÜFE entegrasyonu, Gram Altın formülü, benchmark endpoint, gölge portföy otomatik oluşturma (karar anında HELD_INSTEAD/BOUGHT_INSTEAD), POST/GET/DELETE shadow-positions endpoint'leri, fırsat maliyeti hesabı. | 1 Hafta |
 | **Sprint 3** ✅ | **OpenRouter AI & Makro Simülasyon:** OpenRouter client (fallback zinciri: `OPENROUTER_MODELS` env değişkeni ile yapılandırılır, örn. claude-3.5-sonnet → gemini-2.0-flash → deepseek-r1), model fallback, karar retrospektifi endpoint, Monte Carlo (drift düzeltmeli GBM), histogram (40 kutu), POST /api/simulation/stress-test, POST /api/simulation/narrative, AI risk anlatısı endpoint. | 1 Hafta |
 | **Sprint 4** ✅ | **Web Arayüzü & Yayına Hazırlık:** requirements kilidi + pip-audit + Docker; PB login akışı, histogram çizgileri ve CSP temizliği (P14) canlı tarayıcı E2E ile doğrulandı; USD/TRY para birimi seçicisi Monte Carlo API `currency` alanına dinamik bağlı (P9). | 1 Hafta |
+---
+
+## 8. Bilinen Sınırlar / Faz 2
+
+Aşağıdaki konular MVP kapsamı **dışındadır** ve **Faz 2'ye** planlanmıştır:
+
+| Konu | Durum | Not |
+|---|---|---|
+| **ENAG TÜFE** | Faz 2 / Kapsam Dışı | TÜİK'in resmi TÜFE verisi kapsar; ENAG'ın resmi bir API'si olmadığı için kullanıcı yüklemeli opsiyonel seri olarak düşünülebilir. |
+| **Ev/Kira Katsayısı** | Faz 2 | EVDS konut fiyat endeksi (`housing_index`) eklendi; kira endeksi ayrı bir seri olarak Faz 2'de ele alınacak (EVDS konut fiyat endeksi serisiyle). |
+| **VaR/CVaR** | Monte Carlo'da eklendi (v5 P1) | Risk metrikleri (`var_95`, `var_99`, `cvar_95`, `cvar_99`) Monte Carlo çıktısına eklendi; UI kartlarında gösteriliyor. |
+| **Çok Worker Dağıtım** | Faz 2 | `WEB_CONCURRENCY>1` zamanlayıcı ve hız sınırı (AI, value-series) tek leader şartı gerektirir; Paylaşımlı Redis/DB ile merkezi rate limit gerekir. |
+| **Otomatik Retrospektif** | Yapılandırma hazır (v5 P6) | `AUTO_RETROSPECTIVE=true` iken scheduler job çalışır; varsayılan `false` (opsiyonel). |
+
+---
+
+## 9. Lisans
+
+MIT License — Detaylar için `LICENSE.md` dosyasına bakınız.

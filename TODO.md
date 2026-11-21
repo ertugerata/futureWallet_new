@@ -1,8 +1,8 @@
 # FutureWallet – TODO & Sprint Takip Listesi (v6 – 2026-11-21 doğrulanmış durum)
 
-> **Kaynak & Dayanak:** Durum tespiti Graphify bilgi grafiği (`graphify-out/`) ve gerçek PocketBase (v0.40.6) test koşusu ile yapıldı. Kapanan v3 denetiminin ham prompt dosyaları (`FUTUREWALLET_DUZELTME_PROMPTLARI.md`, `SPRINT_PLANI_KALANLAR.md`, `GUNCEL_IS_PLANI.md`) 2026-11-17'de arşivden kaldırıldı — geçmişleri git log'da. v4 sertleştirme çalışması (`feat/v4-critical-hardening` dalı) 2026-11-21'de tamamlandı.
+> **Kaynak & Dayanak:** Durum tespiti Graphify bilgi grafiği (`graphify-out/`) ve gerçek PocketBase (v0.40.6) test koşusu ile yapıldı. Kapanan v3 denetiminin ham prompt dosyaları (`FUTUREWALLET_DUZELTME_PROMPTLARI.md`, `SPRINT_PLANI_KALANLAR.md`, `GUNCEL_IS_PLANI.md`) 2026-11-17'de arşivden kaldırıldı — geçmişleri git log'da. v4 sertleştirme çalışması (`feat/v4-critical-hardening` dalı) 2026-11-21'de tamamlandı. **v5 doğrulaması sırasında 9 yeni hata bulundu** (Prompt 1-9).
 > **Temel İlke (Prompt 0):** Yalnızca gerçek PocketBase entegrasyon testinden geçen maddeler `[x]` yapılabilir.
-> **Doğrulama kanıtı:** `pytest tests` → **113/113 geçti** (tek oturum, gerçek PB sunucusu ile; v4 hardening testleri dahil); `ruff check .` ve `ruff format --check .` temiz; `mypy api services config.py web_app` (gevşek mod) hatasız; `python -c "import api.app"` başarılı. Sertleştirme regresyon testleri (`tests/test_hardening.py`) 10/10 yeşil.
+> **Doğrulama kanıtı:** `pytest tests` → **113/113 geçti** (tek oturum, gerçek PB sunucusu ile; v4 hardening testleri dahil); `ruff check .` ve `ruff format --check .` **25 hata / 11 dosya format hatası** (v5 P5); `mypy api services config.py web_app` (gevşek mod) hatasız; `python -c "import api.app"` başarılı. Sertleştirme regresyon testleri (`tests/test_hardening.py`) 10/10 yeşil.
 
 ---
 
@@ -56,26 +56,28 @@
 - [x] Hata sızıntısı kapatıldı: `AIGenerationError(public_message, detail)`; endpoint'ler **sabit güvenli mesaj** döner (`502: "AI sağlayıcısı geçici olarak yanıt vermedi"`, `503: "AI servisi kullanılabilir değil"`); detay loglanır (anahtar/URL maske, 300 char). `benchmarks/stress-test/narrative` 500/str(e) → genel mesaja çevrildi.
 - [x] Narrative girdisi: boyut (16 KB) ve derinlik kontrolü (P4 adım 4 notu, mevcut sanitizer yeterli).
 
-### P5 – Value-Series DoS (ORTA) – Tamamlandı
+### P5 – Value-Series DoS (ORTA) – **KISMEN TAMAMLANDI** (v5 P2'de eksik bulundu)
 - [x] Nokta sayısı **döngüden ÖNCE** aritmetikle hesaplanır (daily/weekly/monthly); >400 → 422.
 - [x] Aralık sınırları: `start_date >= 1900`, max 20 yıl, `step` Literal doğrulaması.
 - [x] OverflowError önlendi (yıl 9999 hatası).
-- [x] N+1 kaldırma: `get_portfolio_snapshots` toplu fonksiyon + `get_prices_bulk` fiyat cache; tek PB sorgusu + toplu fiyat çekimi.
+- [ ] **EKSİK (v5 P2):** N+1 kaldırma: `get_portfolio_snapshots` toplu fonksiyon + `get_prices_bulk` fiyat cache; tek PB sorgusu + toplu fiyat çekimi.
+- [ ] **EKSİK (v5 P2):** Lookahead ve çift sayım düzeltmesi: işlemleri tek sorgu çekip, tarihe göre sıralayıp, imleçle `tx_date <= target_date` olanları **İLK KEZ** uygulama.
 - [x] Value-series hız sınırı: dakikada 10 istek (`_check_ai_rate_limit`), 429 + `Retry-After`.
 
-### P6 – CSP / Health / Ölü Kod (ORTA) – Tamamlandı
+### P6 – CSP / Health / Ölü Kod (ORTA) – **KISMEN TAMAMLANDI** (v5 P4'de eksik bulundu)
 - [x] CSP hardened (jsdelivr yok, Chart.js yerel, frame-ancestors/deny, HSTS, Permissions-Policy).
 - [x] `/health` gerçek PB check.
 - [x] `_init_pocketbase` subprocess migrate kısmı silindi (sadece `verify_collections`).
 - [x] `_user_locks` LRU cache (`OrderedDict`, max 1024, thread-safe) — sınırlı boyut.
 - [x] Enum tekilleştirme: `services/enums.py` → `Literal[Enum.VALUE]` (Action, Sentiment, DecisionStatus, ShadowType, TransactionType).
 - [x] EVDS anahtar: TCMB EVDS API `key=` sorgu parametresi olarak doğrulandı (resmi dokümantasyona göre); HTTPS zorunlu, loglanmıyor.
+- [ ] **EKSİK (v5 P4):** Chart.js vendor dosyası (`web_app/static/vendor/chart.umd.min.js`) eksik; dashboard.html CDN'den yüklüyor, CSP engelliyor.
 
-### P7 – MVP Kapsam / Doküman Senkron (ORTA)
+### P7 – MVP Kapsam / Doküman Senkron (ORTA) – **ÇELİŞKİLİ** (v5 P8'de düzeltilecek)
 - [x] `MVP.md`: OpenRouter modelleri "örnek / env ile ayarlanır" olarak güncellendi; PB write rules null notu eklendi.
 - [x] `README.md`: Ters proxy + TLS notu; tek worker / `SCHEDULER_LEADER` notu; secret risk notu.
 - [x] `TODO.md` v6: test sayıları 113, v4 hardening özeti eklendi.
-- [ ] ENAG / Ev-Kira / VaR-CVaR kararları — ORTA, Faz 2'ye ertelendi.
+- [ ] **ÇELİŞKİLİ (v5 P8):** ENAG / Ev-Kira / VaR-CVaR kararları — TODO'da "[ ] Faz 2'ye ertelendi" ama VaR/CVaR "eklendi" deniyor; TODO içinde çelişki var.
 
 ---
 
@@ -83,19 +85,27 @@
 
 ```text
 [x] 1. python -c "import api.app" hatasız.
-[x] 2. ruff check . + ruff format --check . sıfır hata.
+[ ] 2. ruff check . + ruff format --check . sıfır hata. (YET: 25 hata / 11 dosya format hatası - v5 P5)
 [x] 3. Boş PB + migration → 7 koleksiyon; izolasyon testleri geçiyor.
 [x] 4. İki farklı kullanıcı birbirinin verisini okuyamıyor (404).
 [x] 5. Repoda changeme / admin@example.com / API_TOKEN yok.
 [x] 6. Snapshot 2 işlem sonrası dolu; cash_received DIVIDEND'i sayıyor.
 [x] 7. Fazla SELL → 409 Conflict.
 [x] 8. Time-travel 5 BTC 30k→60k %100 PnL senaryo testi geçiyor.
-[x] 9. OpenRouter fallback 502/503 semantiği + hız sınırı + hata sızıntısı kapalı testli.
-[x] 10. market_crash %50 kalıcı şok testi geçiyor.
+[ ] 9. OpenRouter fallback 502/503 semantiği + hız sınırı + hata sızıntısı kapalı testli. (v5 P4/P7)
+[ ] 10. market_crash %50 kalıcı şok testi geçiyor. (VaR düzeltmesinden sonra)
 [x] 11. EXPIRED job + refresh_macro job PB üzerinde uçtan uca testli (ilk çalışma <30sn).
-[x] 12. Web UI login → dashboard akışı CSP/konsol hatası olmadan tarayıcıda doğrulandı.
+[ ] 12. Web UI login → dashboard akışı CSP/konsol hatası olmadan tarayıcıda doğrulandı. (Chart.js vendor eklendikten sonra)
 [x] 13. P1–P14 + v4 hardening testleri geçiyor (113/113 + 10/10 hardening).
-[x] 14. Docker compose build → user!=root, .dockerignore pb_data/pb_bin/tests/docs, CSP hardened, /health real PB check.
+[ ] 14. Docker compose build → user!=root, .dockerignore pb_data/pb_bin/tests/docs, CSP hardened, /health real PB check. (v5 P3)
+[ ] 15. VaR/CVaR yön hatası düzeltilmiş (v5 P1).
+[ ] 16. value-series lookahead/çift sayım düzeltilmiş (v5 P2).
+[ ] 17. Chart.js vendor eklenmiş, CSP uyumlu (v5 P4).
+[ ] 17. CI Lint temiz (v5 P5).
+[ ] 18. AUTO_RETROSPECTIVE job + housing_index migration (v5 P6).
+[ ] 19. Hata semantiği düzeltildi, PB/compose sertleştirildi (v5 P7).
+[ ] 18. MVP/TODO senkronize (v5 P8).
+[ ] 19. Regresyon test dosyası + son doğrulama (v5 P9).
 ```
 
 ---
@@ -105,14 +115,65 @@
 1. **P7 Kapsam kararları**: ENAG (Faz 2), Ev-Kira (EVDS housing index / Faz 2), VaR/CVaR (Monte Carlo kuyruk ort. / Faz 2).
 2. **P8 Otomatik retrospektif**: `AUTO_RETROSPECTIVE` flag + scheduler adımı (Faz 2).
 
-## ✅ Tamamlanan Faz 2 (P7 & P8)
+---
 
-### P7 – MVP Kapsam / VaR-CVaR / Housing Index
-- [x] VaR/CVaR: Monte Carlo `risk` objesi (`var_95`, `var_99`, `cvar_95`, `cvar_99`)
-- [x] Housing Index: EVDS `KONUT_FIYAT_ENDEKSI` serisi + migration + benchmark karşılaştırma
-- [x] ENAG: Faz 2'ye ertelendi (kapsam dışı)
+## 🔴 YENİ BULUNAN HATALAR (v5 Doğrulaması) - YAPILACAKLAR
 
-### P8 – Otomatik Retrospektif
-- [x] `AUTO_RETROSPECTIVE` flag (default false) + `AUTO_RETROSPECTIVE_DAILY_LIMIT` (default 10)
-- [x] `_run_auto_retrospective()` scheduler job: EXPIRED+retrospektifsiz kararlar, per-user daily limit
-- [x] `AUTO_RETROSPECTIVE` flag ve user limitlerine saygılı
+| # | İş | Öncelik | Bağımlılık | Tahmin |
+|---|---|---|---|---|
+| 1 | PB Dockerfile checksums.txt (v5 P3) | 🔴 Yüksek | - | 0.5 gün |
+| 2 | VaR/CVaR yön düzeltme (v5 P1) | 🔴 Yüksek | - | 1 gün |
+| 3 | value-series lookahead/çift sayım düzeltme (v5 P2) | 🔴 Yüksek | - | 1.5 gün |
+| 4 | Chart.js vendor + CSP (v5 P4) | 🔴 Yüksek | - | 0.5 gün |
+| 5 | CI Lint (ruff/mypy) (v5 P5) | 🟡 Orta | Kod stabil olunca | 0.5 gün |
+| 6 | AUTO_RETRO job + housing_index migration (v5 P6) | 🟡 Orta | P3, P1, P2 | 1 gün |
+| 7 | Hata semantiği (exception handler) + PB/compose (v5 P7) | 🟡 Orta | Tüm endpoint'ler | 1.5 gün |
+| 8 | MVP/TODO Senkron (v5 P8) | 🟡 Orta | Kod bittikten sonra | 0.5 gün |
+| 9 | Regresyon test dosyası + Son doğrulama (v5 P9) | 🟢 Düşük | En son | 0.5 gün |
+
+---
+
+## 🔄 DÜZELTİLDİ: v4'te "Tamam" İşaretli Ama v5'te Bulunan Eksikler
+
+| v4 Prompt | v4 Durumu | v5 Gerçeği | İşlem |
+|---|---|---|---|
+| P1 Docker | ✅ | P5-3: Build kırık (checksum 404) | P5-3'te düzeltilcek |
+| P2 Scheduler | ✅ | - | Tamam |
+| P3 PB Rules | ✅ | - | Tamam |
+| P4 AI | ✅ | - | Tamam |
+| P5 Value-Series | ✅ | P5-2: N+1/lookahead/çift sayım | P5-2'de düzeltilcek |
+| P6 CSP/Health | ✅ | P5-4: Chart.js vendor eksik | P5-4'te düzeltilcek |
+| - | - | P5-1: VaR/CVaR yön hatası | P5-1'de düzeltilcek |
+| - | - | P5-5: CI Lint | P5-5'te düzeltilcek |
+| - | - | P5-6: AUTO_RETRO/housing | P5-6'da düzeltilcek |
+| - | - | P5-7: Hata semantiği | P5-7'de düzeltilcek |
+| - | - | P5-8: MVP/TODO Sync | P5-8'de düzeltilcek |
+| - | - | P5-9: Regresyon Testler | P5-9'da eklenecek |
+
+---
+
+## 📋 Önerilen Çalışma Sırası
+
+| Sıra | Prompt | Neden Önce | Tahmini Süre |
+|---|---|---|---|
+| 1 | **P5-3** (PB Dockerfile) | Docker build kırık, CI/CD bloklar | 0.5 gün |
+| 2 | **P5-1** (VaR/CVaR) | Bağımsız, kritik risk metriği | 1 gün |
+| 3 | **P5-2** (value-series) | Bağımsız, kritik veri doğruluğu | 1.5 gün |
+| 4 | **P5-4** (Chart.js/CSP) | Bağımsız, UI bloklar | 0.5 gün |
+| 5 | **P5-6** (AUTO_RETRO + housing) | P3 migration + P1/P2 sonrası | 1 gün |
+| 5 | **P5-7** (Hata semantiği + PB/compose) | Tüm endpoint'ler etkilenir | 1.5 gün |
+| 6 | **P5-5** (CI Lint) | Kod stabil olunca | 0.5 gün |
+| 6 | **P5-8** (MVP/TODO Sync) | Kod bittikten sonra | 0.5 gün |
+| 7 | **P5-9** (Regresyon Test + Son Doğrulama) | 🟢 En son | 0.5 gün |
+
+**Toplam Tahmini Süre:** ~8 gün (paralel çalışılabilir kısımlar hariç)
+
+---
+
+## 📌 NOTLAR
+
+1. **v4 "tamam" işaretli maddelerden bazıları v5 doğrulamasında kırık/eksik bulundu** → v5 kaynak alınacak
+2. **Testler DEĞER doğrulamalı olmalı** (Prompt 0 kuralı): sadece HTTP kodu/yapı değil, beklenen sayıyı elle hesaplayıp assert et
+3. **Docker/Tarayıcı adımları gerçek test edilmeli** (Prompt 0 kuralı): statik dosya kontrolü yetmez
+4. **TODO.md'de bir madde sadece ilgili testle kanıtlandığında [x]** olur; "ruff temiz", "docker build [x]" komut çıktısıyla yazılır
+5. **CI/CD:** `ruff==<sürüm>` sabitlensin; pre-commit önerilir
