@@ -18,16 +18,20 @@ RUN mkdir -p /pb_data && chown pbuser:pbgroup /pb_data
 # Set working directory
 WORKDIR /app
 
-# Download PocketBase binary with checksum verification
+# Download PocketBase binary with checksum verification (using checksums.txt)
 RUN set -eux; \
-    URL="https://github.com/pocketbase/pocketbase/releases/download/v${POCKETBASE_VERSION}/pocketbase_${POCKETBASE_VERSION}_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed -e 's/x86_64/amd64/' -e 's/aarch64/arm64/').zip"; \
-    CHECKSUM_URL="${URL}.sha256"; \
+    ARCH="$(uname -m | sed -e 's/x86_64/amd64/' -e 's/aarch64/arm64/')"; \
+    OS="$(uname -s | tr '[:upper:]' '[:lower:]')"; \
+    FILE="pocketbase_${POCKETBASE_VERSION}_${OS}_${ARCH}.zip"; \
+    URL="https://github.com/pocketbase/pocketbase/releases/download/v${POCKETBASE_VERSION}/${FILE}"; \
+    CHECKSUMS_URL="https://github.com/pocketbase/pocketbase/releases/download/v${POCKETBASE_VERSION}/checksums.txt"; \
     curl -fsSL "$URL" -o pocketbase.zip && \
-    curl -fsSL "$CHECKSUM_URL" -o pocketbase.zip.sha256 && \
-    sha256sum -c pocketbase.zip.sha256 && \
+    curl -fsSL "$CHECKSUMS_URL" -o checksums.txt && \
+    EXPECTED_SUM=$(grep "${FILE}" checksums.txt | awk '{print $1}') && \
+    echo "${EXPECTED_SUM}  pocketbase.zip" | sha256sum -c - && \
     unzip pocketbase.zip && \
     chmod +x pocketbase && \
-    rm pocketbase.zip pocketbase.zip.sha256
+    rm pocketbase.zip checksums.txt
 
 # Copy migration scripts into the container
 COPY pb_migrations ./pb_migrations
