@@ -135,6 +135,19 @@ def _start_pocketbase() -> subprocess.Popen:
 def pb_server() -> Generator[None, None, None]:
     """Start a PocketBase server for the entire test session."""
     proc = _start_pocketbase()
+    # Wait for PocketBase to be ready
+    import time
+    import requests
+    for _ in range(30):
+        try:
+            resp = requests.get(f"http://127.0.0.1:{DEFAULT_PORT}/api/health", timeout=1)
+            if resp.status_code == 200:
+                break
+        except Exception:
+            time.sleep(0.5)
+    else:
+        proc.terminate()
+        raise RuntimeError("PocketBase failed to start")
     try:
         yield
     finally:
