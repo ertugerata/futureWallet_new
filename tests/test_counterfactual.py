@@ -182,4 +182,4 @@ def test_track_shadow_rejects_foreign_transaction_link(
         },
         headers=headers,
     )
-    assert dec.status_code == 400
+    assert dec.status_code == 404

@@ -196,3 +196,123 @@ def test_value_series_cash_bucket_does_not_force_usd(api_client, pb_clean, make_
     )
     assert resp.status_code == status.HTTP_200_OK
     assert resp.json()["currency"] == "TRY"
+
+
+# ---------------------------------------------------------------------------
+# P5-2 Golden Test: get_portfolio_snapshots == get_portfolio_snapshot per date
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.pb
+def test_value_series_parity_with_single_snapshot(pb_clean, make_user) -> None:
+    """
+    Golden test: Rastgele sabit seed'li 40 işlem (BUY/SELL/DIVIDEND/CASH_IN, 60 gün)
+    → her günlük tarih için get_portfolio_snapshots(...)[d] ile
+    get_portfolio_snapshot(d) BİREBİR eşit olmalı.
+    Mock price_fn ile deterministik fiyatlar kullanılır.
+    """
+    import random
+    from datetime import date, timedelta
+
+    from services.ledger_service import get_portfolio_snapshot, get_portfolio_snapshots
+    from services.pb import get_client
+
+    user_id, _, _ = make_user("golden_test@futurewallet.test")
+    client = get_client()
+
+    # Deterministic random operations
+    random.seed(42)
+    base_date = date(2024, 1, 1)
+    dates = [base_date + timedelta(days=i) for i in range(60)]
+
+    symbols = ["BTC", "ETH", "THYAO.IS", "AKBNK.IS", "XU100"]
+    tx_types = ["BUY", "SELL", "DIVIDEND", "CASH_IN"]
+
+    # Create transactions
+    for i in range(40):
+        tx_date = random.choice(dates)
+        sym = random.choice(symbols)
+        tx_type = random.choice(tx_types)
+        qty = round(random.uniform(0.1, 10.0), 4)
+        price = round(random.uniform(10, 50000), 2)
+        fee = round(random.uniform(0, 5), 2)
+
+        if tx_type in ("DIVIDEND", "CASH_IN"):
+            sym = "CASH"
+            price = 1.0
+            fee = 0.0
+
+        client.collection("transactions").create(
+            {
+                "user": user_id,
+                "asset_symbol": sym,
+                "type": tx_type,
+                "quantity": qty,
+                "price": price,
+                "fee": fee,
+                "timestamp": (tx_date + timedelta(days=1)).isoformat() + " 00:00:00.000Z",
+                "voided": False,
+            }
+        )
+
+    # Mock price function: deterministic prices based on symbol and date
+    price_map = {
+        "BTC": 50000.0,
+        "ETH": 3000.0,
+        "THYAO.IS": 250.0,
+        "AKBNK.IS": 50.0,
+        "XU100": 5000.0,
+        "CASH": 1.0,
+    }
+
+    def mock_price_fn(sym: str, atype: str, dt: date | None = None) -> float:
+        return price_map.get(sym.upper(), 100.0)
+
+    # Adapter for single snapshot (2-arg price_fn)
+    def mock_price_fn_2arg(sym: str, atype: str) -> float:
+        return mock_price_fn(sym, atype, None)
+
+    # Test all dates
+    for d in dates:
+        bulk = get_portfolio_snapshots(user_id, [d], custom_price_fn=mock_price_fn)
+        single = get_portfolio_snapshot(user_id, d, price_fn=mock_price_fn_2arg)
+
+        # Compare key fields (floating point approx)
+        assert bulk[d]["total_value"] == pytest.approx(single["total_value"]), (
+            f"total_value mismatch at {d}"
+        )
+        assert bulk[d]["total_cost"] == pytest.approx(single["total_cost"]), (
+            f"total_cost mismatch at {d}"
+        )
+        assert bulk[d]["cash_received"] == pytest.approx(single["cash_received"]), (
+            f"cash_received mismatch at {d}"
+        )
+        assert bulk[d]["pnl"] == pytest.approx(single["pnl"]), f"pnl mismatch at {d}"
+        assert bulk[d]["pnl_pct"] == pytest.approx(single["pnl_pct"]), f"pnl_pct mismatch at {d}"
+        assert len(bulk[d]["holdings"]) == len(single["holdings"]), (
+            f"holdings count mismatch at {d}"
+        )
+
+        # Compare each holding
+        bulk_holdings = {h["asset_symbol"]: h for h in bulk[d]["holdings"]}
+        single_holdings = {h["asset_symbol"]: h for h in single["holdings"]}
+        assert set(bulk_holdings.keys()) == set(single_holdings.keys()), (
+            f"holding symbols mismatch at {d}"
+        )
+        for sym, bh in bulk_holdings.items():
+            sh = single_holdings[sym]
+            assert bh["quantity"] == pytest.approx(sh["quantity"]), (
+                f"quantity mismatch for {sym} at {d}"
+            )
+            assert bh["current_value"] == pytest.approx(sh["current_value"]), (
+                f"current_value mismatch for {sym} at {d}"
+            )
+            assert bh["total_cost"] == pytest.approx(sh["total_cost"]), (
+                f"total_cost mismatch for {sym} at {d}"
+            )
+            assert bh["unrealized_pnl"] == pytest.approx(sh["unrealized_pnl"]), (
+                f"unrealized_pnl mismatch for {sym} at {d}"
+            )
+            assert bh["unrealized_pnl_pct"] == pytest.approx(sh["unrealized_pnl_pct"]), (
+                f"unrealized_pnl_pct mismatch for {sym} at {d}"
+            )

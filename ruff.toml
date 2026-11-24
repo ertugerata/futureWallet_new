@@ -45,5 +45,6 @@ allowed-confusables = ["ı", "İ"]
 known-first-party = ["api", "services", "config", "db"]
 
 [format]
+exclude = ["docs", "*.md"]
 quote-style = "double"
 indent-style = "space"

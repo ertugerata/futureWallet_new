@@ -56,7 +56,9 @@ def _sanitize_user_input(text: str, max_len: int = 2000) -> str:
     if not text:
         return ""
     # Etiket kaçırma: <user_input> ve </user_input> dizilerini HTML entity'ye çevir
-    safe = text.replace("<user_input>", "&lt;user_input&gt;").replace("</user_input>", "&lt;/user_input&gt;")
+    safe = text.replace("<user_input>", "&lt;user_input&gt;").replace(
+        "</user_input>", "&lt;/user_input&gt;"
+    )
     truncated = safe[:max_len]
     return f"<user_input>{truncated}</user_input>"
 
@@ -94,7 +96,9 @@ def _check_ai_rate_limit(user_id: str, endpoint: str) -> tuple[bool, int | None]
 
     # Dakikalık pencere (son 60 saniye)
     minute_ago = now - timedelta(seconds=60)
-    _ai_rate_limits[minute_key] = [ts for ts in _ai_rate_limits[minute_key] if ts > minute_ago.timestamp()]
+    _ai_rate_limits[minute_key] = [
+        ts for ts in _ai_rate_limits[minute_key] if ts > minute_ago.timestamp()
+    ]
 
     # Günlük pencere
     day_ago = now - timedelta(days=1)

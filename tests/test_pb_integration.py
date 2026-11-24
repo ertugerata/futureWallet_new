@@ -35,8 +35,8 @@ def test_transaction_crud_and_user_isolation(make_user, api_client) -> None:
     """
     Kullanıcı izolasyonu FastAPI endpoint'leri üzerinden test edilir.
     """
-    user_a_id, token_a, _ = make_user("user_a@test.local", "Pass12345!")
-    user_b_id, token_b, _ = make_user("user_b@test.local", "Pass12345!")
+    _user_a_id, token_a, _ = make_user("user_a@test.local", "Pass12345!")
+    _user_b_id, token_b, _ = make_user("user_b@test.local", "Pass12345!")
     headers_a = {"Authorization": f"Bearer {token_a}"}
     headers_b = {"Authorization": f"Bearer {token_b}"}
 
@@ -71,38 +71,47 @@ def test_transaction_crud_and_user_isolation(make_user, api_client) -> None:
     r = api_client.get(f"/api/transactions/{tx_id}", headers=headers_b)
     assert r.status_code == 404
 
+
 @pytest.mark.pb
 def test_decision_and_shadow_portfolio_cascade(make_user, api_client) -> None:
     """
     Karar ve gölge portföy ilişkisi:
     Karar silindiğinde bağlı gölge pozisyon cascade olarak silinmeli.
     """
-    user_id, token, _ = make_user("dec_user@test.local", "Pass12345!")
+    _user_id, token, _ = make_user("dec_user@test.local", "Pass12345!")
     headers = {"Authorization": f"Bearer {token}"}
 
     # Karar oluştur (FastAPI endpoint)
-    r = api_client.post("/api/decisions", headers=headers, json={
-        "asset_symbol": "THYAO.IS",
-        "action": "BUY",
-        "sentiment": "STRATEGIC",
-        "rationale": "Bilanço beklentisi",
-    })
+    r = api_client.post(
+        "/api/decisions",
+        headers=headers,
+        json={
+            "asset_symbol": "THYAO.IS",
+            "action": "BUY",
+            "sentiment": "STRATEGIC",
+            "rationale": "Bilanço beklentisi",
+        },
+    )
     assert r.status_code == 201
     dec = r.json()
     dec_id = dec["id"]
 
     # Karara bağlı gölge pozisyon oluştur (FastAPI endpoint)
-    r = api_client.post("/api/counterfactual/shadow-positions", headers=headers, json={
-        "decision_id": dec_id,
-        "asset_symbol": "THYAO.IS",
-        "shadow_type": "HELD_INSTEAD",
-        "entry_price": 300.0,
-        "quantity": 50.0,
-        "entry_date": "2024-11-01",
-    })
+    r = api_client.post(
+        "/api/counterfactual/shadow-positions",
+        headers=headers,
+        json={
+            "decision_id": dec_id,
+            "asset_symbol": "THYAO.IS",
+            "shadow_type": "HELD_INSTEAD",
+            "entry_price": 300.0,
+            "quantity": 50.0,
+            "entry_date": "2024-11-01",
+        },
+    )
     assert r.status_code == 201
     shadow = r.json()
-    shadow_id = shadow["id"]
+    _ = shadow["id"]
 
     # Kararı sil (FastAPI endpoint - cascade silinir)
     r = api_client.delete(f"/api/decisions/{dec_id}", headers=headers)

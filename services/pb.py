@@ -107,6 +107,7 @@ def delete_record(col: Any, record_id: str) -> bool:
     """Kayıt siler."""
     return bool(col.delete(record_id))
 
+
 def admin_create(collection_name: str, body: dict[str, Any], user_id: str) -> Record:
     """Admin client ile kayıt oluştur, user alanını zorla."""
     client = get_admin_client()
@@ -114,7 +115,9 @@ def admin_create(collection_name: str, body: dict[str, Any], user_id: str) -> Re
     return client.collection(collection_name).create(body)
 
 
-def admin_update(collection_name: str, record_id: str, body: dict[str, Any], user_id: str) -> Record:
+def admin_update(
+    collection_name: str, record_id: str, body: dict[str, Any], user_id: str
+) -> Record:
     """Admin client ile kayıt güncelle, sahiplik kontrolü yap."""
     client = get_admin_client()
     record = client.collection(collection_name).get_one(record_id)

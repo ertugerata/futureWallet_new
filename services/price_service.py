@@ -131,36 +131,19 @@ def get_prices_in_range(
     return result
 
 
-def get_prices_bulk(
+def _read_prices_from_cache(
+    client,
     symbols: list[str],
-    asset_types: dict[str, str],
-    start_date: date,
-    end_date: date,
-    lookback_days: int = 4,
+    all_dates: list[date],
 ) -> dict[str, dict[date, Optional[float]]]:
-    """
-    Birden fazla sembol için tarih aralığındaki fiyatları toplu çeker.
-    
-    Returns:
-        Dict[symbol -> Dict[date -> price]]
-    """
-    # PB cache'ten toplu oku
-    from services.asset_types import _guess_asset_type
-    from services.pb import get_admin_client
-
-    client = get_admin_client()
+    """Read prices from PB cache for given symbols and dates."""
     prices: dict[str, dict[date, Optional[float]]] = {s: {} for s in symbols}
-
-    # Initialize with None for all dates
-    delta = (end_date - start_date).days
-    all_dates = [start_date + timedelta(days=i) for i in range(delta + 1)]
     for s in symbols:
         prices[s] = {d: None for d in all_dates}
 
     if not symbols:
         return prices
 
-    # PB cache'ten bir sorguda oku (symbol IN (...) && date IN (...))
     try:
         date_strs = [d.isoformat() for d in all_dates]
         symbol_filter = " || ".join([f"symbol = '{s}'" for s in symbols])
@@ -176,7 +159,9 @@ def get_prices_bulk(
             dt_str = str(getattr(r, "date", ""))
             if sym and dt_str:
                 try:
-                    d = date.fromisoformat(dt_str.split(" ", maxsplit=1)[0].split("T", maxsplit=1)[0])
+                    d = date.fromisoformat(
+                        dt_str.split(" ", maxsplit=1)[0].split("T", maxsplit=1)[0]
+                    )
                     if d in prices[sym]:
                         prices[sym][d] = float(getattr(r, "price", 0))
                 except Exception:
@@ -184,32 +169,63 @@ def get_prices_bulk(
     except Exception as exc:
         logger.debug("Bulk cache okuma hatası: %s", exc)
 
+    return prices
+
+
+def _fetch_price_with_lookback(
+    sym: str,
+    target_date: date,
+    lookback_days: int,
+) -> float | None:
+    """Fetch price for a symbol at target date with lookback for weekends/holidays."""
+    curr_date = target_date
+    for _ in range(lookback_days + 1):
+        price = _fetch_from_yfinance(sym, curr_date)
+        if price is not None:
+            _save_to_cache(sym, curr_date, price)
+            return price
+        price = _fetch_from_ccxt(sym, curr_date)
+        if price is not None:
+            _save_to_cache(sym, curr_date, price)
+            return price
+        curr_date -= timedelta(days=1)
+    return None
+
+
+def get_prices_bulk(
+    symbols: list[str],
+    asset_types: dict[str, str],
+    start_date: date,
+    end_date: date,
+    lookback_days: int = 4,
+) -> dict[str, dict[date, Optional[float]]]:
+    """
+    Birden fazla sembol için tarih aralığındaki fiyatları toplu çeker.
+
+    Returns:
+        Dict[symbol -> Dict[date -> price]]
+    """
+    # PB cache'ten toplu oku
+    from services.pb import get_admin_client
+
+    client = get_admin_client()
+
+    # Initialize with None for all dates
+    delta = (end_date - start_date).days
+    all_dates = [start_date + timedelta(days=i) for i in range(delta + 1)]
+
+    prices = _read_prices_from_cache(client, symbols, all_dates)
+
+    if not symbols:
+        return prices
+
     # Eksik fiyatları dış servislerle doldur
     for sym in symbols:
-        atype = asset_types.get(sym, _guess_asset_type(sym))
         for d in all_dates:
             if prices[sym][d] is not None:
                 continue
-
-            # Lookback for weekends/holidays
-            curr_date = d
-            found = False
-            for _ in range(lookback_days + 1):
-                price = _fetch_from_yfinance(sym, curr_date)
-                if price is not None:
-                    _save_to_cache(sym, curr_date, price)
-                    prices[sym][d] = price
-                    found = True
-                    break
-                price = _fetch_from_ccxt(sym, curr_date)
-                if price is not None:
-                    _save_to_cache(sym, curr_date, price)
-                    prices[sym][d] = price
-                    found = True
-                    break
-                curr_date -= timedelta(days=1)
-
-            if not found:
-                prices[sym][d] = None
+            price = _fetch_price_with_lookback(sym, d, lookback_days)
+            if price is not None:
+                prices[sym][d] = price
 
     return prices

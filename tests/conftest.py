@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Generator
 
 import pytest
+import requests
 from fastapi.testclient import TestClient
 
 # ---------------------------------------------------------------------------
@@ -136,8 +137,6 @@ def pb_server() -> Generator[None, None, None]:
     """Start a PocketBase server for the entire test session."""
     proc = _start_pocketbase()
     # Wait for PocketBase to be ready
-    import time
-    import requests
     for _ in range(30):
         try:
             resp = requests.get(f"http://127.0.0.1:{DEFAULT_PORT}/api/health", timeout=1)
@@ -193,6 +192,7 @@ def pb_clean(pb_server) -> None:
                 delete_record(col, rec.id)
         except Exception:
             pass
+
 
 @pytest.fixture
 def test_db(pb_clean):

@@ -15,5 +15,8 @@ if [ -n "$POCKETBASE_EMAIL" ] && [ -n "$POCKETBASE_PASSWORD" ]; then
   ./pocketbase superuser upsert "$POCKETBASE_EMAIL" "$POCKETBASE_PASSWORD" --dir "$PB_DATA_DIR"
 fi
 
+# CORS origins (env: PB_ALLOWED_ORIGINS, default: http://127.0.0.1:8000,http://localhost:8000)
+PB_ALLOWED_ORIGINS=${PB_ALLOWED_ORIGINS:-"http://127.0.0.1:8000,http://localhost:8000"}
+
 echo "Starting PocketBase server..."
-exec ./pocketbase serve --http=0.0.0.0:8090 --dir "$PB_DATA_DIR" "$@"
+exec ./pocketbase serve --http=0.0.0.0:8090 --dir "$PB_DATA_DIR" --origins="$PB_ALLOWED_ORIGINS" "$@"

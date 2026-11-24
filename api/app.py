@@ -82,13 +82,6 @@ from services.decision_service import (
 from services.decision_service import (
     update_decision as svc_update_decision,
 )
-from services.enums import (
-    Action,
-    DecisionStatus,
-    Sentiment,
-    ShadowType,
-    TransactionType,
-)
 from services.ledger_service import (
     InsufficientBalanceError,
     get_portfolio_snapshots,
@@ -220,11 +213,20 @@ class DecisionCreateRequest(BaseModel):
         max_length=20,
         description="Varlık sembolü (örn: BTC, GC=F, THYAO.IS)",
     )
-    action: Literal[Action.BUY, Action.SELL, Action.HOLD]
+    action: Literal["BUY", "SELL", "HOLD"]  # type: ignore[valid-type]
     rationale: str | None = Field(
         None, max_length=5000, description="Karar gerekçesi (max 5000 karakter)"
     )
-    sentiment: Literal[Sentiment.FOMO, Sentiment.STRATEGIC, Sentiment.PANIC, Sentiment.DIVIDEND, Sentiment.OPPORTUNITY] | None = Field(
+    sentiment: (
+        Literal[
+            "FOMO",
+            "STRATEGIC",
+            "PANIC",
+            "DIVIDEND",
+            "OPPORTUNITY",
+        ]  # type: ignore[valid-type]
+        | None
+    ) = Field(
         None,
         description="FOMO | STRATEGIC | PANIC | DIVIDEND | OPPORTUNITY",
     )
@@ -281,7 +283,7 @@ class ShadowPositionCreateRequest(BaseModel):
         max_length=20,
         description="Varlık sembolü",
     )
-    shadow_type: Literal[ShadowType.HELD_INSTEAD, ShadowType.BOUGHT_INSTEAD] = Field(
+    shadow_type: Literal["HELD_INSTEAD", "BOUGHT_INSTEAD"] = Field(  # type: ignore[valid-type]
         ..., description="HELD_INSTEAD | BOUGHT_INSTEAD"
     )
     entry_date: date | None = Field(None, description="Giriş tarihí (ISO YYYY-MM-DD; yoksa bugün)")
@@ -311,9 +313,16 @@ class DecisionUpdateRequest(BaseModel):
     rationale: str | None = Field(
         None, max_length=5000, description="Yeni gerekçе (max 5000 karakter)"
     )
-    sentiment: Literal[Sentiment.FOMO, Sentiment.STRATEGIC, Sentiment.PANIC, Sentiment.DIVIDEND, Sentiment.OPPORTUNITY] | None = Field(
-        None, description="FOMO | STRATEGIC | PANIC | DIVIDEND | OPPORTUNITY"
-    )
+    sentiment: (
+        Literal[
+            "FOMO",
+            "STRATEGIC",
+            "PANIC",
+            "DIVIDEND",
+            "OPPORTUNITY",
+        ]  # type: ignore[valid-type]
+        | None
+    ) = Field(None, description="FOMO | STRATEGIC | PANIC | DIVIDEND | OPPORTUNITY")
     target_price: float | None = Field(None, gt=0)
     target_date: date | None = Field(None, description="Yeni hedef tarih")
 
@@ -352,10 +361,18 @@ DecisionUpdateRequest.model_rebuild()
 
 
 class DecisionsListRequest(BaseModel):
-    status: Literal[DecisionStatus.OPEN, DecisionStatus.REVIEWED, DecisionStatus.EXPIRED, DecisionStatus.CLOSED] | None = None
+    status: (
+        Literal[
+            "OPEN",
+            "REVIEWED",
+            "EXPIRED",
+            "CLOSED",
+        ]  # type: ignore[valid-type]
+        | None
+    ) = None
     sentiment: str | None = None
     asset_symbol: str | None = None
-    action: Literal[Action.BUY, Action.SELL, Action.HOLD] | None = None
+    action: Literal["BUY", "SELL", "HOLD"] | None = None  # type: ignore[valid-type]
 
 
 DecisionsListRequest.model_rebuild()
@@ -433,6 +450,7 @@ def _run_expire_decisions() -> None:
     except Exception as exc:
         logger.error("expire_decisions job başarısız: %s", exc)
 
+
 def _run_auto_retrospective() -> None:
     """EXPIRED ve retrospektifi olmayan kararlar için otomatik retrospektif üretir (P8)."""
     if not config.AUTO_RETROSPECTIVE:
@@ -459,6 +477,7 @@ def _run_auto_retrospective() -> None:
 
             # Kullanıcı başına günlük limit kontrolü
             from services.ai_service import _check_ai_rate_limit
+
             allowed, _ = _check_ai_rate_limit(user_id, "auto_retrospective")
             if not allowed:
                 logger.warning("Kullanıcı %s: otomatik retrospektif günlük limiti aşıldı", user_id)
@@ -475,7 +494,9 @@ def _run_auto_retrospective() -> None:
                 )
                 if result:
                     processed += 1
-                    logger.info("Otomatik retrospektif üretildi: decision=%s user=%s", decision_id, user_id)
+                    logger.info(
+                        "Otomatik retrospektif üretildi: decision=%s user=%s", decision_id, user_id
+                    )
                 else:
                     logger.warning("Otomatik retrospektif üretilemedi: decision=%s", decision_id)
             except Exception as exc:
@@ -530,6 +551,19 @@ async def lifespan(app: FastAPI):
                 max_instances=1,
                 misfire_grace_time=300,
             )
+            # P8: otomatik retrospektif (AUTO_RETROSPECTIVE=true iken)
+            if config.AUTO_RETROSPECTIVE:
+                _scheduler.add_job(
+                    _run_auto_retrospective,
+                    "interval",
+                    hours=24,
+                    id="auto_retrospective",
+                    replace_existing=True,
+                    next_run_time=first_run + timedelta(minutes=5),
+                    coalesce=True,
+                    max_instances=1,
+                    misfire_grace_time=300,
+                )
             _scheduler.start()
             logger.info("APScheduler başlatıldı (ilk çalışma ~30 sn sonra).")
     yield
@@ -547,6 +581,49 @@ app = FastAPI(
     redoc_url="/redoc" if DEBUG else None,
     openapi_url="/openapi.json" if DEBUG else None,
 )
+
+
+# ---------------------------------------------------------------------------
+# Exception Handlers (P5-7: Error semantics)
+# ---------------------------------------------------------------------------
+@app.exception_handler(PermissionError)
+async def permission_error_handler(request: Request, exc: PermissionError):
+    logger.warning("PermissionError: %s", exc)
+    return JSONResponse(
+        status_code=404,
+        content={"detail": "Kaynak bulunamadı"},
+    )
+
+
+@app.exception_handler(ValueError)
+async def value_error_handler(request: Request, exc: ValueError):
+    logger.warning("ValueError: %s", exc)
+    return JSONResponse(
+        status_code=422,
+        content={"detail": str(exc)},
+    )
+
+
+@app.exception_handler(KeyError)
+async def key_error_handler(request: Request, exc: KeyError):
+    logger.warning("KeyError: %s", exc)
+    return JSONResponse(
+        status_code=404,
+        content={"detail": "Kaynak bulunamadı"},
+    )
+
+
+# Generic exception handler for unexpected errors
+@app.exception_handler(Exception)
+async def generic_exception_handler(request: Request, exc: Exception):
+    import uuid
+
+    request_id = str(uuid.uuid4())[:8]
+    logger.exception("Unhandled exception (request_id=%s): %s", request_id, exc)
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Beklenmeyen bir hata oluştu", "request_id": request_id},
+    )
 
 
 async def _add_security_headers(request: Request, call_next):
@@ -727,6 +804,52 @@ def portfolio_real_valuation(
     result["current_market"] = get_current_market_prices()
     return result
 
+
+def _validate_value_series_params(start_date: date, end_date: date) -> None:
+    """Validate value-series parameters, raise HTTPException if invalid."""
+    if start_date > end_date:
+        raise HTTPException(400, "start_date end_date'ten büyük olamaz")
+    if start_date.year < 1900:
+        raise HTTPException(422, "start_date 1900 veya sonrası olmalıdır")
+    max_end = date(start_date.year + 20, start_date.month, start_date.day)
+    if end_date > max_end:
+        raise HTTPException(422, "Tarih aralığı en fazla 20 yıl olabilir")
+
+
+def _calculate_point_count(start_date: date, end_date: date, step: str) -> int:
+    """Calculate number of data points for given step."""
+    day_delta = (end_date - start_date).days
+    if step == "daily":
+        return day_delta + 1
+    if step == "weekly":
+        return day_delta // 7 + 1
+    if step == "monthly":
+        return (end_date.year - start_date.year) * 12 + (end_date.month - start_date.month) + 1
+    raise HTTPException(422, "step parametresi: daily | weekly | monthly olmalıdır")
+
+
+def _generate_dates(start_date: date, end_date: date, step: str) -> list[date]:
+    """Generate date list based on step."""
+    dates = []
+    current = start_date
+    if step == "weekly":
+        while current <= end_date:
+            dates.append(current)
+            current += timedelta(days=7)
+    elif step == "monthly":
+        while current <= end_date:
+            dates.append(current)
+            if current.month == 12:
+                current = date(current.year + 1, 1, min(current.day, 28))
+            else:
+                current = date(current.year, current.month + 1, min(current.day, 28))
+    else:  # daily
+        while current <= end_date:
+            dates.append(current)
+            current += timedelta(days=1)
+    return dates
+
+
 @app.get("/api/portfolio/value-series", dependencies=[Depends(get_current_user)])
 def portfolio_value_series(
     request: Request,
@@ -750,29 +873,9 @@ def portfolio_value_series(
 
     user_id = _extract_user_id(request)
 
-    if start_date > end_date:
-        raise HTTPException(400, "start_date end_date'ten büyük olamaz")
+    _validate_value_series_params(start_date, end_date)
 
-    # Minimum start date (prevent year 1 dates)
-    if start_date.year < 1900:
-        raise HTTPException(422, "start_date 1900 veya sonrası olmalıdır")
-
-    # Maximum range: 20 years
-    max_end = date(start_date.year + 20, start_date.month, start_date.day)
-    if end_date > max_end:
-        raise HTTPException(422, "Tarih aralığı en fazla 20 yıl olabilir")
-
-    # Nokta sayısını döngüden ÖNCE hesapla (P5: DoS koruması)
-    day_delta = (end_date - start_date).days
-    if step == "daily":
-        point_count = day_delta + 1
-    elif step == "weekly":
-        point_count = day_delta // 7 + 1
-    elif step == "monthly":
-        point_count = (end_date.year - start_date.year) * 12 + (end_date.month - start_date.month) + 1
-    else:
-        raise HTTPException(422, "step parametresi: daily | weekly | monthly olmalıdır")
-
+    point_count = _calculate_point_count(start_date, end_date, step)
     if point_count > 400:
         raise HTTPException(
             422,
@@ -782,26 +885,13 @@ def portfolio_value_series(
     # Value-series rate limit (P5: dk 10)
     allowed, retry_after = _check_ai_rate_limit(user_id, "value_series")
     if not allowed:
-        raise HTTPException(status_code=429, detail="Value-series hız sınırı aşıldı", headers={"Retry-After": str(retry_after)})
+        raise HTTPException(
+            status_code=429,
+            detail="Value-series hız sınırı aşıldı",
+            headers={"Retry-After": str(retry_after)},
+        )
 
-    # Tarih aralığını step'e göre filtrele (artık güvenli)
-    dates = []
-    current = start_date
-    if step == "weekly":
-        while current <= end_date:
-            dates.append(current)
-            current += timedelta(days=7)
-    elif step == "monthly":
-        while current <= end_date:
-            dates.append(current)
-            if current.month == 12:
-                current = date(current.year + 1, 1, min(current.day, 28))
-            else:
-                current = date(current.year, current.month + 1, min(current.day, 28))
-    else:  # daily
-        while current <= end_date:
-            dates.append(current)
-            current += timedelta(days=1)
+    dates = _generate_dates(start_date, end_date, step)
 
     # Toplu snapshot hesapla (P5: N+1 elimination)
     snapshots = get_portfolio_snapshots(user_id=user_id, dates=dates)
@@ -878,15 +968,13 @@ def create_decision_endpoint(
         try:
             tx = get_client().collection("transactions").get_one(body.transaction_id)
         except Exception:
-            raise HTTPException(400, "transaction_id geçersiz veya bulunamadı")
+            raise HTTPException(404, "İşlem bulunamadı")
         if (
             str(getattr(tx, "user", "")) != user_id
             or str(getattr(tx, "asset_symbol", "")).upper() != body.asset_symbol
             or str(getattr(tx, "type", "")).upper() != "SELL"
         ):
-            raise HTTPException(
-                400, "transaction_id bu kullanıcının aynı sembollü SELL işlemine ait değil"
-            )
+            raise HTTPException(404, "İşlem bulunamadı")
         shadow_qty = float(getattr(tx, "quantity", 0) or 0)
         shadow_price = float(getattr(tx, "price", 0) or 0)
 
@@ -1062,7 +1150,11 @@ def generate_retrospective_endpoint(decision_id: PbId, request: Request):
     # AI hız sınırı (ekstra: per-user dakika/gün)
     allowed, retry_after = _check_ai_rate_limit(user_id, "retrospective")
     if not allowed:
-        raise HTTPException(status_code=429, detail="AI hız sınırı aşıldı", headers={"Retry-After": str(retry_after)})
+        raise HTTPException(
+            status_code=429,
+            detail="AI hız sınırı aşıldı",
+            headers={"Retry-After": str(retry_after)},
+        )
 
     result = svc_generate_ai_retrospective(decision_id)
     # P8 hata semantiği: servis yapılandırılmış döndürür → uç HTTP koduna eşlenir
@@ -1150,6 +1242,7 @@ def delete_shadow_position_endpoint(position_id: PbId, request: Request):
     user_id = _extract_user_id(request)
     try:
         from services.pb import admin_delete
+
         admin_delete("shadow_portfolios", position_id, user_id)
         return {"status": "deleted", "position_id": position_id}
     except PermissionError:
@@ -1175,7 +1268,7 @@ def delete_decision_endpoint(decision_id: PbId, request: Request):
         raise HTTPException(status_code=404, detail="Karar bulunamadı")
     except Exception as e:
         logger.error("delete_decision_endpoint error: %s", e)
-        raise HTTPException(500, str(e))
+        raise HTTPException(500, "Beklenmeyen bir hata oluştu")
 
 
 @app.get("/api/simulation/monte-carlo", dependencies=[Depends(get_current_user)])
@@ -1255,7 +1348,13 @@ class TransactionCreateRequest(BaseModel):
         max_length=20,
         description="Varlık sembolü",
     )
-    tx_type: Literal[TransactionType.BUY, TransactionType.SELL, TransactionType.DIVIDEND, TransactionType.CASH_IN, TransactionType.CASH_OUT]
+    tx_type: Literal[
+        "BUY",
+        "SELL",
+        "DIVIDEND",
+        "CASH_IN",
+        "CASH_OUT",
+    ]  # type: ignore[valid-type]
     quantity: float = Field(gt=0, description="Miktar")
     price: float = Field(ge=0, description="Birim fiyat")
     fee: float = Field(ge=0, default=0.0, description="İşlem ücreti")
@@ -1316,7 +1415,8 @@ def list_transactions_endpoint(
         )
         return result
     except Exception as e:
-        raise HTTPException(500, str(e))
+        logger.error("list_transactions_endpoint error: %s", e)
+        raise HTTPException(500, "Beklenmeyen bir hata oluştu")
 
 
 @app.get("/api/transactions/{transaction_id}", dependencies=[Depends(get_current_user)])
@@ -1332,11 +1432,11 @@ def get_transaction_endpoint(transaction_id: PbId, request: Request):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(500, str(e))
+        logger.error("get_transaction_endpoint error: %s", e)
+        raise HTTPException(500, "Beklenmeyen bir hata oluştu")
 
 
 @app.delete("/api/transactions/{transaction_id}", dependencies=[Depends(get_current_user)])
-
 def delete_transaction_endpoint(
     transaction_id: PbId,
     request: Request,
@@ -1350,10 +1450,13 @@ def delete_transaction_endpoint(
             transaction_id=transaction_id,
         )
         return {"status": "voided", "transaction_id": transaction_id}
-    except (PermissionError, ValueError) as e:
-        raise HTTPException(404, str(e))
+    except PermissionError:
+        raise
+    except ValueError as e:
+        raise HTTPException(400, str(e))
     except Exception as e:
-        raise HTTPException(500, str(e))
+        logger.error("delete_transaction_endpoint error: %s", e)
+        raise HTTPException(500, "Beklenmeyen bir hata oluştu")
 
 
 @app.get("/api/portfolio/benchmarks", dependencies=[Depends(get_current_user)])
@@ -1375,7 +1478,8 @@ def portfolio_benchmarks_endpoint(
         )
         return result
     except Exception as e:
-        raise HTTPException(500, str(e))
+        logger.error("portfolio_benchmarks_endpoint error: %s", e)
+        raise HTTPException(500, "Beklenmeyen bir hata oluştu")
 
 
 class StressTestRequest(BaseModel):
@@ -1407,7 +1511,8 @@ def stress_test_endpoint(body: StressTestRequest):
         )
         return result
     except Exception as e:
-        raise HTTPException(500, str(e))
+        logger.error("stress_test_endpoint error: %s", e)
+        raise HTTPException(500, "Beklenmeyen bir hata oluştu")
 
 
 class NarrativeRequest(BaseModel):
@@ -1433,7 +1538,11 @@ def narrative_endpoint(request: Request, body: NarrativeRequest):
     # AI hız sınırı kontrolü
     allowed, retry_after = _check_ai_rate_limit(user_id, "narrative")
     if not allowed:
-        raise HTTPException(status_code=429, detail="AI hız sınırı aşıldı", headers={"Retry-After": str(retry_after)})
+        raise HTTPException(
+            status_code=429,
+            detail="AI hız sınırı aşıldı",
+            headers={"Retry-After": str(retry_after)},
+        )
 
     try:
         result = srv_generate_risk_narrative(

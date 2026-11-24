@@ -157,6 +157,7 @@ def get_current_market_prices() -> dict[str, float | None]:
 # 2. TÜİK TÜFE (TR enflasyon) – EVDS API (Prompt 11)
 # ---------------------------------------------------------------------------
 
+
 def _evds_fetch_turkey_cpi(
     start: date,
     end: date,
@@ -447,6 +448,31 @@ def compute_gold_try_gram(
 # ---------------------------------------------------------------------------
 
 
+def _save_macro_series(
+    macro_collection,
+    stats: dict[str, int],
+    stat_key: str,
+    fetch_fn,
+    value_col: str,
+    source: str,
+    is_estimate: bool = False,
+    extra_args: dict | None = None,
+) -> None:
+    """Fetch a macro series and upsert to PB, updating stats."""
+    extra_args = extra_args or {}
+    try:
+        df = fetch_fn(**extra_args)
+        stats[stat_key] = _upsert_to_pb(
+            macro_collection,
+            df,
+            value_col,
+            source=source,
+            is_estimate=is_estimate,
+        )
+    except ValueError:
+        pass
+
+
 def fetch_and_save_macro_data(
     start: date | None = None,
     end: date | None = None,
@@ -482,24 +508,26 @@ def fetch_and_save_macro_data(
 
     # Altın (ons USD)
     if save_gold_usd:
-        gold_df = fetch_gold_prices(start, end, granularity="1mo")
-        stats["gold_usd"] = _upsert_to_pb(
+        _save_macro_series(
             macro,
-            gold_df,
+            stats,
             "gold_usd",
-            source="yfinance",
-            is_estimate=False,
+            fetch_gold_prices,
+            "gold_usd",
+            "yfinance",
+            extra_args={"start": start, "end": end, "granularity": "1mo"},
         )
 
     # S&P 500
     if save_sp500:
-        sp_df = fetch_sp500_prices(start, end, granularity="1mo")
-        stats["sp500"] = _upsert_to_pb(
+        _save_macro_series(
             macro,
-            sp_df,
+            stats,
             "sp500",
-            source="yfinance",
-            is_estimate=False,
+            fetch_sp500_prices,
+            "sp500",
+            "yfinance",
+            extra_args={"start": start, "end": end, "granularity": "1mo"},
         )
 
     # Gram altın TL
@@ -522,45 +550,39 @@ def fetch_and_save_macro_data(
 
     # TÜFE
     if save_tr_cpi:
-        try:
-            tr_df = fetch_turkey_cpi(start, end, allow_estimate=False)
-            stats["tr_cpi"] = _upsert_to_pb(
-                macro,
-                tr_df,
-                "tr_cpi",
-                source="EVDS/TÜİK",
-                is_estimate=False,
-            )
-        except ValueError:
-            pass
+        _save_macro_series(
+            macro,
+            stats,
+            "tr_cpi",
+            fetch_turkey_cpi,
+            "tr_cpi",
+            "EVDS/TÜİK",
+            extra_args={"start": start, "end": end, "allow_estimate": False},
+        )
 
     # US CPI
     if save_us_cpi:
-        try:
-            us_df = fetch_us_cpi(start, end, allow_estimate=False)
-            stats["us_cpi"] = _upsert_to_pb(
-                macro,
-                us_df,
-                "us_cpi",
-                source="FRED",
-                is_estimate=False,
-            )
-        except ValueError:
-            pass
+        _save_macro_series(
+            macro,
+            stats,
+            "us_cpi",
+            fetch_us_cpi,
+            "us_cpi",
+            "FRED",
+            extra_args={"start": start, "end": end, "allow_estimate": False},
+        )
 
     # Konut Fiyat Endeksi
     if save_housing_index:
-        try:
-            hi_df = fetch_housing_index(start, end, allow_estimate=False)
-            stats["housing_index"] = _upsert_to_pb(
-                macro,
-                hi_df,
-                "housing_index",
-                source="EVDS/TÜİK",
-                is_estimate=False,
-            )
-        except ValueError:
-            pass
+        _save_macro_series(
+            macro,
+            stats,
+            "housing_index",
+            fetch_housing_index,
+            "housing_index",
+            "EVDS/TÜİK",
+            extra_args={"start": start, "end": end, "allow_estimate": False},
+        )
 
     return stats
 
@@ -730,14 +752,22 @@ def compare_to_benchmark(
     def _get_pb_price(col: str, dt: date) -> float | None:
         client = get_client()
         macro = client.collection("macro_data")
+        # housing_index is now a number field, use > 0 filter instead of != ''
+        if col == "housing_index":
+            filter_expr = client.filter(
+                f"date <= {{:dt}} && {col} > 0",
+                {"dt": f"{dt.isoformat()} 23:59:59.999Z"},
+            )
+        else:
+            filter_expr = client.filter(
+                f"date <= {{:dt}} && {col} != ''",
+                {"dt": f"{dt.isoformat()} 23:59:59.999Z"},
+            )
         try:
             records = macro.get_full_list(
                 batch=1,
                 query_params={
-                    "filter": client.filter(
-                        f"date <= {{:dt}} && {col} != ''",
-                        {"dt": f"{dt.isoformat()} 23:59:59.999Z"},
-                    ),
+                    "filter": filter_expr,
                     "sort": "-date",
                     "per_page": 1,
                 },
@@ -799,7 +829,6 @@ def compare_to_benchmark(
     }
 
     return out
-
 
 
 # ---------------------------------------------------------------------------

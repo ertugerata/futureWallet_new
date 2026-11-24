@@ -239,8 +239,6 @@ def close_decision(user_id: str, decision_id: str) -> dict | None:
         return None
 
 
-
-
 # ---------------------------------------------------------------------------
 # 6. decision_to_dict
 # ---------------------------------------------------------------------------
@@ -400,6 +398,48 @@ def get_decisions_due_for_review() -> list[dict]:
     return due
 
 
+def _get_outcome_price(sym: str, atype: str, target_d: date) -> float | None:
+    """Get outcome price for symbol at target date."""
+    from services.price_service import get_price_on
+
+    return get_price_on(sym, atype, target_d)
+
+
+def _get_entry_price(sym: str, atype: str, dec: dict) -> float | None:
+    """Get entry price from decision date/created or target_price."""
+    from services.price_service import get_price_on
+
+    entry_basis = dec.get("decision_date") or dec.get("date")
+    if entry_basis:
+        entry_p = get_price_on(sym, atype, entry_basis)
+        if entry_p is not None:
+            return entry_p
+    return dec.get("target_price")
+
+
+def _calculate_return_and_target(
+    action: str,
+    entry_p: float | None,
+    outcome_p: float | None,
+    target_price: float | None,
+) -> tuple[float | None, bool | None]:
+    """Calculate return_pct and target_hit."""
+    if outcome_p is None or entry_p is None or entry_p <= 0:
+        return None, None
+
+    sign = 1 if action == "BUY" else (-1 if action == "SELL" else 0)
+    if not sign:
+        return None, None
+
+    return_pct = round(sign * (outcome_p - entry_p) / entry_p * 100, 2)
+
+    target_hit = None
+    if target_price:
+        target_hit = outcome_p >= target_price if action == "BUY" else outcome_p <= target_price
+
+    return return_pct, target_hit
+
+
 def evaluate_decision(
     user_id: str,
     decision_id: str,
@@ -418,29 +458,13 @@ def evaluate_decision(
     sym = dec.get("asset_symbol", "")
     atype = _guess_asset_type(sym)
 
-    from services.price_service import get_price_on
+    outcome_p = _get_outcome_price(sym, atype, target_d)
+    entry_p = _get_entry_price(sym, atype, dec)
 
-    outcome_p = get_price_on(sym, atype, target_d)
-
-    # Giriş fiyatı: karar tarihindeki fiyat (decision_date; yoksa created), yoksa target_price.
-    entry_p = None
-    entry_basis = dec.get("decision_date") or dec.get("date")
-    if entry_basis:
-        entry_p = get_price_on(sym, atype, entry_basis)
-    if entry_p is None:
-        entry_p = dec.get("target_price") or outcome_p
-
-    return_pct = None
-    target_hit = None
-
-    if outcome_p is not None and entry_p is not None and entry_p > 0:
-        action = dec.get("action", "BUY").upper()
-        sign = 1 if action == "BUY" else (-1 if action == "SELL" else 0)
-        if sign:
-            return_pct = round(sign * (outcome_p - entry_p) / entry_p * 100, 2)
-            tp = dec.get("target_price")
-            if tp:
-                target_hit = outcome_p >= tp if action == "BUY" else outcome_p <= tp
+    action = dec.get("action", "BUY").upper()
+    return_pct, target_hit = _calculate_return_and_target(
+        action, entry_p, outcome_p, dec.get("target_price")
+    )
 
     update_fields: dict[str, Any] = {}
     if outcome_p is not None:
@@ -502,8 +526,6 @@ def auto_close_expired_decisions(days_before: int = 0) -> list[dict]:
             logger.error("Karar EXPIRED yapılamadı (%s): %s", dec_id, exc)
 
     return closed
-
-
 
 
 def generate_ai_retrospective(

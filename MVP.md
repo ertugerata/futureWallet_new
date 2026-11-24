@@ -97,22 +97,21 @@ FutureWallet/
 ├── web_app/                    # Web Arayüzü & Dashboard Components (HTML5 + Jinja2 + Chart.js + JavaScript)
 └── docker-compose.yml          # PocketBase + FastAPI container tanımları
 ```
-
 ### Sistem Mimarisi
 
 ```text
-+--------------------------------------------------------+
+--------------------------------------------------------+
 |                     Frontend (Web UI)                  |
 |         HTML5 + Jinja2 + Chart.js + JavaScript         |
-+---------------------------+----------------------------+
+---------------------------+----------------------------+
                             |
                             v
-+-----------------------+        +-----------------------+
+-----------------------+        +-----------------------+
 |  PocketBase Server    |        |  FastAPI Backend      |
 |  - REST API & WebSockets       |  - Ledger & Snapshot  |
 |  - Auth & RLS         |<------>|  - Real Valuation     |
-|  - PocketBase Storage     |        |  - Monte Carlo & VaR  |
-+-----------------------+        |  - OpenRouter AI      |
+|  - PocketBase Storage |        |  - Monte Carlo & VaR  |
+-----------------------+        |  - OpenRouter AI      |
                                  +-----------+-----------+
                                              |
                                              v
@@ -122,7 +121,25 @@ FutureWallet/
                                  +-----------------------+
 ```
 
----
+
+## 5.5. VaR/CVaR Tanımı ve Ufku
+
+* **VaR (Value at Risk):** `losses = initial - final_values` (pozitif = kayıp). `var_95` = losses'in %95 percentile'ı (en kötü %5 senaryolar), `var_99` = %99 percentile. Negatif VaR → o güven düzeyinde kayıp yok (kazanç).
+* **CVaR (Conditional VaR):** VaR'ı aşan kayıpların ortalaması. `cvar_95` = VaR 95%'ten büyük kayıpların ort.; `cvar_99` = VaR 99%'dan büyük kayıpların ort.
+* **Ufuk (Horizon):** Simülasyon gün sayısı (`days`, vars. 252 = 1 yıl). Monte Carlo `risk` nesnesinde `definition`: "loss-based, positive = loss, horizon = days".
+* **Monte Carlo çıktı alanları:** `var_95`, `var_99`, `cvar_95`, `cvar_99`, `var_95_pct`, `var_99_pct`, `definition`.
+
+
+## 5.6. Zamanlayıcı Job'ları (APScheduler)
+
+| Job ID | Sıklık | Açıklama | Koşul |
+|--------|--------|----------|-------|
+| `expire_decisions` | 24 saat | Vadesi geçmiş OPEN kararları EXPIRED yap, outcome alanlarını doldur | `ENABLE_SCHEDULER=true` |
+| `refresh_macro` | 24 saat | EVDS/FRED/yfinance makro verilerini çekip `macro_data` koleksiyonuna yaz | `ENABLE_SCHEDULER=true` |
+| `auto_retrospective` | 24 saat | EXPIRED ve `ai_retrospective` boş kararlar için AI retrospektifi üret | `AUTO_RETROSPECTIVE=true` & `ENABLE_SCHEDULER=true` |
+
+> **Not:** Çok worker (`WEB_CONCURRENCY>1`) ortamında yalnızca `SCHEDULER_LEADER=true` süreçte çalışır; `AUTO_RETROSPECTIVE` varsayılan `false` (opsiyonel).
+
 
 ## 5. PocketBase Veri Modeli (Collections)
 

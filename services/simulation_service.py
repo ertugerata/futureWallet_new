@@ -216,6 +216,139 @@ def _check_cell_budget(
         )
 
 
+def _validate_monte_carlo_params(
+    n_simulations: int,
+    days: int,
+    asset_list: list[dict],
+) -> None:
+    """Validate Monte Carlo simulation parameters."""
+    if n_simulations > 200_000:
+        raise ValueError(f"n_simulations={n_simulations} → maksimum 200,000 (Prompt 3).")
+    _check_cell_budget(n_simulations, days, len(asset_list))
+
+
+def _compute_initial_values(
+    asset_list: list[dict],
+    user_id: str,
+    use_ledger: bool,
+) -> tuple[list[float], float, list[str], dict[str, dict]]:
+    """Compute initial values for each asset and total."""
+    asset_symbols = [a["symbol"] for a in asset_list]
+    holdings: dict[str, dict] = {}
+    if use_ledger:
+        from services.ledger_service import get_portfolio_snapshot
+
+        snapshot = get_portfolio_snapshot(user_id=user_id, as_of=None)
+        holdings = {h["asset_symbol"]: h for h in snapshot.get("holdings", [])}
+
+    initial_values = []
+    for a in asset_list:
+        amount = a.get("amount", 1.0)
+        if use_ledger:
+            amount = holdings.get(a["symbol"], {}).get("quantity") or amount
+        mgr = AssetManager()
+        price = mgr.get_price(a["symbol"], a.get("type", "crypto"))
+        if price is None:
+            price = 1.0
+        initial_values.append(amount * price)
+
+    total_initial = sum(initial_values)
+    return initial_values, total_initial, asset_symbols, holdings
+
+
+def _compute_asset_statistics(
+    asset_list: list[dict],
+    asset_symbols: list[str],
+    days: int,
+) -> tuple[list[float], list[float], np.ndarray, bool]:
+    """Compute means, volatilities, covariance matrix for assets."""
+    returns_dict = _fetch_all_asset_returns(asset_list, days=min(days * 2, 504))
+
+    means: list[float] = []
+    volds: list[float] = []
+    missing_data_warning = False
+
+    for sym in asset_symbols:
+        rets = returns_dict.get(sym)
+        if rets is not None and len(rets) > 1:
+            mean = float(rets.mean())
+            vol = float(rets.std())
+            if len(rets) < 60:
+                missing_data_warning = True
+        else:
+            mean = 0.0
+            vol = 0.0008
+            missing_data_warning = True
+        means.append(mean)
+        volds.append(vol)
+
+    cov_matrix = _calculate_covariance_matrix(returns_dict, asset_symbols)
+    return means, volds, cov_matrix, missing_data_warning
+
+
+def _run_portfolio_simulation(
+    total_initial: float,
+    weights: np.ndarray,
+    means: list[float],
+    cov_matrix: np.ndarray,
+    days: int,
+    n_simulations: int,
+    seed: int | None,
+) -> tuple[np.ndarray, dict[int, float]]:
+    """Run portfolio-level Monte Carlo simulation."""
+    rng = np.random.default_rng(seed)
+    portfolio_paths = np.zeros((n_simulations, days))
+    portfolio_paths[:, 0] = total_initial
+
+    daily_mean = float(np.dot(weights, means))
+    daily_vol = float(np.sqrt(np.dot(weights.T, np.dot(cov_matrix, weights))))
+
+    Z = rng.standard_normal((n_simulations, days - 1))
+    drift = daily_mean
+    diffusion = daily_vol * Z
+    increments = np.exp(drift + diffusion)
+    portfolio_paths[:, 1:] = total_initial * np.cumprod(increments, axis=1)
+
+    portfolio_percentiles = _percentile_values(portfolio_paths, [5, 50, 95])
+    return portfolio_paths, portfolio_percentiles
+
+
+def _compute_var_cvar(initial: float, final_values: np.ndarray) -> dict:
+    """Compute VaR and CVaR metrics."""
+    if len(final_values) == 0:
+        return {
+            "var_95": None,
+            "var_99": None,
+            "cvar_95": None,
+            "cvar_99": None,
+            "var_95_pct": None,
+            "var_99_pct": None,
+        }
+
+    losses = initial - final_values
+    var_95 = round(float(np.percentile(losses, 95)), 2)
+    var_99 = round(float(np.percentile(losses, 99)), 2)
+    var_95_pct = round(var_95 / initial * 100, 2) if initial > 0 else None
+    var_99_pct = round(var_99 / initial * 100, 2) if initial > 0 else None
+
+    var_95_threshold = np.percentile(losses, 95)
+    tail_losses_95 = losses[losses >= var_95_threshold]
+    cvar_95 = round(float(tail_losses_95.mean()), 2) if len(tail_losses_95) > 0 else None
+
+    var_99_threshold = np.percentile(losses, 99)
+    tail_losses_99 = losses[losses >= var_99_threshold]
+    cvar_99 = round(float(tail_losses_99.mean()), 2) if len(tail_losses_99) > 0 else None
+
+    return {
+        "var_95": var_95,
+        "var_99": var_99,
+        "cvar_95": cvar_95,
+        "cvar_99": cvar_99,
+        "var_95_pct": var_95_pct,
+        "var_99_pct": var_99_pct,
+    }
+
+
 def monte_carlo_simulation(
     user_id: str = "unknown",
     asset_list: list[dict] | None = None,
@@ -242,94 +375,31 @@ def monte_carlo_simulation(
     """
     if percentiles is None:
         percentiles = [5, 50, 95]
-
     if asset_list is None:
         asset_list = []
 
-    if n_simulations > 200_000:
-        raise ValueError(f"n_simulations={n_simulations} → maksimum 200,000 (Prompt 3).")
-    _check_cell_budget(n_simulations, days, len(asset_list))
+    _validate_monte_carlo_params(n_simulations, days, asset_list)
 
-    asset_symbols = [a["symbol"] for a in asset_list]
+    initial_values, total_initial, asset_symbols, _holdings = _compute_initial_values(
+        asset_list, user_id, use_ledger
+    )
 
-    # Başlangıç değerleri (Prompt 10: use_ledger=True → miktarlar ledger'dan)
-    holdings: dict[str, dict] = {}
-    if use_ledger:
-        from services.ledger_service import get_portfolio_snapshot
+    means, volds, cov_matrix, missing_data_warning = _compute_asset_statistics(
+        asset_list, asset_symbols, days
+    )
 
-        snapshot = get_portfolio_snapshot(user_id=user_id, as_of=None)
-        holdings = {h["asset_symbol"]: h for h in snapshot.get("holdings", [])}
-
-    initial_values = []
-    for a in asset_list:
-        amount = a.get("amount", 1.0)
-        if use_ledger:
-            # Boş pozisyonda istekte gelen miktar korunur → total_initial 0'a düşüp NaN üretmez
-            amount = holdings.get(a["symbol"], {}).get("quantity") or amount
-        mgr = AssetManager()
-        price = mgr.get_price(a["symbol"], a.get("type", "crypto"))
-        if price is None:
-            price = 1.0
-        initial_values.append(amount * price)
-
-    total_initial = sum(initial_values)
-
-    # Log getiri serileri
-    returns_dict = _fetch_all_asset_returns(asset_list, days=min(days * 2, 504))
-
-    # Ortalama getiri ve volatilite
-    means: list[float] = []
-    volds: list[float] = []
-    missing_data_warning = False
-    for i, sym in enumerate(asset_symbols):
-        rets = returns_dict.get(sym)
-        if rets is not None and len(rets) > 1:
-            mean = float(rets.mean())
-            vol = float(rets.std())
-            if len(rets) < 60:
-                missing_data_warning = True
-        else:
-            mean = 0.0
-            vol = 0.0008  # varsayılan volatilite (Prompt 10: veri-yok varlık için)
-            missing_data_warning = True
-        means.append(mean)
-        volds.append(vol)
-
-    # Kovaryans matrisi
-    cov_matrix = _calculate_covariance_matrix(returns_dict, asset_symbols)
-
-    # Portföy ağırlıkları
     weights = np.array([v / total_initial for v in initial_values])
 
-    # Portföy parametreleri
-    daily_mean = float(np.dot(weights, means))
-    daily_vol = float(np.sqrt(np.dot(weights.T, np.dot(cov_matrix, weights))))
-
-    # Portföy simülasyonu (vektörize, Prompt 10)
-    rng = np.random.default_rng(seed)
-    portfolio_paths = np.zeros((n_simulations, days))
-    portfolio_paths[:, 0] = total_initial
-
-    Z = rng.standard_normal((n_simulations, days - 1))
-    drift = daily_mean  # Prompt 10: varyans düzeltmesi yok
-    diffusion = daily_vol * Z
-    increments = np.exp(drift + diffusion)
-    portfolio_paths[:, 1:] = total_initial * np.cumprod(increments, axis=1)
-
-    portfolio_percentiles = _percentile_values(portfolio_paths, percentiles)
+    portfolio_paths, portfolio_percentiles = _run_portfolio_simulation(
+        total_initial, weights, means, cov_matrix, days, n_simulations, seed
+    )
 
     # Korelasyonlu çok varlıklı simülasyon (Prompt 10 – Cholesky)
     initial_values_np = np.array(initial_values)
     means_np = np.array(means)
     volds_np = np.array(volds)
     asset_paths = _simulate_paths_multivariate(
-        initial_values_np,
-        means_np,
-        volds_np,
-        cov_matrix,
-        days,
-        n_simulations,
-        seed=seed,
+        initial_values_np, means_np, volds_np, cov_matrix, days, n_simulations, seed=seed
     )
 
     # Her varlık için percentiller
@@ -352,47 +422,9 @@ def monte_carlo_simulation(
         "counts": [int(x) for x in hist],
     }
 
-    # VaR / CVaR hesaplama (P7 - v5 P1 düzeltme)
-    # VaR: Value at Risk (kayıp perspektifinden - pozitif = kayıp)
-    # VaR 95% = losses'in %95 percentile'ı (en kötü %5 senaryolar)
-    # CVaR: Conditional VaR (VaR'ı aşan kayıpların ortalaması)
-    var_95 = None
-    var_99 = None
-    cvar_95 = None
-    cvar_99 = None
-    var_95_pct = None
-    var_99_pct = None
-
-    if len(final_values) > 0:
-        initial = total_initial
-        # Loss = initial - final_value (pozitif = kayıp)
-        losses = initial - final_values
-        losses_sorted = np.sort(losses)
-
-        # VaR 95% = losses'in %95 percentile'ı (en kötü %5 senaryolar)
-        var_95 = round(float(np.percentile(losses, 95)), 2)
-        # VaR 99% = losses'in %99 percentile'ı
-        var_99 = round(float(np.percentile(losses, 99)), 2)
-
-        # VaR yüzde cinsinden
-        var_95_pct = round(var_95 / initial * 100, 2) if initial > 0 else None
-        var_99_pct = round(var_99 / initial * 100, 2) if initial > 0 else None
-
-        # CVaR 95% = VaR 95%'ten büyük kayıpların ortalaması
-        var_95_threshold = np.percentile(losses, 95)
-        tail_losses_95 = losses[losses >= var_95_threshold]
-        if len(tail_losses_95) > 0:
-            cvar_95 = round(float(tail_losses_95.mean()), 2)
-
-        # CVaR 99% = VaR 99%'dan büyük kayıpların ortalaması
-        var_99_threshold = np.percentile(losses, 99)
-        tail_losses_99 = losses[losses >= var_99_threshold]
-        if len(tail_losses_99) > 0:
-            cvar_99 = round(float(tail_losses_99.mean()), 2)
-    else:
-        # No final values case
-        var_95 = var_99 = cvar_95 = cvar_99 = None
-        var_95_pct = var_99_pct = None
+    # VaR / CVaR hesaplama
+    risk = _compute_var_cvar(total_initial, final_values)
+    risk["definition"] = "loss-based, positive = loss, horizon = days"
 
     data_quality = "estimated" if missing_data_warning else "ok"
     currency = infer_portfolio_currency(asset_symbols)
@@ -401,24 +433,14 @@ def monte_carlo_simulation(
         "days": days,
         "n_simulations": n_simulations,
         "percentiles": percentiles,
-        "percentile_values": {
-            "portfolio": portfolio_percentiles,
-        },
+        "percentile_values": {"portfolio": portfolio_percentiles},
         "histogram": histogram,
         "asset_names": asset_symbols,
         "asset_final_values": asset_final_values,
         "total_initial_value": round(total_initial, 2),
         "currency": currency,
         "data_quality": data_quality,
-        "risk": {
-            "var_95": var_95,
-            "var_99": var_99,
-            "cvar_95": cvar_95,
-            "cvar_99": cvar_99,
-            "var_95_pct": var_95_pct,
-            "var_99_pct": var_99_pct,
-            "definition": "loss-based, positive = loss, horizon = days",
-        },
+        "risk": risk,
     }
 
 
