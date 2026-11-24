@@ -582,29 +582,12 @@ def get_portfolio_snapshots(
     results: dict[date, PortfolioSnapshot] = {}
     current_holdings: dict[str, AssetHolding] = {}
 
-    date_idx = 0
-    current_date = dates[0] if dates else start_date
-
-    # Tüm tarihler için işlemleri işle (incremental)
-    # İlk önce start_date'e kadar olan tüm işlemleri uygula
-    all_tx_dates = sorted(txs_by_date.keys())
-    for tx_date in all_tx_dates:
-        if tx_date > dates[-1]:
-            break
-        for tx in txs_by_date[tx_date]:
-            _apply_transaction(current_holdings, tx)
-
-    # Şimdi her istenen tarih için snapshot al
-    # Holdings'ları kopyalayıp tarihler arası değişen işlemleri uygula
-    holdings_at_date: dict[date, dict[str, AssetHolding]] = {}
-
     # Incremental approach: process dates in order, applying txs between dates
     tx_dates_sorted = sorted(txs_by_date.keys())
     tx_idx = 0
-    prev_date = dates[0] - timedelta(days=1)
 
     for target_date in dates:
-        # Apply transactions between prev_date and target_date
+        # Apply transactions between previous date and target_date
         while tx_idx < len(tx_dates_sorted) and tx_dates_sorted[tx_idx] <= target_date:
             tx_date = tx_dates_sorted[tx_idx]
             for tx in txs_by_date[tx_date]:
