@@ -1,5 +1,5 @@
 # 🚀 FutureWallet
-![Tests](https://img.shields.io/badge/Tests-113%2F113%20%2B%2010%20hardening-brightgreen)
+![Tests](https://img.shields.io/badge/Tests-130%20passed%20%2B%2010%20hardening-brightgreen)
 ![Python](https://img.shields.io/badge/Python-3.11+-blue)
 ![License](https://img.shields.io/badge/License-MIT-green)
 
@@ -12,7 +12,7 @@ FutureWallet, geleneksel portföy takip uygulamalarının ötesine geçerek yat�
 
 Piyasadaki uygulamalar yalnızca *"Şu an ne kadar paranız var?"* sorusuna yanıt verir. FutureWallet ise şu 4 kritik soruya yanıt vermek için tasarlanmıştır:
 
-1. **Reel Büyüme:** Portföyüm enflasyona (TÜİK/ENAG/US CPI), Altına veya S&P 500'e karşı gerçekten değer kazandı mı?
+1. **Reel Büyüme:** Portföyüm enflasyona (TÜİK/US CPI), Altına veya S&P 500'e karşı gerçekten değer kazandı mı?
 2. **Karar Günlüğü:** Bu alım/satım kararını verirken ne düşünüyordum? Psikolojik faktörler (FOMO, Panik vb.) performansımı nasıl etkiledi?
 3. **Alternatif Senaryolar (What-If):** O hisseyi satmayıp tutsaydım veya Altın yerine S&P 500 alsaydım şu an ne durumdaydım?
 4. **Gelecek Simülasyonu:** Enflasyon, faiz veya kur şoklarında portföyümün risk ve getiri dağılımı (Monte Carlo + AI) ne olur?
@@ -32,13 +32,17 @@ Piyasadaki uygulamalar yalnızca *"Şu an ne kadar paranız var?"* sorusuna yan�
 ## 🛠 Mimari ve Teknoloji Yığını
 
 Projenin hedef mimarisi üç ana katmandan oluşur:
+
 - **Veritabanı & Kimlik Doğrulama:** [PocketBase v0.40.6](https://pocketbase.io/) (SQLite tabanlı, yerleşik auth, rule-based erişim denetimi ve migration desteği)
 - **Hesaplama Motoru & REST API:** Python 3.11+, FastAPI, Pydantic v2, Uvicorn
 - **Finansal Analiz & Simülasyon:** NumPy, Pandas
-- **Zamanlama:** APScheduler (lifespan içinde; `ENABLE_SCHEDULER=false` ile kapatılabilir) — job'lar: vadesi geçmiş OPEN kararları EXPIRED yapma + outcome doldurma (`auto_close_expired_decisions`, uçtan uca PB testli) ve 24s makro veri yenileme (`refresh_macro`)
+- **Zamanlama:** APScheduler (lifespan içinde; `ENABLE_SCHEDULER=false` ile kapatılabilir) — job'lar:
+  - vadesi geçmiş OPEN kararları EXPIRED yapma + outcome doldurma (`auto_close_expired_decisions`)
+  - 24s makro veri yenileme (`refresh_macro`)
+  - **otomatik retrospektif** (`auto_retrospective`, `AUTO_RETROSPECTIVE=true` iken)
 - **AI & Doğal Dil Yorumlama:** OpenRouter API (Fallback zinciri: Claude, Gemini, DeepSeek)
 - **Piyasa Verisi:** yfinance, ccxt, TCMB EVDS API, FRED API
-- **Web Arayüzü:** HTML5, Jinja2, Chart.js, Vanilla JS — PB JWT giriş akışı, CSP temizliği ve `innerHTML`-siz DOM render (P14) canlı tarayıcı E2E ile doğrulandı; USD/TRY para birimi seçicisi API `currency` alanına dinamik bağlı (P9 kapandı)
+- **Web Arayüzü:** HTML5, Jinja2, Chart.js, Vanilla JS — PB JWT giriş akışı, CSP temizliği ve `innerHTML`-siz DOM render (P14) canlı tarayıcı E2E ile doğrulandı; USD/TRY para birimi seçicisi API `currency` alanına dinamik bağlı
 
 ---
 
@@ -59,7 +63,7 @@ Projenin hedef mimarisi üç ana katmandan oluşur:
    ```
 
 2. **PocketBase'i kurun ve başlatın:**
-   PocketBase v0.40.6 binary'sini indirin ve ayrı bir terminalde, **repo kökünde** çalıştırın (`./pocketbase` yerine `./pb_bin/pocketbase` de olur; test fixture'ı binary'yi oraya da önbellekler):
+   PocketBase v0.40.6 binary'sini indirin ve ayrı bir terminalde, **repo kökünde** çalıştırın:
    ```bash
    curl -sL -o pb.zip https://github.com/pocketbase/pocketbase/releases/download/v0.40.6/pocketbase_0.40.6_linux_amd64.zip && unzip pb.zip
    ./pocketbase --dir ./pb_data superuser upsert 'superuser@sirket.local' 'GucluParola123!'
@@ -102,8 +106,8 @@ Hassas anahtarlar ve ortam değişkenleri `.env` dosyası üzerinden yapılandı
 |---|---|---|---|
 | `POCKETBASE_URL` | PocketBase sunucu URL'si (servis→PB) | `http://localhost:8080` | Hayır (compose bunu ağ içi değere sabitler) |
 | `POCKETBASE_PUBLIC_URL` | Tarayıcının eriştiği PB adresi (login fetch + CSP `connect-src`) | `""` → `POCKETBASE_URL` ile aynı | Docker Compose'ta önerilir (compose default `http://127.0.0.1:8080`) |
-| `POCKETBASE_EMAIL` | PocketBase superuser e-postası | - | Evet (eksikse `config.py` RuntimeError) |
-| `POCKETBASE_PASSWORD` | PocketBase superuser parolası | - | Evet (eksikse `config.py` RuntimeError) |
+| `POCKETBASE_EMAIL` | PocketBase superuser e-postası | - | **Evet** (eksikse `config.py` RuntimeError) |
+| `POCKETBASE_PASSWORD` | PocketBase superuser parolası | - | **Evet** (eksikse `config.py` RuntimeError) |
 | `ALLOWED_ORIGINS` | CORS izinli origin listesi (virgüllü) | `""` (yalnızca same-origin) | Hayır |
 | `ALLOWED_HOSTS` | İzinli HTTP Host başlıkları | `localhost,127.0.0.1` | Hayır |
 | `OPENROUTER_API_KEY` | OpenRouter API anahtarı | `""` | AI özellikleri için (yoksa AI uçları 503) |
@@ -117,6 +121,8 @@ Hassas anahtarlar ve ortam değişkenleri `.env` dosyası üzerinden yapılandı
 | `APP_HOST` / `APP_PORT` | Uvicorn bind hedefi (`uvicorn` CLI kullanılıyorsa CLI geçerli) | `127.0.0.1` / `8000` | Hayır |
 
 > **Fail-Closed Güvenlik Notu:** `POCKETBASE_EMAIL`/`POCKETBASE_PASSWORD` boşsa uygulama import aşamasında RuntimeError ile başlar.
+
+---
 
 ## 🔐 Kimlik Doğrulama
 
@@ -150,8 +156,13 @@ docker compose up -d --build
 ```
 
 ### Konteyner Mimarisi
-- `pocketbase`: PocketBase v0.40.6 servisi (`127.0.0.1:8080:8090`). Veritabanı verisi adlandırılmış Docker volume'ünde (`pb_data`) kalıcı saklanır; migration'lar imajla gelir.
+
+- `pocketbase`: PocketBase v0.40.6 servisi (`127.0.0.1:8080:8090`). Veritabanı verisi adlandırılmış Docker volume'ünde (`pb_data`) kalıcı saklanır; migration'lar imajla gelir. **CORS `--origins` flag** ile sadece izinli origin'lere izin verir (`PB_ALLOWED_ORIGINS` env ile ayarlanır).
 - `futurewallet`: FastAPI hesaplama servisi (`127.0.0.1:8000:8000`). Servis→PB trafiği ağ-internal `POCKETBASE_URL=http://pocketbase:8090`; tarayıcı→PB (login + CSP `connect-src`) `POCKETBASE_PUBLIC_URL` üzerinden yürür — compose varsayılanı `http://127.0.0.1:8080`, `.env` ile ezilebilir. Uvicorn container içinde `0.0.0.0:8000`'e bind olur (port yayını host'ta yalnız `127.0.0.1`'e bağlıdır).
+
+**Güvenlik Sertleştirme (v5 P7):**
+- `pocketbase`: `cap_drop: [ALL]`, `security_opt: [no-new-privileges:true]`
+- `futurewallet`: `read_only: true`, `tmpfs: [/tmp]`, `cap_drop: [ALL]`, `security_opt: [no-new-privileges:true]`
 
 Günlükleri takip etmek için:
 ```bash
@@ -176,17 +187,29 @@ Proje kurallarına göre (`TODO.md` Temel İlke, Prompt 0):
 ruff check .
 ruff format --check .
 
-# Tip denetimi (gevşek mod, mypy.ini)
+# Tip denetimi (gevşek mod)
 mypy api services config.py web_app
 
 # Testleri çalıştırma (PocketBase binary'si tests/conftest.py tarafından
-# otomatik indirilir ve pb_bin/ içinde önbelleklenir) — mevcut durum: 113/113 + 10 hardening
+# otomatik indirilir ve pb_bin/ içinde önbelleklenir) — mevcut durum: 130 passed + 10 hardening
 pytest -q
 
-# Hardening regresyon testleri (P8 formatında)
+# Hardening regresyon testleri
 pytest tests/test_hardening.py -q
 
+# v5 regresyon testleri (P1-P9 kapsamında)
+pytest tests/test_v5_regressions.py -q
+```
+
 CI (`.github/workflows/ci.yml`) bu adımların tamamını + ayrı `python -c "import api.app"` duman adımı, `pip-audit` ve docker build'i koşar.
+
+### Mevcut Test Durumu
+```
+pytest -q              → 130 passed, 20 warnings
+ruff check .           → 0 hata
+ruff format --check .  → 31 files already formatted
+mypy api services...   → Success: no issues found
+```
 
 ---
 
@@ -203,3 +226,31 @@ Sistem tarafından sunulan:
 - AI destekli karar retrospektifleri ve piyasa risk anlatıları
 
 geçmiş verilere ve varsayımsal matematiksel modellere dayanır. Gelecekteki getirileri garanti etmez. Yatırım kararlarınızı vermeden önce lisanslı finansal danışmanlardan profesyonel destek alınız.
+
+---
+
+## 📚 Dokümantasyon ve Referanslar
+
+- **MVP.md** — Ürün vizyonu, mimari, veri modeli, sprint planı, bilinen sınırlar (Faz 2)
+- **TODO.md** — Sprint takip listesi, hızlı kontrol listesi, v4/v5 hardening özeti
+- **docs/agents/** — Agent kuralları (issue-tracker, domain, triage-labels)
+- **docs/archive/** — Eski prompt dosyaları (v4/v5) ve iş planları (referans)
+- **docs/plans/** — Sprint planlama notları
+
+---
+
+## 🏷️ v5 Sertleştirme Özeti (Tamamlandı)
+
+| Prompt | Konu | Durum |
+|--------|------|-------|
+| P5-1 | VaR/CVaR yön hatası (loss-based, percentile 95/99) | ✅ |
+| P5-2 | value-series lookahead/çift sayım düzeltme + golden test | ✅ |
+| P5-3 | PB Dockerfile checksums.txt (sha256 doğrulama) | ✅ |
+| P5-4 | Chart.js yerel vendor + CSP `script-src 'self'` | ✅ |
+| P5-5 | CI Lint (ruff/mypy) temiz | ✅ |
+| P5-6 | AUTO_RETROSPECTIVE scheduler job + housing_index NumberField migration | ✅ |
+| P5-7 | Exception handlers + PB CORS `--origins` + docker-compose security hardening | ✅ |
+| P5-8 | MVP.md / TODO.md v7 senkronize | ✅ |
+| P5-9 | Regresyon test dosyası (`tests/test_v5_regressions.py`) | ✅ |
+
+**Toplam:** 130 test (114 orijinal + 16 regresyon) + 10 hardening — hepsi yeşil.
